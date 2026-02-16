@@ -1,0 +1,207 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.22"
+
+jobs:
+  static-checks:
+    name: static-checks
+    runs-on: ubuntu-latest
+    outputs:
+      has_go_mod: ${{ steps.detect-go.outputs.has_go_mod }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Detect Go module
+        id: detect-go
+        run: |
+          echo "has_go_mod=$(bash scripts/ci/check-go-module.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install linters
+        if: steps.detect-go.outputs.has_go_mod == 'true'
+        run: bash scripts/ci/install-linters.sh
+
+      - name: Run static checks
+        run: bash scripts/ci/run-static-checks.sh "${{ steps.detect-go.outputs.has_go_mod }}"
+
+  linux-shards:
+    name: linux-${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    needs:
+      - static-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [unit, integration, contract, performance]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Docker shard
+        run: |
+          bash scripts/ci/docker-shard.sh "${{ matrix.shard }}" "${{ needs.static-checks.outputs.has_go_mod }}"
+
+      - name: Upload coverage artifact
+        if: needs.static-checks.outputs.has_go_mod == 'true' && matrix.shard != 'performance'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: artifacts/coverage-${{ matrix.shard }}.out
+          if-no-files-found: error
+
+      - name: Upload branch metrics artifact
+        if: needs.static-checks.outputs.has_go_mod == 'true' && matrix.shard == 'contract'
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-metrics
+          path: artifacts/branch-metrics.json
+          if-no-files-found: error
+
+  macos-integration:
+    name: macos-integration
+    runs-on: macos-latest
+    needs:
+      - static-checks
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run integration tests
+        run: |
+          bash scripts/ci/run-tests.sh integration macos "${{ needs.static-checks.outputs.has_go_mod }}"
+
+      - name: Run contract tests subset
+        run: |
+          bash scripts/ci/run-tests.sh contract macos "${{ needs.static-checks.outputs.has_go_mod }}"
+
+  coverage-aggregation:
+    name: coverage-aggregation
+    runs-on: ubuntu-latest
+    needs:
+      - static-checks
+      - linux-shards
+    if: always()
+    steps:
+      - name: Decide whether coverage aggregation should run
+        id: decide
+        run: |
+          if [[ "${{ needs.static-checks.outputs.has_go_mod }}" == "true" && "${{ needs.linux-shards.result }}" == "success" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download unit coverage
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit
+          path: artifacts/unit
+
+      - name: Download integration coverage
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-integration
+          path: artifacts/integration
+
+      - name: Download contract coverage
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-contract
+          path: artifacts/contract
+
+      - name: Download branch metrics
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: branch-metrics
+          path: artifacts/branch
+
+      - name: Aggregate and enforce coverage gates
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          bash scripts/ci/coverage-aggregate.sh \
+            artifacts/unit/coverage-unit.out \
+            artifacts/integration/coverage-integration.out \
+            artifacts/contract/coverage-contract.out \
+            artifacts/branch/branch-metrics.json
+
+      - name: Upload coverage summary
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: |
+            artifacts/coverage-summary.txt
+            artifacts/coverage-metrics.json
+            artifacts/coverage-merged.out
+
+      - name: Coverage aggregation no-op (bootstrap or failed prerequisite lane)
+        if: steps.decide.outputs.run != 'true'
+        run: |
+          echo "Coverage aggregation not executed (bootstrap mode or required shard failure)."
+
+  final-required-check:
+    name: final-required-check
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - static-checks
+      - linux-shards
+      - macos-integration
+      - coverage-aggregation
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download coverage summary
+        if: needs.static-checks.outputs.has_go_mod == 'true' && needs.coverage-aggregation.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-summary
+          path: artifacts
+
+      - name: Validate required gate outcomes
+        env:
+          HAS_GO_MOD: ${{ needs.static-checks.outputs.has_go_mod }}
+          STATIC_RESULT: ${{ needs.static-checks.result }}
+          LINUX_RESULT: ${{ needs.linux-shards.result }}
+          MACOS_RESULT: ${{ needs.macos-integration.result }}
+          COVERAGE_RESULT: ${{ needs.coverage-aggregation.result }}
+        run: bash scripts/ci/final-required-check.sh

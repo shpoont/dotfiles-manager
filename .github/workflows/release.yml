@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.22"
+
+jobs:
+  goreleaser:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    # Configure environment protection rules in GitHub settings to enforce
+    # required reviewer(s) for release approval.
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Guard release prerequisites
+        id: guard
+        run: |
+          echo "should_run=$(bash scripts/ci/guard-release.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip release (bootstrap mode)
+        if: steps.guard.outputs.should_run != 'true'
+        run: |
+          echo "Skipping GoReleaser because go.mod and/or .goreleaser.yml is missing."
+
+      - name: Run GoReleaser
+        if: steps.guard.outputs.should_run == 'true'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

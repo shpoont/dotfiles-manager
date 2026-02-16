@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Build/test artifacts
+artifacts/
+coverage.out
+coverage-*.out
+*.test
+
+# Temporary/local work dirs
+tmp/
+
+# Go workspace noise
+bin/
+dist/

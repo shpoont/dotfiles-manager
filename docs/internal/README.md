@@ -1,0 +1,50 @@
+---
+owner: Documentation Maintainer (TBD)
+status: Reference
+last-updated: 2026-02-16
+canonical-source: docs/internal/README.md
+---
+
+# Internal documentation
+
+This is the canonical internal documentation for `dotfiles-manager` implementation.
+
+## 1) High-level scope
+
+- `scope/product-scope.md` — product scope, goals, non-goals
+- `scope/architecture.md` — architecture overview (current + planned)
+
+## 2) Detailed specs
+
+- `specs/cli-and-config-spec.md` — command/config behavior reference
+- `specs/decisions.md` — canonical decisions and rationale
+- `specs/decision-matrix.md` — scenario outcomes/test oracle
+- `specs/open-questions.md` — remaining non-blocking follow-ups
+
+## 3) Contracts
+
+- `contracts/json-contract.md` — `--json` output contract
+- `contracts/metadata-contract.md` — metadata guarantees
+- `contracts/validation-errors.md` — error catalog + validation order
+- `contracts/logging-contract.md` — logging behavior and coverage contract
+- `contracts/ci-artifacts-contract.md` — CI-produced artifact schemas for coverage/performance gates
+
+## 4) Engineering docs
+
+- `engineering/technical-requirements.md` — language/framework/testing/CI requirements
+- `engineering/testing-strategy.md` — test strategy and suite structure
+- `engineering/acceptance-checklist.md` — implementation readiness checklist
+- `engineering/ci-cd.md` — CI/CD requirements and release policy
+
+## 5) Process
+
+- `process/documentation-governance.md` — documentation ownership/change policy
+
+## Canonicality
+
+If documents disagree, precedence is:
+1. `specs/decisions.md`
+2. `contracts/*`
+3. `specs/decision-matrix.md`
+4. `engineering/acceptance-checklist.md`
+5. other summaries/overviews
