@@ -1,0 +1,3 @@
+syncs:
+  - target: .config/sample
+    source: source/sample

@@ -167,7 +167,7 @@ func writeConfig(t *testing.T, projectDir string, body []byte) {
 
 func assertGolden(t *testing.T, filename string, payload map[string]any) {
 	t.Helper()
-	goldenPath := filepath.Join(repoRoot(t), "internal", "tests", "contract", "testdata", "golden", filename)
+	goldenPath := filepath.Join(repoRoot(t), "testdata", "expected", "contract", filename)
 	expected, err := os.ReadFile(goldenPath)
 	require.NoError(t, err)
 
