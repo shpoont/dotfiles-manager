@@ -134,3 +134,32 @@ func TestPathScopeNoMatchReturnsError(t *testing.T) {
 	errorObj := payload["error"].(map[string]any)
 	require.Equal(t, "DFM_SCOPE_NO_MATCH", errorObj["code"])
 }
+
+func TestPathScopeParentOfTargetReturnsError(t *testing.T) {
+	tempDir := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+	require.NoError(t, os.Chdir(tempDir))
+
+	configPath := filepath.Join(tempDir, config.DefaultConfigFile)
+	configBody := []byte("syncs:\n  - target: .config/nvim\n    source: .config/nvim\n")
+	require.NoError(t, os.WriteFile(configPath, configBody, 0o644))
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"deploy", "--json", "~/.config"})
+
+	err = cmd.Execute()
+	require.Error(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, false, payload["ok"])
+	errorObj := payload["error"].(map[string]any)
+	require.Equal(t, "DFM_SCOPE_NO_MATCH", errorObj["code"])
+}

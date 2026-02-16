@@ -105,6 +105,28 @@ func TestSelectSyncsBranches(t *testing.T) {
 	require.Equal(t, dfmerr.CodeScopeNoMatch, dfmerr.MustCode(err))
 }
 
+func TestSelectSyncsMultipleMatches(t *testing.T) {
+	t.Parallel()
+
+	cfgPath := filepath.Join(t.TempDir(), ".dotfiles-manager.yaml")
+	cfg := &config.Config{Syncs: []config.Sync{
+		{Target: ".config/nvim", Source: "source/base"},
+		{Target: ".config/nvim/lua", Source: "source/lua"},
+	}}
+
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	scopePath := filepath.Join(home, ".config", "nvim", "lua")
+	selected, err := selectSyncs(cfg, cfgPath, scopePath, scopePath)
+	require.NoError(t, err)
+	require.Len(t, selected, 2)
+	require.Equal(t, 0, selected[0].Index)
+	require.Equal(t, "lua", selected[0].ScopePrefix)
+	require.Equal(t, 1, selected[1].Index)
+	require.Equal(t, "", selected[1].ScopePrefix)
+}
+
 func TestIsWithinTarget(t *testing.T) {
 	t.Parallel()
 	target := filepath.Join("/tmp", "root")

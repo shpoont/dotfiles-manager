@@ -178,6 +178,40 @@ func TestStatusJSONInvalidPatternReturnsError(t *testing.T) {
 	require.Equal(t, "DFM_CONFIG_SCHEMA_TYPE", errorObj["code"])
 }
 
+func TestStatusJSONCoversUnmanagedDecisionMatrixRows(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim", "in"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim", "out"), 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "in", "remove.rm"), []byte("x"), 0o644))  // u+ r+
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "in", "keep.txt"), []byte("x"), 0o644))   // u+ r-
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "out", "remove.rm"), []byte("x"), 0o644)) // u- r+
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "out", "keep.txt"), []byte("x"), 0o644))  // u- r-
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+    on:
+      deploy:
+        remove-unmanaged:
+          - '**/*.rm'
+      import:
+        add-unmanaged:
+          include:
+            - 'in/**'
+`))
+
+	payload := runJSONCommand(t, []string{"status", "--json"})
+	sync := payload["syncs"].([]any)[0].(map[string]any)
+
+	require.Equal(t, []string{"in", "in/keep.txt", "in/remove.rm"}, extractPaths(sync["incoming_unmanaged"].([]any)))
+	require.Equal(t, []string{"in/remove.rm", "out/remove.rm"}, extractPaths(sync["removable_unmanaged"].([]any)))
+}
+
 func runJSONCommand(t *testing.T, args []string) map[string]any {
 	t.Helper()
 	cmd := NewRootCmd()
