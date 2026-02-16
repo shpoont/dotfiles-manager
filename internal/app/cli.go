@@ -309,6 +309,11 @@ func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, config
 		if err != nil {
 			return nil, err
 		}
+	} else if commandOpts.Name == "import" {
+		syncPayloads, summary, err = buildImportSyncPayloads(cfg, selections, commandOpts.DryRun)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		syncPayloads = buildSyncPayloads(commandOpts.Name, selections)
 		summary = buildSummary(commandOpts.Name, len(syncPayloads))
