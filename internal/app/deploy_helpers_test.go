@@ -1,10 +1,12 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/stretchr/testify/require"
@@ -23,8 +25,10 @@ func TestApplyDeployCopyCoversTypeBranches(t *testing.T) {
 	sourceLink := filepath.Join(sourceRoot, "init.link")
 	require.NoError(t, os.Symlink("init.lua", sourceLink))
 
+	sourceDir := filepath.Join(sourceRoot, "lua", "plugins")
+	require.NoError(t, os.MkdirAll(sourceDir, 0o755))
 	dirTarget := filepath.Join(targetRoot, "lua", "plugins")
-	require.NoError(t, applyDeployCopy(deployCopyOperation{change: "create", typeID: "dir", targetAbs: dirTarget}))
+	require.NoError(t, applyDeployCopy(deployCopyOperation{change: "create", typeID: "dir", sourceAbs: sourceDir, targetAbs: dirTarget}))
 	info, err := os.Stat(dirTarget)
 	require.NoError(t, err)
 	require.True(t, info.IsDir())
@@ -43,7 +47,9 @@ func TestApplyDeployCopyCoversTypeBranches(t *testing.T) {
 
 	replaceTarget := filepath.Join(targetRoot, "lua", "replace-me")
 	require.NoError(t, os.WriteFile(replaceTarget, []byte("old"), 0o644))
-	require.NoError(t, applyDeployCopy(deployCopyOperation{change: "replace_type", typeID: "dir", targetAbs: replaceTarget}))
+	replaceSource := filepath.Join(sourceRoot, "lua", "replace-me")
+	require.NoError(t, os.MkdirAll(replaceSource, 0o755))
+	require.NoError(t, applyDeployCopy(deployCopyOperation{change: "replace_type", typeID: "dir", sourceAbs: replaceSource, targetAbs: replaceTarget}))
 	replaceInfo, err := os.Stat(replaceTarget)
 	require.NoError(t, err)
 	require.True(t, replaceInfo.IsDir())
@@ -71,6 +77,68 @@ func TestCopyFileErrorBranches(t *testing.T) {
 	err = copyFile(sourceFile, targetDir)
 	require.Error(t, err)
 	require.Equal(t, dfmerr.CodeIOWrite, dfmerr.MustCode(err))
+}
+
+func TestCopyDirAndFilePreserveTierAMetadata(t *testing.T) {
+	root := t.TempDir()
+
+	sourceFile := filepath.Join(root, "source-file")
+	require.NoError(t, os.WriteFile(sourceFile, []byte("x"), 0o700))
+	sourceTime := time.Unix(1_701_000_000, 0).UTC()
+	require.NoError(t, os.Chtimes(sourceFile, sourceTime, sourceTime))
+
+	targetFile := filepath.Join(root, "target-file")
+	require.NoError(t, copyFile(sourceFile, targetFile))
+
+	sourceFileInfo, err := os.Stat(sourceFile)
+	require.NoError(t, err)
+	targetFileInfo, err := os.Stat(targetFile)
+	require.NoError(t, err)
+	require.Equal(t, sourceFileInfo.Mode().Perm(), targetFileInfo.Mode().Perm())
+	require.Equal(t, sourceFileInfo.ModTime().Unix(), targetFileInfo.ModTime().Unix())
+
+	sourceDir := filepath.Join(root, "source-dir")
+	require.NoError(t, os.MkdirAll(sourceDir, 0o751))
+	dirTime := time.Unix(1_702_000_000, 0).UTC()
+	require.NoError(t, os.Chtimes(sourceDir, dirTime, dirTime))
+
+	targetDir := filepath.Join(root, "target-dir", "nested")
+	require.NoError(t, copyDir(sourceDir, targetDir))
+
+	sourceDirInfo, err := os.Stat(sourceDir)
+	require.NoError(t, err)
+	targetDirInfo, err := os.Stat(targetDir)
+	require.NoError(t, err)
+	require.Equal(t, sourceDirInfo.Mode().Perm(), targetDirInfo.Mode().Perm())
+	require.Equal(t, sourceDirInfo.ModTime().Unix(), targetDirInfo.ModTime().Unix())
+}
+
+func TestMetadataApplyFailuresReturnCode(t *testing.T) {
+	root := t.TempDir()
+	sourceFile := filepath.Join(root, "source-file")
+	require.NoError(t, os.WriteFile(sourceFile, []byte("x"), 0o644))
+	targetFile := filepath.Join(root, "target-file")
+
+	originalChmod := chmodPath
+	originalChtimes := chtimesPath
+	t.Cleanup(func() {
+		chmodPath = originalChmod
+		chtimesPath = originalChtimes
+	})
+
+	chmodPath = func(string, os.FileMode) error { return errors.New("chmod failed") }
+	chtimesPath = os.Chtimes
+	err := copyFile(sourceFile, targetFile)
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeMetadataApply, dfmerr.MustCode(err))
+
+	chmodPath = os.Chmod
+	chtimesPath = func(string, time.Time, time.Time) error { return errors.New("chtimes failed") }
+	sourceDir := filepath.Join(root, "source-dir")
+	require.NoError(t, os.MkdirAll(sourceDir, 0o755))
+	err = copyDir(sourceDir, filepath.Join(root, "target-dir"))
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeMetadataApply, dfmerr.MustCode(err))
 }
 
 func TestCopySymlinkBranches(t *testing.T) {

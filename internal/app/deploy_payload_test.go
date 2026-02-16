@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -214,4 +215,33 @@ func TestDeployEmptyRemovePatternsDoNotDeleteUnmanaged(t *testing.T) {
 
 	_, err := os.Stat(filepath.Join(homeDir, ".config", "nvim", "keep.txt"))
 	require.NoError(t, err)
+}
+
+func TestDeployPreservesFileModeAndMtime(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim", "lua"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim", "lua"), 0o755))
+
+	sourcePath := filepath.Join(projectDir, "source", "nvim", "lua", "init.lua")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("source-init"), 0o750))
+	sourceTime := time.Unix(1_703_000_000, 0).UTC()
+	require.NoError(t, os.Chtimes(sourcePath, sourceTime, sourceTime))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`))
+
+	_ = runJSONCommand(t, []string{"deploy", "--json"})
+
+	targetPath := filepath.Join(homeDir, ".config", "nvim", "lua", "init.lua")
+	sourceInfo, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+	targetInfo, err := os.Stat(targetPath)
+	require.NoError(t, err)
+	require.Equal(t, sourceInfo.Mode().Perm(), targetInfo.Mode().Perm())
+	require.Equal(t, sourceInfo.ModTime().Unix(), targetInfo.ModTime().Unix())
 }

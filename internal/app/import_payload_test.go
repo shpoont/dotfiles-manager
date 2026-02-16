@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -258,4 +259,35 @@ func TestImportWithoutPatternsSkipsUnmanagedAddAndMissingRemoval(t *testing.T) {
 	_, err = os.Stat(filepath.Join(projectDir, "source", "nvim", "lua", "new.lua"))
 	require.Error(t, err)
 	require.True(t, os.IsNotExist(err))
+}
+
+func TestImportPreservesFileModeAndMtime(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim", "lua"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim", "lua"), 0o755))
+
+	targetPath := filepath.Join(homeDir, ".config", "nvim", "lua", "init.lua")
+	require.NoError(t, os.WriteFile(targetPath, []byte("target-init"), 0o740))
+	targetTime := time.Unix(1_704_000_000, 0).UTC()
+	require.NoError(t, os.Chtimes(targetPath, targetTime, targetTime))
+
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "init.lua"), []byte("source-init"), 0o600))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`))
+
+	_ = runJSONCommand(t, []string{"import", "--json"})
+
+	sourcePath := filepath.Join(projectDir, "source", "nvim", "lua", "init.lua")
+	sourceInfo, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+	targetInfo, err := os.Stat(targetPath)
+	require.NoError(t, err)
+	require.Equal(t, targetInfo.Mode().Perm(), sourceInfo.Mode().Perm())
+	require.Equal(t, targetInfo.ModTime().Unix(), sourceInfo.ModTime().Unix())
 }

@@ -9,6 +9,11 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 )
 
+var (
+	chmodPath   = os.Chmod
+	chtimesPath = os.Chtimes
+)
+
 type deployCounts struct {
 	copied           int
 	removedUnmanaged int
@@ -166,10 +171,7 @@ func applyDeployCopy(op deployCopyOperation) error {
 
 	switch op.typeID {
 	case "dir":
-		if err := os.MkdirAll(op.targetAbs, 0o755); err != nil {
-			return dfmerr.Wrap(dfmerr.CodeIOWrite, fmt.Sprintf("Write failed: %s", op.targetAbs), map[string]any{"path": op.targetAbs}, err)
-		}
-		return nil
+		return copyDir(op.sourceAbs, op.targetAbs)
 	case "file":
 		if err := copyFile(op.sourceAbs, op.targetAbs); err != nil {
 			return err
@@ -183,6 +185,20 @@ func applyDeployCopy(op deployCopyOperation) error {
 	default:
 		return nil
 	}
+}
+
+func copyDir(sourcePath, targetPath string) error {
+	info, err := os.Lstat(sourcePath)
+	if err != nil {
+		return dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", sourcePath), map[string]any{"path": sourcePath}, err)
+	}
+	if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
+		return dfmerr.Wrap(dfmerr.CodeIOWrite, fmt.Sprintf("Write failed: %s", targetPath), map[string]any{"path": targetPath}, err)
+	}
+	if err := applyTierAMetadata(info, targetPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 func copyFile(sourcePath, targetPath string) error {
@@ -199,6 +215,9 @@ func copyFile(sourcePath, targetPath string) error {
 	}
 	if err := os.WriteFile(targetPath, content, info.Mode().Perm()); err != nil {
 		return dfmerr.Wrap(dfmerr.CodeIOWrite, fmt.Sprintf("Write failed: %s", targetPath), map[string]any{"path": targetPath}, err)
+	}
+	if err := applyTierAMetadata(info, targetPath); err != nil {
+		return err
 	}
 	return nil
 }
@@ -235,6 +254,20 @@ func removePath(path string) error {
 	if err := os.RemoveAll(path); err != nil {
 		return err
 	}
+	return nil
+}
+
+func applyTierAMetadata(sourceInfo os.FileInfo, targetPath string) error {
+	mode := sourceInfo.Mode().Perm()
+	if err := chmodPath(targetPath, mode); err != nil {
+		return dfmerr.Wrap(dfmerr.CodeMetadataApply, fmt.Sprintf("Failed to apply metadata: %s", targetPath), map[string]any{"path": targetPath, "metadata": "mode"}, err)
+	}
+
+	modTime := sourceInfo.ModTime()
+	if err := chtimesPath(targetPath, modTime, modTime); err != nil {
+		return dfmerr.Wrap(dfmerr.CodeMetadataApply, fmt.Sprintf("Failed to apply metadata: %s", targetPath), map[string]any{"path": targetPath, "metadata": "mtime"}, err)
+	}
+
 	return nil
 }
 
