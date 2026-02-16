@@ -90,13 +90,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Run integration tests
+      - name: Run macOS sandbox lane
         run: |
-          bash scripts/ci/run-tests.sh integration macos "${{ needs.static-checks.outputs.has_go_mod }}"
-
-      - name: Run contract tests subset
-        run: |
-          bash scripts/ci/run-tests.sh contract macos "${{ needs.static-checks.outputs.has_go_mod }}"
+          bash scripts/ci/run-macos-sandbox-lane.sh "${{ needs.static-checks.outputs.has_go_mod }}"
 
   coverage-aggregation:
     name: coverage-aggregation
