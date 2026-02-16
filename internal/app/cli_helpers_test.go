@@ -13,10 +13,6 @@ import (
 func TestBuildSummaryBranches(t *testing.T) {
 	t.Parallel()
 
-	status := buildSummary("status", 2)
-	require.Equal(t, 2, status["sync_count"])
-	require.Contains(t, status, "deploy_change_count")
-
 	deploy := buildSummary("deploy", 1)
 	require.Contains(t, deploy, "copied_count")
 
@@ -89,7 +85,7 @@ func TestSelectSyncsBranches(t *testing.T) {
 		{Target: ".config/zsh", Source: "zsh"},
 	}}
 
-	all, err := selectSyncs(cfg, cfgPath, nil)
+	all, err := selectSyncs(cfg, cfgPath, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 	require.Equal(t, "", all[0].ScopePrefix)
@@ -97,13 +93,13 @@ func TestSelectSyncsBranches(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 	scopedPath := filepath.Join(home, ".config", "nvim", "lua")
-	scoped, err := selectSyncs(cfg, cfgPath, scopedPath)
+	scoped, err := selectSyncs(cfg, cfgPath, scopedPath, scopedPath)
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	require.Equal(t, 0, scoped[0].Index)
 	require.Equal(t, "lua", scoped[0].ScopePrefix)
 
-	none, err := selectSyncs(cfg, cfgPath, filepath.Join(home, ".config", "does-not-match"))
+	none, err := selectSyncs(cfg, cfgPath, "~/.config/does-not-match", filepath.Join(home, ".config", "does-not-match"))
 	require.Nil(t, none)
 	require.Error(t, err)
 	require.Equal(t, dfmerr.CodeScopeNoMatch, dfmerr.MustCode(err))

@@ -197,7 +197,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		return err
 	}
 
-	selections, err := selectSyncs(cfg, absConfigPath, pathNormalized)
+	selections, err := selectSyncs(cfg, absConfigPath, pathInput, pathNormalized)
 	if err != nil {
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
@@ -213,7 +213,18 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		matchedIndexes = append(matchedIndexes, selection.Index)
 	}
 
-	result := buildSuccessEnvelope(commandOpts, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections)
+	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections)
+	if err != nil {
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:            commandOpts.Name,
+			DryRun:             commandOpts.DryRun,
+			ConfigPath:         absConfigPath,
+			PathInput:          pathInput,
+			PathNormalized:     pathNormalized,
+			MatchedSyncIndexes: matchedIndexes,
+		}, err)
+		return err
+	}
 
 	if commandOpts.JSONOutput {
 		if err := emitJSON(cmd.OutOrStdout(), result); err != nil {
@@ -281,9 +292,22 @@ func emitJSON(w io.Writer, value any) error {
 	return encoder.Encode(value)
 }
 
-func buildSuccessEnvelope(commandOpts commandOptions, configPath string, pathInput any, pathNormalized any, matchedIndexes []int, selections []syncSelection) map[string]any {
-	syncPayloads := buildSyncPayloads(commandOpts.Name, selections)
-	summary := buildSummary(commandOpts.Name, len(syncPayloads))
+func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, configPath string, pathInput any, pathNormalized any, matchedIndexes []int, selections []syncSelection) (map[string]any, error) {
+	var (
+		syncPayloads []any
+		summary      map[string]any
+		err          error
+	)
+
+	if commandOpts.Name == "status" {
+		syncPayloads, summary, err = buildStatusSyncPayloads(cfg, selections)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		syncPayloads = buildSyncPayloads(commandOpts.Name, selections)
+		summary = buildSummary(commandOpts.Name, len(syncPayloads))
+	}
 
 	return map[string]any{
 		"schema_version": "1.0",
@@ -299,7 +323,7 @@ func buildSuccessEnvelope(commandOpts commandOptions, configPath string, pathInp
 		"syncs":   syncPayloads,
 		"summary": summary,
 		"error":   nil,
-	}
+	}, nil
 }
 
 func buildSyncPayloads(command string, selections []syncSelection) []any {
@@ -361,7 +385,7 @@ type syncSelection struct {
 	ScopePrefix string
 }
 
-func selectSyncs(cfg *config.Config, configPath string, normalizedPath any) ([]syncSelection, error) {
+func selectSyncs(cfg *config.Config, configPath string, pathInput any, normalizedPath any) ([]syncSelection, error) {
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Dir(configPath)
 	selections := make([]syncSelection, 0, len(cfg.Syncs))
@@ -399,7 +423,11 @@ func selectSyncs(cfg *config.Config, configPath string, normalizedPath any) ([]s
 	}
 
 	if hasScope && len(selections) == 0 {
-		return nil, dfmerr.New(dfmerr.CodeScopeNoMatch, "No sync matched provided path", map[string]any{"input_path": pathValue})
+		inputDetail := pathValue
+		if v, ok := pathInput.(string); ok && v != "" {
+			inputDetail = v
+		}
+		return nil, dfmerr.New(dfmerr.CodeScopeNoMatch, "No sync matched provided path", map[string]any{"input_path": inputDetail})
 	}
 
 	return selections, nil
@@ -416,15 +444,6 @@ func isWithinTarget(scopePath, targetRoot string) bool {
 
 func buildSummary(command string, syncCount int) map[string]any {
 	switch command {
-	case "status":
-		return map[string]any{
-			"sync_count":                syncCount,
-			"deploy_change_count":       0,
-			"import_change_count":       0,
-			"incoming_unmanaged_count":  0,
-			"removable_unmanaged_count": 0,
-			"removable_missing_count":   0,
-		}
 	case "deploy":
 		return map[string]any{
 			"sync_count":              syncCount,
