@@ -33,5 +33,5 @@ func TestIntegrationStatusSmoke(t *testing.T) {
 	cmd.SetArgs([]string{"status"})
 
 	require.NoError(t, cmd.Execute())
-	require.Contains(t, out.String(), "status (stub): loaded 1 sync entries")
+	require.Contains(t, out.String(), "status: syncs=1")
 }

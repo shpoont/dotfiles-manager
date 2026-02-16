@@ -30,7 +30,7 @@ func TestStatusTextOutputAndStderrLogging(t *testing.T) {
 	cmd.SetArgs([]string{"status"})
 
 	require.NoError(t, cmd.Execute())
-	require.Contains(t, stdout.String(), "status (stub): loaded 1 sync entries")
+	require.Contains(t, stdout.String(), "status: syncs=1")
 	require.Contains(t, stderr.String(), "command.start")
 	require.Contains(t, stderr.String(), "command.complete")
 }

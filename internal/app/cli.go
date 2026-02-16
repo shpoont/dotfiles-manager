@@ -231,7 +231,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			return err
 		}
 	} else {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (stub): loaded %d sync entries\n", commandOpts.Name, len(cfg.Syncs))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), buildTextSummaryLine(commandOpts.Name, commandOpts.DryRun, result["summary"]))
 	}
 
 	logger.Info("command.complete",
@@ -514,6 +514,63 @@ func firstArg(args []string) string {
 		return ""
 	}
 	return args[0]
+}
+
+func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string {
+	summary, _ := summaryValue.(map[string]any)
+	prefix := command
+	if dryRun {
+		prefix = command + " (dry-run)"
+	}
+
+	switch command {
+	case "status":
+		return fmt.Sprintf(
+			"%s: syncs=%d deploy_changes=%d import_changes=%d incoming_unmanaged=%d removable_unmanaged=%d removable_missing=%d",
+			prefix,
+			summaryInt(summary, "sync_count"),
+			summaryInt(summary, "deploy_change_count"),
+			summaryInt(summary, "import_change_count"),
+			summaryInt(summary, "incoming_unmanaged_count"),
+			summaryInt(summary, "removable_unmanaged_count"),
+			summaryInt(summary, "removable_missing_count"),
+		)
+	case "deploy":
+		return fmt.Sprintf(
+			"%s: syncs=%d copied=%d removed_unmanaged=%d",
+			prefix,
+			summaryInt(summary, "sync_count"),
+			summaryInt(summary, "copied_count"),
+			summaryInt(summary, "removed_unmanaged_count"),
+		)
+	case "import":
+		return fmt.Sprintf(
+			"%s: syncs=%d updated_manifest=%d added_unmanaged=%d removed_missing=%d",
+			prefix,
+			summaryInt(summary, "sync_count"),
+			summaryInt(summary, "updated_manifest_count"),
+			summaryInt(summary, "added_unmanaged_count"),
+			summaryInt(summary, "removed_missing_count"),
+		)
+	default:
+		return fmt.Sprintf("%s: syncs=%d", prefix, summaryInt(summary, "sync_count"))
+	}
+}
+
+func summaryInt(summary map[string]any, key string) int {
+	if summary == nil {
+		return 0
+	}
+	switch v := summary[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func Execute() int {

@@ -112,3 +112,38 @@ func TestIsWithinTarget(t *testing.T) {
 	require.True(t, isWithinTarget(filepath.Join(target, "child"), target))
 	require.False(t, isWithinTarget(filepath.Join("/tmp", "other"), target))
 }
+
+func TestBuildTextSummaryLineAndSummaryInt(t *testing.T) {
+	t.Parallel()
+
+	status := buildTextSummaryLine("status", false, map[string]any{
+		"sync_count":                2,
+		"deploy_change_count":       3,
+		"import_change_count":       4,
+		"incoming_unmanaged_count":  5,
+		"removable_unmanaged_count": 6,
+		"removable_missing_count":   7,
+	})
+	require.Equal(t, "status: syncs=2 deploy_changes=3 import_changes=4 incoming_unmanaged=5 removable_unmanaged=6 removable_missing=7", status)
+
+	deploy := buildTextSummaryLine("deploy", true, map[string]any{
+		"sync_count":              float64(1),
+		"copied_count":            int64(2),
+		"removed_unmanaged_count": 3,
+	})
+	require.Equal(t, "deploy (dry-run): syncs=1 copied=2 removed_unmanaged=3", deploy)
+
+	importLine := buildTextSummaryLine("import", false, map[string]any{
+		"sync_count":             1,
+		"updated_manifest_count": 2,
+		"added_unmanaged_count":  3,
+		"removed_missing_count":  4,
+	})
+	require.Equal(t, "import: syncs=1 updated_manifest=2 added_unmanaged=3 removed_missing=4", importLine)
+
+	unknown := buildTextSummaryLine("unknown", false, map[string]any{"sync_count": 9})
+	require.Equal(t, "unknown: syncs=9", unknown)
+
+	require.Equal(t, 0, summaryInt(nil, "missing"))
+	require.Equal(t, 0, summaryInt(map[string]any{"x": "y"}, "x"))
+}
