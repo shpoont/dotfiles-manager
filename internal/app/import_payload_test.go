@@ -6,11 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func TestImportDryRunPlansWithoutMutating(t *testing.T) {
@@ -356,4 +358,111 @@ func TestImportJSONErrorIncludesAppliedPartialOperations(t *testing.T) {
 	sync := syncs[0].(map[string]any)
 	require.Empty(t, sync["updated_manifest"].([]any))
 	require.Equal(t, []string{"a.lua"}, extractPaths(sync["added_unmanaged"].([]any)))
+}
+
+func TestImportJSONErrorIncludesCompletedAndFailedSyncEntries(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "s1"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "s2"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "s1"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "s2"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "s1", "a.lua"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "s2", "b.lua"), []byte("b"), 0o644))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/s1
+    source: source/s1
+    on:
+      import:
+        add-unmanaged:
+          include:
+            - '**'
+  - target: .config/s2
+    source: source/s2
+    on:
+      import:
+        add-unmanaged:
+          include:
+            - '**'
+`))
+
+	originalRunCopy := runImportCopy
+	originalRunRemove := runImportRemove
+	t.Cleanup(func() {
+		runImportCopy = originalRunCopy
+		runImportRemove = originalRunRemove
+	})
+
+	copyCalls := 0
+	runImportCopy = func(op importCopyOperation) error {
+		copyCalls++
+		if copyCalls == 2 {
+			return dfmerr.Wrap(dfmerr.CodeIOWrite, "Write failed: "+op.targetAbs, map[string]any{"path": op.targetAbs}, errors.New("boom"))
+		}
+		return nil
+	}
+	runImportRemove = applyImportRemove
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"import", "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, false, payload["ok"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, true, summary["partial"])
+	require.Equal(t, float64(2), summary["sync_count"])
+	require.Equal(t, float64(1), summary["added_unmanaged_count"])
+
+	syncs := payload["syncs"].([]any)
+	require.Len(t, syncs, 2)
+	require.Equal(t, []string{"a.lua"}, extractPaths(syncs[0].(map[string]any)["added_unmanaged"].([]any)))
+	require.Empty(t, syncs[1].(map[string]any)["added_unmanaged"].([]any))
+}
+
+func TestImportPreservesXattrsWhenSupported(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+
+	sourcePath := filepath.Join(projectDir, "source", "nvim", "init.lua")
+	targetPath := filepath.Join(homeDir, ".config", "nvim", "init.lua")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("source"), 0o644))
+	require.NoError(t, os.WriteFile(targetPath, []byte("target"), 0o644))
+
+	xattrKey := "user.dotfiles_manager_test"
+	if runtime.GOOS == "darwin" {
+		xattrKey = "com.dotfiles-manager.test"
+	}
+	setErr := unix.Setxattr(targetPath, xattrKey, []byte("xattr-value"), 0)
+	if isMetadataUnsupported(setErr) {
+		t.Skip("xattrs unsupported on this filesystem")
+	}
+	require.NoError(t, setErr)
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`))
+
+	_ = runJSONCommand(t, []string{"import", "--json"})
+
+	value, err := readXattr(sourcePath, xattrKey)
+	if isMetadataUnsupported(err) {
+		t.Skip("xattrs unsupported during source read")
+	}
+	require.NoError(t, err)
+	require.Equal(t, []byte("xattr-value"), value)
 }
