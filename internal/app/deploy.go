@@ -41,6 +41,9 @@ func buildDeploySyncPayloads(cfg *config.Config, selections []syncSelection, dry
 		syncCfg := cfg.Syncs[selection.Index]
 		payload, counts, err := evaluateDeploySync(selection.Index, syncCfg, selection, dryRun)
 		if err != nil {
+			if len(payloads) > 0 {
+				err = markPartial(err)
+			}
 			return nil, nil, err
 		}
 		payloads = append(payloads, payload)
@@ -134,15 +137,24 @@ func evaluateDeploySync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	}
 
 	if !dryRun {
+		appliedAny := false
 		for _, op := range copyOps {
 			if err := applyDeployCopy(op); err != nil {
+				if appliedAny {
+					err = markPartial(err)
+				}
 				return nil, deployCounts{}, err
 			}
+			appliedAny = true
 		}
 		for _, op := range removeOps {
 			if err := applyDeployRemove(op); err != nil {
+				if appliedAny {
+					err = markPartial(err)
+				}
 				return nil, deployCounts{}, err
 			}
+			appliedAny = true
 		}
 	}
 

@@ -35,6 +35,9 @@ func buildImportSyncPayloads(cfg *config.Config, selections []syncSelection, dry
 		syncCfg := cfg.Syncs[selection.Index]
 		payload, counts, err := evaluateImportSync(selection.Index, syncCfg, selection, dryRun)
 		if err != nil {
+			if len(payloads) > 0 {
+				err = markPartial(err)
+			}
 			return nil, nil, err
 		}
 		payloads = append(payloads, payload)
@@ -145,15 +148,24 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	}
 
 	if !dryRun {
+		appliedAny := false
 		for _, op := range copyOps {
 			if err := applyImportCopy(op); err != nil {
+				if appliedAny {
+					err = markPartial(err)
+				}
 				return nil, importCounts{}, err
 			}
+			appliedAny = true
 		}
 		for _, op := range removeOps {
 			if err := applyImportRemove(op); err != nil {
+				if appliedAny {
+					err = markPartial(err)
+				}
 				return nil, importCounts{}, err
 			}
+			appliedAny = true
 		}
 	}
 

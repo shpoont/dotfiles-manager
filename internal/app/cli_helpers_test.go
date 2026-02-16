@@ -147,3 +147,17 @@ func TestBuildTextSummaryLineAndSummaryInt(t *testing.T) {
 	require.Equal(t, 0, summaryInt(nil, "missing"))
 	require.Equal(t, 0, summaryInt(map[string]any{"x": "y"}, "x"))
 }
+
+func TestErrorSummary(t *testing.T) {
+	t.Parallel()
+
+	plain := errorSummary(assertAnError{})
+	require.Equal(t, map[string]any{}, plain)
+
+	partial := dfmerr.New(dfmerr.CodeIOWrite, "write failed", map[string]any{"partial": true})
+	require.Equal(t, map[string]any{"partial": true}, errorSummary(partial))
+}
+
+type assertAnError struct{}
+
+func (assertAnError) Error() string { return "x" }

@@ -273,7 +273,7 @@ func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonCont
 			"matched_sync_indexes": sliceOrEmpty(ctx.MatchedSyncIndexes),
 		},
 		"syncs":   []any{},
-		"summary": map[string]any{},
+		"summary": errorSummary(err),
 		"error": map[string]any{
 			"code":    dfmError.Code,
 			"message": dfmError.Message,
@@ -514,6 +514,24 @@ func firstArg(args []string) string {
 		return ""
 	}
 	return args[0]
+}
+
+func errorSummary(err error) map[string]any {
+	if !errorIsPartial(err) {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"partial": true,
+	}
+}
+
+func errorIsPartial(err error) bool {
+	dfmError, ok := dfmerr.As(err)
+	if !ok || dfmError.Details == nil {
+		return false
+	}
+	partial, ok := dfmError.Details["partial"].(bool)
+	return ok && partial
 }
 
 func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string {

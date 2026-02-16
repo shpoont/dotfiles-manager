@@ -181,3 +181,15 @@ func TestEmitErrorTextAndJSONBranches(t *testing.T) {
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, dfmerr.New(dfmerr.CodeScopeNoMatch, "No sync matched provided path", map[string]any{"path": "~/.config"}))
 	require.Contains(t, stdout.String(), "DFM_SCOPE_NO_MATCH")
 }
+
+func TestEmitErrorJSONIncludesPartialSummary(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := dfmerr.New(dfmerr.CodeIOWrite, "Write failed", map[string]any{"partial": true})
+	emitError(&stdout, &stderr, true, jsonContext{Command: "deploy"}, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, map[string]any{"partial": true}, payload["summary"])
+}
