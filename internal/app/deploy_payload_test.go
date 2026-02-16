@@ -3,11 +3,13 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -244,4 +246,61 @@ func TestDeployPreservesFileModeAndMtime(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sourceInfo.Mode().Perm(), targetInfo.Mode().Perm())
 	require.Equal(t, sourceInfo.ModTime().Unix(), targetInfo.ModTime().Unix())
+}
+
+func TestDeployJSONErrorIncludesAppliedPartialOperations(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "a.lua"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "b.lua"), []byte("b"), 0o644))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`))
+
+	originalRunCopy := runDeployCopy
+	originalRunRemove := runDeployRemove
+	t.Cleanup(func() {
+		runDeployCopy = originalRunCopy
+		runDeployRemove = originalRunRemove
+	})
+
+	copyCalls := 0
+	runDeployCopy = func(op deployCopyOperation) error {
+		copyCalls++
+		if copyCalls == 2 {
+			return dfmerr.Wrap(dfmerr.CodeIOWrite, "Write failed: "+op.targetAbs, map[string]any{"path": op.targetAbs}, errors.New("boom"))
+		}
+		return nil
+	}
+	runDeployRemove = applyDeployRemove
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"deploy", "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, false, payload["ok"])
+	require.Equal(t, "DFM_IO_WRITE", payload["error"].(map[string]any)["code"])
+
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, true, summary["partial"])
+	require.Equal(t, float64(1), summary["sync_count"])
+	require.Equal(t, float64(1), summary["copied_count"])
+
+	syncs := payload["syncs"].([]any)
+	require.Len(t, syncs, 1)
+	sync := syncs[0].(map[string]any)
+	require.Equal(t, []string{"a.lua"}, extractPaths(sync["copied"].([]any)))
 }

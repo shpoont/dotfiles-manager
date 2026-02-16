@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	chmodPath   = os.Chmod
-	chtimesPath = os.Chtimes
+	chmodPath       = os.Chmod
+	chtimesPath     = os.Chtimes
+	runDeployCopy   = applyDeployCopy
+	runDeployRemove = applyDeployRemove
 )
 
 type deployCounts struct {
@@ -41,8 +43,17 @@ func buildDeploySyncPayloads(cfg *config.Config, selections []syncSelection, dry
 		syncCfg := cfg.Syncs[selection.Index]
 		payload, counts, err := evaluateDeploySync(selection.Index, syncCfg, selection, dryRun)
 		if err != nil {
-			if len(payloads) > 0 {
-				err = markPartial(err)
+			if payload != nil {
+				payloads = append(payloads, payload)
+				summary.copied += counts.copied
+				summary.removedUnmanaged += counts.removedUnmanaged
+			}
+			if len(payloads) > 0 || errorIsPartial(err) {
+				return nil, nil, newPartialCommandError(err, payloads, map[string]any{
+					"sync_count":              len(payloads),
+					"copied_count":            summary.copied,
+					"removed_unmanaged_count": summary.removedUnmanaged,
+				})
 			}
 			return nil, nil, err
 		}
@@ -76,6 +87,8 @@ func evaluateDeploySync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	removeOps := make([]deployRemoveOperation, 0)
 	copiedPayload := make([]any, 0)
 	removedPayload := make([]any, 0)
+	executedCopiedPayload := make([]any, 0)
+	executedRemovedPayload := make([]any, 0)
 
 	for _, relPath := range allPaths {
 		sourceEntry, hasSource := sourceEntries[relPath]
@@ -139,23 +152,48 @@ func evaluateDeploySync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	if !dryRun {
 		appliedAny := false
 		for _, op := range copyOps {
-			if err := applyDeployCopy(op); err != nil {
+			if err := runDeployCopy(op); err != nil {
 				if appliedAny {
 					err = markPartial(err)
 				}
-				return nil, deployCounts{}, err
+				return map[string]any{
+						"sync_index":        syncIndex,
+						"source_root":       selection.SourceRoot,
+						"target_root":       selection.TargetRoot,
+						"scope_prefix":      selection.ScopePrefix,
+						"copied":            executedCopiedPayload,
+						"removed_unmanaged": executedRemovedPayload,
+					}, deployCounts{
+						copied:           len(executedCopiedPayload),
+						removedUnmanaged: len(executedRemovedPayload),
+					}, err
 			}
 			appliedAny = true
+			executedCopiedPayload = append(executedCopiedPayload, buildDeployCopied(op.path, op.change, op.typeID))
 		}
 		for _, op := range removeOps {
-			if err := applyDeployRemove(op); err != nil {
+			if err := runDeployRemove(op); err != nil {
 				if appliedAny {
 					err = markPartial(err)
 				}
-				return nil, deployCounts{}, err
+				return map[string]any{
+						"sync_index":        syncIndex,
+						"source_root":       selection.SourceRoot,
+						"target_root":       selection.TargetRoot,
+						"scope_prefix":      selection.ScopePrefix,
+						"copied":            executedCopiedPayload,
+						"removed_unmanaged": executedRemovedPayload,
+					}, deployCounts{
+						copied:           len(executedCopiedPayload),
+						removedUnmanaged: len(executedRemovedPayload),
+					}, err
 			}
 			appliedAny = true
+			executedRemovedPayload = append(executedRemovedPayload, buildTypedPath(op.path, op.typeID))
 		}
+
+		copiedPayload = executedCopiedPayload
+		removedPayload = executedRemovedPayload
 	}
 
 	payload := map[string]any{

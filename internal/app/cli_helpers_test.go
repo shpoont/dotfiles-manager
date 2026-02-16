@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,6 +179,24 @@ func TestErrorSummary(t *testing.T) {
 
 	partial := dfmerr.New(dfmerr.CodeIOWrite, "write failed", map[string]any{"partial": true})
 	require.Equal(t, map[string]any{"partial": true}, errorSummary(partial))
+}
+
+func TestExtractPartialResult(t *testing.T) {
+	t.Parallel()
+
+	syncs, summary := extractPartialResult(errors.New("plain"))
+	require.Nil(t, syncs)
+	require.Nil(t, summary)
+
+	partialErr := newPartialCommandError(
+		dfmerr.New(dfmerr.CodeIOWrite, "write failed", nil),
+		[]any{map[string]any{"sync_index": 0}},
+		map[string]any{"sync_count": 1},
+	)
+
+	syncs, summary = extractPartialResult(partialErr)
+	require.Len(t, syncs, 1)
+	require.Equal(t, 1, summary["sync_count"])
 }
 
 type assertAnError struct{}

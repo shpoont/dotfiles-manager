@@ -215,6 +215,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections)
 	if err != nil {
+		partialSyncs, partialSummary := extractPartialResult(err)
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:            commandOpts.Name,
 			DryRun:             commandOpts.DryRun,
@@ -222,6 +223,8 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			PathInput:          pathInput,
 			PathNormalized:     pathNormalized,
 			MatchedSyncIndexes: matchedIndexes,
+			Syncs:              partialSyncs,
+			Summary:            partialSummary,
 		}, err)
 		return err
 	}
@@ -248,6 +251,8 @@ type jsonContext struct {
 	PathInput          any
 	PathNormalized     any
 	MatchedSyncIndexes []int
+	Syncs              []any
+	Summary            map[string]any
 }
 
 func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonContext, err error) {
@@ -261,6 +266,18 @@ func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonCont
 		dfmError = &dfmerr.Error{Code: "", Message: err.Error()}
 	}
 
+	summaryPayload := errorSummary(err)
+	if ctx.Summary != nil {
+		summaryPayload = ctx.Summary
+		if errorIsPartial(err) {
+			summaryPayload["partial"] = true
+		}
+	}
+	syncPayload := []any{}
+	if ctx.Syncs != nil {
+		syncPayload = ctx.Syncs
+	}
+
 	payload := map[string]any{
 		"schema_version": "1.0",
 		"ok":             false,
@@ -272,8 +289,8 @@ func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonCont
 			"normalized":           ctx.PathNormalized,
 			"matched_sync_indexes": sliceOrEmpty(ctx.MatchedSyncIndexes),
 		},
-		"syncs":   []any{},
-		"summary": errorSummary(err),
+		"syncs":   syncPayload,
+		"summary": summaryPayload,
 		"error": map[string]any{
 			"code":    dfmError.Code,
 			"message": dfmError.Message,
@@ -514,6 +531,14 @@ func firstArg(args []string) string {
 		return ""
 	}
 	return args[0]
+}
+
+func extractPartialResult(err error) ([]any, map[string]any) {
+	partial, ok := asPartialCommandError(err)
+	if !ok || partial == nil {
+		return nil, nil
+	}
+	return partial.syncs, partial.summary
 }
 
 func errorSummary(err error) map[string]any {

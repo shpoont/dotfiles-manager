@@ -7,6 +7,11 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/config"
 )
 
+var (
+	runImportCopy   = applyImportCopy
+	runImportRemove = applyImportRemove
+)
+
 type importCounts struct {
 	updatedManifest int
 	addedUnmanaged  int
@@ -35,8 +40,19 @@ func buildImportSyncPayloads(cfg *config.Config, selections []syncSelection, dry
 		syncCfg := cfg.Syncs[selection.Index]
 		payload, counts, err := evaluateImportSync(selection.Index, syncCfg, selection, dryRun)
 		if err != nil {
-			if len(payloads) > 0 {
-				err = markPartial(err)
+			if payload != nil {
+				payloads = append(payloads, payload)
+				summary.updatedManifest += counts.updatedManifest
+				summary.addedUnmanaged += counts.addedUnmanaged
+				summary.removedMissing += counts.removedMissing
+			}
+			if len(payloads) > 0 || errorIsPartial(err) {
+				return nil, nil, newPartialCommandError(err, payloads, map[string]any{
+					"sync_count":             len(payloads),
+					"updated_manifest_count": summary.updatedManifest,
+					"added_unmanaged_count":  summary.addedUnmanaged,
+					"removed_missing_count":  summary.removedMissing,
+				})
 			}
 			return nil, nil, err
 		}
@@ -73,6 +89,9 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	removedMissingPayload := make([]any, 0)
 	copyOps := make([]importCopyOperation, 0)
 	removeOps := make([]importRemoveOperation, 0)
+	executedUpdatedManifestPayload := make([]any, 0)
+	executedAddedUnmanagedPayload := make([]any, 0)
+	executedRemovedMissingPayload := make([]any, 0)
 
 	for _, relPath := range allPaths {
 		sourceEntry, hasSource := sourceEntries[relPath]
@@ -150,23 +169,57 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	if !dryRun {
 		appliedAny := false
 		for _, op := range copyOps {
-			if err := applyImportCopy(op); err != nil {
+			if err := runImportCopy(op); err != nil {
 				if appliedAny {
 					err = markPartial(err)
 				}
-				return nil, importCounts{}, err
+				return map[string]any{
+						"sync_index":       syncIndex,
+						"source_root":      selection.SourceRoot,
+						"target_root":      selection.TargetRoot,
+						"scope_prefix":     selection.ScopePrefix,
+						"updated_manifest": executedUpdatedManifestPayload,
+						"added_unmanaged":  executedAddedUnmanagedPayload,
+						"removed_missing":  executedRemovedMissingPayload,
+					}, importCounts{
+						updatedManifest: len(executedUpdatedManifestPayload),
+						addedUnmanaged:  len(executedAddedUnmanagedPayload),
+						removedMissing:  len(executedRemovedMissingPayload),
+					}, err
 			}
 			appliedAny = true
+			if op.change == "create" {
+				executedAddedUnmanagedPayload = append(executedAddedUnmanagedPayload, buildTypedPath(op.path, op.typeID))
+			} else {
+				executedUpdatedManifestPayload = append(executedUpdatedManifestPayload, buildImportManifest(op.path, op.change, op.typeID))
+			}
 		}
 		for _, op := range removeOps {
-			if err := applyImportRemove(op); err != nil {
+			if err := runImportRemove(op); err != nil {
 				if appliedAny {
 					err = markPartial(err)
 				}
-				return nil, importCounts{}, err
+				return map[string]any{
+						"sync_index":       syncIndex,
+						"source_root":      selection.SourceRoot,
+						"target_root":      selection.TargetRoot,
+						"scope_prefix":     selection.ScopePrefix,
+						"updated_manifest": executedUpdatedManifestPayload,
+						"added_unmanaged":  executedAddedUnmanagedPayload,
+						"removed_missing":  executedRemovedMissingPayload,
+					}, importCounts{
+						updatedManifest: len(executedUpdatedManifestPayload),
+						addedUnmanaged:  len(executedAddedUnmanagedPayload),
+						removedMissing:  len(executedRemovedMissingPayload),
+					}, err
 			}
 			appliedAny = true
+			executedRemovedMissingPayload = append(executedRemovedMissingPayload, buildTypedPath(op.path, op.typeID))
 		}
+
+		updatedManifestPayload = executedUpdatedManifestPayload
+		addedUnmanagedPayload = executedAddedUnmanagedPayload
+		removedMissingPayload = executedRemovedMissingPayload
 	}
 
 	payload := map[string]any{

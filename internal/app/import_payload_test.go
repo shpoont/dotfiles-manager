@@ -3,11 +3,13 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -290,4 +292,68 @@ func TestImportPreservesFileModeAndMtime(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, targetInfo.Mode().Perm(), sourceInfo.Mode().Perm())
 	require.Equal(t, targetInfo.ModTime().Unix(), sourceInfo.ModTime().Unix())
+}
+
+func TestImportJSONErrorIncludesAppliedPartialOperations(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "a.lua"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "b.lua"), []byte("b"), 0o644))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+    on:
+      import:
+        add-unmanaged:
+          include:
+            - '**'
+`))
+
+	originalRunCopy := runImportCopy
+	originalRunRemove := runImportRemove
+	t.Cleanup(func() {
+		runImportCopy = originalRunCopy
+		runImportRemove = originalRunRemove
+	})
+
+	copyCalls := 0
+	runImportCopy = func(op importCopyOperation) error {
+		copyCalls++
+		if copyCalls == 2 {
+			return dfmerr.Wrap(dfmerr.CodeIOWrite, "Write failed: "+op.targetAbs, map[string]any{"path": op.targetAbs}, errors.New("boom"))
+		}
+		return nil
+	}
+	runImportRemove = applyImportRemove
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"import", "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, false, payload["ok"])
+	require.Equal(t, "DFM_IO_WRITE", payload["error"].(map[string]any)["code"])
+
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, true, summary["partial"])
+	require.Equal(t, float64(1), summary["sync_count"])
+	require.Equal(t, float64(0), summary["updated_manifest_count"])
+	require.Equal(t, float64(1), summary["added_unmanaged_count"])
+
+	syncs := payload["syncs"].([]any)
+	require.Len(t, syncs, 1)
+	sync := syncs[0].(map[string]any)
+	require.Empty(t, sync["updated_manifest"].([]any))
+	require.Equal(t, []string{"a.lua"}, extractPaths(sync["added_unmanaged"].([]any)))
 }
