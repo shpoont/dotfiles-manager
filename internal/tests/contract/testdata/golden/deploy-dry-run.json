@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "dry_run": true,
+  "command": "deploy",
+  "config_path": "<CONFIG_PATH>",
+  "path_scope": {
+    "input": null,
+    "normalized": null,
+    "matched_sync_indexes": [0]
+  },
+  "syncs": [
+    {
+      "sync_index": 0,
+      "source_root": "<SOURCE_ROOT_0>",
+      "target_root": "<TARGET_ROOT_0>",
+      "scope_prefix": "",
+      "copied": [
+        {
+          "path": "lua/init.lua",
+          "change": "update",
+          "type": "file"
+        },
+        {
+          "path": "lua/only-source.lua",
+          "change": "create",
+          "type": "file"
+        }
+      ],
+      "removed_unmanaged": [
+        {
+          "path": "lua/old.bak",
+          "type": "file"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "sync_count": 1,
+    "copied_count": 2,
+    "removed_unmanaged_count": 1
+  },
+  "error": null
+}

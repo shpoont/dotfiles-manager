@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "dry_run": false,
+  "command": "status",
+  "config_path": "<CONFIG_PATH>",
+  "path_scope": {
+    "input": null,
+    "normalized": null,
+    "matched_sync_indexes": [0]
+  },
+  "syncs": [
+    {
+      "sync_index": 0,
+      "source_root": "<SOURCE_ROOT_0>",
+      "target_root": "<TARGET_ROOT_0>",
+      "scope_prefix": "",
+      "deploy_changes": [
+        {
+          "path": "lua/init.lua",
+          "change": "update",
+          "source_type": "file",
+          "target_type": "file"
+        },
+        {
+          "path": "lua/only-source.lua",
+          "change": "create",
+          "source_type": "file",
+          "target_type": "missing"
+        }
+      ],
+      "import_changes": [
+        {
+          "path": "lua/init.lua",
+          "change": "update",
+          "source_type": "file",
+          "target_type": "file"
+        }
+      ],
+      "incoming_unmanaged": [
+        {
+          "path": "lua/new.lua",
+          "type": "file"
+        },
+        {
+          "path": "lua/old.bak",
+          "type": "file"
+        }
+      ],
+      "removable_unmanaged": [
+        {
+          "path": "lua/old.bak",
+          "type": "file"
+        }
+      ],
+      "removable_missing": [
+        {
+          "path": "lua/only-source.lua",
+          "type": "file"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "sync_count": 1,
+    "deploy_change_count": 2,
+    "import_change_count": 1,
+    "incoming_unmanaged_count": 2,
+    "removable_unmanaged_count": 1,
+    "removable_missing_count": 1
+  },
+  "error": null
+}
