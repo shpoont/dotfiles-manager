@@ -210,6 +210,9 @@ func copyDir(sourcePath, targetPath string) error {
 	if err := applyTierAMetadata(info, targetPath); err != nil {
 		return err
 	}
+	if err := applyTierBMetadata(sourcePath, targetPath, info); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -229,6 +232,9 @@ func copyFile(sourcePath, targetPath string) error {
 		return dfmerr.Wrap(dfmerr.CodeIOWrite, fmt.Sprintf("Write failed: %s", targetPath), map[string]any{"path": targetPath}, err)
 	}
 	if err := applyTierAMetadata(info, targetPath); err != nil {
+		return err
+	}
+	if err := applyTierBMetadata(sourcePath, targetPath, info); err != nil {
 		return err
 	}
 	return nil
