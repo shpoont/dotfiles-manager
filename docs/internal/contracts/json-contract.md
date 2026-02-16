@@ -229,8 +229,11 @@ When failure happens after partial work, include in `summary`:
 }
 ```
 
-and include already-applied operations up to failure.
-For dry-run failures, `summary.partial=true` indicates partial planning completed before failure.
+and include already-applied operations up to failure:
+- `syncs` must include each completed sync payload prior to failure.
+- if failure occurs inside a sync after some operations already executed, include that sync with only executed subset arrays (for example `copied`, `updated_manifest`, etc).
+
+For dry-run failures, `summary.partial=true` indicates partial planning completed before failure and `syncs` contains the already-planned subset.
 
 ## 7) Compatibility guarantees
 

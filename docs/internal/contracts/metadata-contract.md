@@ -40,6 +40,11 @@ dotfiles-manager should attempt to preserve when available:
 If unsupported (`ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`), continue without error.
 If supported but apply fails for other reasons, command fails (fail-fast).
 
+Current implementation notes (v1):
+- `atime` is reapplied after Tier A timestamp handling.
+- `xattrs` are copied on Unix platforms using native xattr syscalls.
+- ACL copy is attempted when ACL tooling is available (`getfacl`/`setfacl`); missing tooling is treated as unsupported (non-fatal).
+
 ## 3) Explicit non-goals for v1
 
 Not preserved as part of compatibility guarantees:
