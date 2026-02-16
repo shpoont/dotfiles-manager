@@ -62,6 +62,7 @@ func TestInvalidLogFormatWithJSONEnvelope(t *testing.T) {
 
 func TestDeployWithPathScopeValue(t *testing.T) {
 	tempDir := t.TempDir()
+	setTempHome(t)
 	oldWD, err := os.Getwd()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
@@ -81,6 +82,36 @@ func TestDeployWithPathScopeValue(t *testing.T) {
 	scope := payload["path_scope"].(map[string]any)
 	require.Equal(t, "~/.config/nvim", scope["input"])
 	require.NotNil(t, scope["normalized"])
+}
+
+func TestDeployWithRelativePathScopeFromHome(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := setTempHome(t)
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	require.NoError(t, os.Chdir(tempDir))
+
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, config.DefaultConfigFile), []byte("syncs:\n  - target: .config/nvim\n    source: .config/nvim\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"deploy", "--json", ".config/nvim"})
+
+	require.NoError(t, cmd.Execute())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, true, payload["ok"])
+
+	pathScope := payload["path_scope"].(map[string]any)
+	require.Equal(t, ".config/nvim", pathScope["input"])
+	require.Equal(t, filepath.Join(homeDir, ".config", "nvim"), pathScope["normalized"])
+	require.Equal(t, []any{float64(0)}, pathScope["matched_sync_indexes"])
 }
 
 func TestMainWrapper(t *testing.T) {

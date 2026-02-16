@@ -486,6 +486,12 @@ func normalizeScopePath(pathArg string) (any, any, error) {
 			return normalizedInput, nil, dfmerr.Wrap(dfmerr.CodeScopeInvalidPath, fmt.Sprintf("Invalid path argument: %s", pathArg), map[string]any{"input_path": pathArg}, err)
 		}
 		normalizedInput = filepath.Join(home, strings.TrimPrefix(normalizedInput, "~/"))
+	} else if !filepath.IsAbs(normalizedInput) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return normalizedInput, nil, dfmerr.Wrap(dfmerr.CodeScopeInvalidPath, fmt.Sprintf("Invalid path argument: %s", pathArg), map[string]any{"input_path": pathArg}, err)
+		}
+		normalizedInput = filepath.Join(home, normalizedInput)
 	}
 
 	absPath, err := filepath.Abs(normalizedInput)
