@@ -1,44 +1,60 @@
 {
-  "schema_version": "1.0",
-  "ok": true,
-  "dry_run": true,
   "command": "deploy",
   "config_path": "<CONFIG_PATH>",
+  "dry_run": true,
+  "error": null,
+  "ok": true,
   "path_scope": {
     "input": null,
-    "normalized": null,
-    "matched_sync_indexes": [0]
+    "matched_sync_indexes": [
+      0
+    ],
+    "normalized": null
+  },
+  "schema_version": "2.0",
+  "summary": {
+    "copy_count": 2,
+    "operation_count": 3,
+    "remove_unmanaged_count": 1,
+    "sync_count": 1
   },
   "syncs": [
     {
-      "sync_index": 0,
-      "source_root": "<SOURCE_ROOT_0>",
-      "target_root": "<TARGET_ROOT_0>",
-      "scope_prefix": "",
-      "copied": [
+      "counts": {
+        "copy": 2,
+        "operation_count": 3,
+        "remove_unmanaged": 1
+      },
+      "operations": [
         {
+          "action": "update",
           "path": "lua/init.lua",
-          "change": "update",
+          "phase": "copy",
+          "state": "planned",
           "type": "file"
         },
         {
+          "action": "create",
           "path": "lua/only-source.lua",
-          "change": "create",
+          "phase": "copy",
+          "state": "planned",
+          "type": "file"
+        },
+        {
+          "action": "remove",
+          "path": "lua/old.bak",
+          "phase": "remove_unmanaged",
+          "state": "planned",
           "type": "file"
         }
       ],
-      "removed_unmanaged": [
-        {
-          "path": "lua/old.bak",
-          "type": "file"
-        }
-      ]
+      "scope_prefix": "",
+      "source": "./source/nvim",
+      "source_root": "<SOURCE_ROOT_0>",
+      "sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+      "sync_index": 0,
+      "target": "~/.config/nvim",
+      "target_root": "<TARGET_ROOT_0>"
     }
-  ],
-  "summary": {
-    "sync_count": 1,
-    "copied_count": 2,
-    "removed_unmanaged_count": 1
-  },
-  "error": null
+  ]
 }

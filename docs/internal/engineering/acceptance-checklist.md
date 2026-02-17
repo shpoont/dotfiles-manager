@@ -1,7 +1,7 @@
 ---
 owner: QA / Testing Lead (TBD)
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/engineering/acceptance-checklist.md
 ---
 
@@ -80,7 +80,7 @@ Use this checklist before calling implementation complete.
 
 - [ ] `status --json`, `deploy [--dry-run] --json`, `import [--dry-run] --json` conform to `../contracts/json-contract.md`.
 - [ ] output includes common envelope fields.
-- [ ] per-command arrays are path-sorted.
+- [ ] per-sync `operations[]` entries are deterministic and path-sorted within emitted phase order.
 - [ ] on error, JSON includes `ok=false` + stable `error.code`.
 - [ ] on error after partial work, `summary.partial=true` is present.
 - [ ] when dry-run is used, JSON has `dry_run=true`.

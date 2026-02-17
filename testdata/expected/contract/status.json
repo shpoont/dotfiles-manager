@@ -1,73 +1,97 @@
 {
-  "schema_version": "1.0",
-  "ok": true,
-  "dry_run": false,
   "command": "status",
   "config_path": "<CONFIG_PATH>",
+  "dry_run": false,
+  "error": null,
+  "ok": true,
   "path_scope": {
     "input": null,
-    "normalized": null,
-    "matched_sync_indexes": [0]
+    "matched_sync_indexes": [
+      0
+    ],
+    "normalized": null
+  },
+  "schema_version": "2.0",
+  "summary": {
+    "deploy_count": 2,
+    "import_count": 1,
+    "incoming_unmanaged_count": 2,
+    "operation_count": 7,
+    "remove_missing_count": 1,
+    "remove_unmanaged_count": 1,
+    "sync_count": 1
   },
   "syncs": [
     {
-      "sync_index": 0,
-      "source_root": "<SOURCE_ROOT_0>",
-      "target_root": "<TARGET_ROOT_0>",
-      "scope_prefix": "",
-      "deploy_changes": [
+      "counts": {
+        "deploy": 2,
+        "import": 1,
+        "incoming_unmanaged": 2,
+        "operation_count": 7,
+        "remove_missing": 1,
+        "remove_unmanaged": 1
+      },
+      "operations": [
         {
+          "action": "update",
           "path": "lua/init.lua",
-          "change": "update",
+          "phase": "deploy",
           "source_type": "file",
+          "state": "candidate",
           "target_type": "file"
         },
         {
-          "path": "lua/only-source.lua",
-          "change": "create",
-          "source_type": "file",
-          "target_type": "missing"
-        }
-      ],
-      "import_changes": [
-        {
+          "action": "update",
           "path": "lua/init.lua",
-          "change": "update",
+          "phase": "import",
           "source_type": "file",
+          "state": "candidate",
           "target_type": "file"
-        }
-      ],
-      "incoming_unmanaged": [
+        },
         {
+          "action": "add",
           "path": "lua/new.lua",
+          "phase": "incoming_unmanaged",
+          "state": "candidate",
           "type": "file"
         },
         {
+          "action": "add",
           "path": "lua/old.bak",
+          "phase": "incoming_unmanaged",
+          "state": "candidate",
           "type": "file"
-        }
-      ],
-      "removable_unmanaged": [
+        },
         {
+          "action": "remove",
           "path": "lua/old.bak",
+          "phase": "remove_unmanaged",
+          "state": "candidate",
           "type": "file"
-        }
-      ],
-      "removable_missing": [
+        },
         {
+          "action": "create",
           "path": "lua/only-source.lua",
+          "phase": "deploy",
+          "source_type": "file",
+          "state": "candidate",
+          "target_type": "missing"
+        },
+        {
+          "action": "remove",
+          "path": "lua/only-source.lua",
+          "phase": "remove_missing",
+          "state": "candidate",
           "type": "file"
         }
-      ]
+      ],
+      "scope_prefix": "",
+      "source": "./source/nvim",
+      "source_root": "<SOURCE_ROOT_0>",
+      "sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+      "sync_index": 0,
+      "target": "~/.config/nvim",
+      "target_root": "<TARGET_ROOT_0>"
     }
-  ],
-  "summary": {
-    "sync_count": 1,
-    "deploy_change_count": 2,
-    "import_change_count": 1,
-    "incoming_unmanaged_count": 2,
-    "removable_unmanaged_count": 1,
-    "removable_missing_count": 1
-  },
-  "error": null
+  ]
 }

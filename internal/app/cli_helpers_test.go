@@ -15,10 +15,10 @@ func TestBuildSummaryBranches(t *testing.T) {
 	t.Parallel()
 
 	deploy := buildSummary("deploy", 1)
-	require.Contains(t, deploy, "copied_count")
+	require.Contains(t, deploy, "copy_count")
 
 	importSummary := buildSummary("import", 3)
-	require.Contains(t, importSummary, "updated_manifest_count")
+	require.Contains(t, importSummary, "update_managed_count")
 
 	fallback := buildSummary("unknown", 4)
 	require.Equal(t, 4, fallback["sync_count"])
@@ -37,15 +37,15 @@ func TestBuildSyncPayloadBranches(t *testing.T) {
 
 	status := buildSyncPayloads("status", selections)
 	require.Len(t, status, 1)
-	require.Contains(t, status[0].(map[string]any), "deploy_changes")
+	require.Contains(t, status[0].(map[string]any), "operations")
 
 	deploy := buildSyncPayloads("deploy", selections)
 	require.Len(t, deploy, 1)
-	require.Contains(t, deploy[0].(map[string]any), "copied")
+	require.Contains(t, deploy[0].(map[string]any), "operations")
 
 	importPayload := buildSyncPayloads("import", selections)
 	require.Len(t, importPayload, 1)
-	require.Contains(t, importPayload[0].(map[string]any), "updated_manifest")
+	require.Contains(t, importPayload[0].(map[string]any), "operations")
 
 	fallback := buildSyncPayloads("unknown", selections)
 	require.Len(t, fallback, 1)
@@ -140,32 +140,32 @@ func TestBuildTextSummaryLineAndSummaryInt(t *testing.T) {
 	t.Parallel()
 
 	status := buildTextSummaryLine("status", false, map[string]any{
-		"sync_count":                2,
-		"deploy_change_count":       3,
-		"import_change_count":       4,
-		"incoming_unmanaged_count":  5,
-		"removable_unmanaged_count": 6,
-		"removable_missing_count":   7,
+		"sync_count":               2,
+		"deploy_count":             3,
+		"import_count":             4,
+		"incoming_unmanaged_count": 5,
+		"remove_unmanaged_count":   6,
+		"remove_missing_count":     7,
 	})
-	require.Equal(t, "status: syncs=2 deploy_changes=3 import_changes=4 incoming_unmanaged=5 removable_unmanaged=6 removable_missing=7", status)
+	require.Equal(t, "summary deploy=3 import=4 incoming-unmanaged=5 remove-unmanaged=6 remove-missing=7", status)
 
 	deploy := buildTextSummaryLine("deploy", true, map[string]any{
-		"sync_count":              float64(1),
-		"copied_count":            int64(2),
-		"removed_unmanaged_count": 3,
+		"sync_count":             float64(1),
+		"copy_count":             int64(2),
+		"remove_unmanaged_count": 3,
 	})
-	require.Equal(t, "deploy (dry-run): syncs=1 copied=2 removed_unmanaged=3", deploy)
+	require.Equal(t, "summary dry-run=true copied=2 remove-unmanaged=3", deploy)
 
 	importLine := buildTextSummaryLine("import", false, map[string]any{
-		"sync_count":             1,
-		"updated_manifest_count": 2,
-		"added_unmanaged_count":  3,
-		"removed_missing_count":  4,
+		"sync_count":           1,
+		"update_managed_count": 2,
+		"add_unmanaged_count":  3,
+		"remove_missing_count": 4,
 	})
-	require.Equal(t, "import: syncs=1 updated_manifest=2 added_unmanaged=3 removed_missing=4", importLine)
+	require.Equal(t, "summary dry-run=false updated-managed=2 added-unmanaged=3 removed-missing=4", importLine)
 
 	unknown := buildTextSummaryLine("unknown", false, map[string]any{"sync_count": 9})
-	require.Equal(t, "unknown: syncs=9", unknown)
+	require.Equal(t, "summary syncs=9", unknown)
 
 	require.Equal(t, 0, summaryInt(nil, "missing"))
 	require.Equal(t, 0, summaryInt(map[string]any{"x": "y"}, "x"))

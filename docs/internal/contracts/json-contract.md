@@ -1,26 +1,26 @@
 ---
 owner: Core Engineering
-status: Contract v1
-last-updated: 2026-02-16
+status: Contract v2
+last-updated: 2026-02-17
 canonical-source: docs/internal/contracts/json-contract.md
 ---
 
 # dotfiles-manager: JSON contract (`--json`)
 
-This document defines the machine-readable output for:
+This document defines machine-readable output for:
 - `status --json`
 - `deploy [--dry-run] --json`
 - `import [--dry-run] --json`
 
-This is the implementation contract for v1.
+Current schema version is **`2.0`**.
 
 ## 1) Common envelope
 
-All `--json` command outputs must be a single JSON object:
+All `--json` outputs are a single JSON object:
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "ok": true,
   "dry_run": false,
   "command": "status",
@@ -36,172 +36,94 @@ All `--json` command outputs must be a single JSON object:
 }
 ```
 
-### Common field rules
+Rules:
+- `schema_version` is currently `"2.0"`.
+- `command`: `status` | `deploy` | `import`.
+- `dry_run` is valid only for `deploy`/`import`; `status --dry-run` errors with `DFM_FLAG_UNSUPPORTED`.
+- `config_path` is the resolved loaded config path (absolute).
+- with `--json`, stdout must contain JSON only (logs remain stderr and are unaffected by `--log-format` / `--log-level`).
 
-- `schema_version`: string, currently `"1.0"`.
-- `ok`: `true` on success, `false` on error.
-- `dry_run`: `true` only when `--dry-run` is set (deploy/import only); otherwise `false`.
-- `command`: one of `status`, `deploy`, `import`.
-- `config_path`: absolute path of resolved loaded config (from CLI, env var, or cwd default fallback).
-- `path_scope.input`: original CLI `[path]` or `null` if omitted.
-- `path_scope.normalized`: normalized absolute path or `null` if omitted.
-- `path_scope.matched_sync_indexes`: 0-based indexes into `syncs` config entries.
-- `syncs`: command-specific payload array.
-- `summary`: command-specific aggregate counts.
-- `error`: `null` on success; object on failure.
+## 2) Sync payload (shared shape)
 
-With `--json`, no non-JSON content should be emitted to stdout.
-`status` does not accept `--dry-run` (error code: `DFM_FLAG_UNSUPPORTED`).
-`--log-format` affects logs on stderr only and must not alter stdout JSON schema.
-`--log-level` affects logs on stderr only and must not alter stdout JSON schema.
-
-## 2) Path and ordering rules
-
-- All per-file/per-dir paths in payload objects are **sync-relative**.
-- Path separator in JSON paths is always `/`.
-- Arrays of path objects must be sorted lexically by `path`.
-- `syncs` array is ordered by execution order (config order, filtered by `[path]` selection).
-
-## 3) Status payload
-
-`status --json` returns:
+Each `syncs[]` entry:
 
 ```json
 {
-  "syncs": [
-    {
-      "sync_index": 0,
-      "source_root": "/abs/src/.config/nvim",
-      "target_root": "/Users/alice/.config/nvim",
-      "scope_prefix": "lua",
-      "deploy_changes": [
-        {
-          "path": "lua/init.lua",
-          "change": "create",
-          "source_type": "file",
-          "target_type": "missing"
-        }
-      ],
-      "import_changes": [],
-      "incoming_unmanaged": [],
-      "removable_unmanaged": [],
-      "removable_missing": []
-    }
-  ],
-  "summary": {
-    "sync_count": 1,
-    "deploy_change_count": 1,
-    "import_change_count": 0,
-    "incoming_unmanaged_count": 0,
-    "removable_unmanaged_count": 0,
-    "removable_missing_count": 0
-  }
+  "sync_index": 0,
+  "sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+  "target": "~/.config/nvim",
+  "source": "./source/nvim",
+  "source_root": "/abs/source/root",
+  "target_root": "/abs/target/root",
+  "scope_prefix": "",
+  "operations": [],
+  "counts": {}
 }
 ```
 
-### Status enums
+### `operations[]` item
 
-- `change`: `create` | `update` | `replace_type`
-- `source_type` / `target_type`: `file` | `dir` | `symlink` | `missing`
+Common fields:
+- `phase`: command-specific phase key.
+- `action`: operation verb (`create`, `update`, `replace_type`, `add`, `remove`).
+- `state`: `candidate` (status), `planned` (dry-run), or `applied` (non-dry-run successful execution).
+- `path`: sync-relative path using `/`.
 
-`incoming_unmanaged`, `removable_unmanaged`, `removable_missing` objects use:
-
-```json
-{ "path": "...", "type": "file|dir|symlink" }
-```
-
-## 4) Deploy payload
-
-`deploy --json` (or `deploy --dry-run --json`) returns:
-
-```json
-{
-  "syncs": [
-    {
-      "sync_index": 0,
-      "source_root": "/abs/src/.config/nvim",
-      "target_root": "/Users/alice/.config/nvim",
-      "scope_prefix": "",
-      "copied": [
-        {
-          "path": "init.lua",
-          "change": "update",
-          "type": "file"
-        }
-      ],
-      "removed_unmanaged": [
-        {
-          "path": "tmp/old.lua",
-          "type": "file"
-        }
-      ]
-    }
-  ],
-  "summary": {
-    "sync_count": 1,
-    "copied_count": 1,
-    "removed_unmanaged_count": 1
-  }
-}
-```
-
-### Deploy enums
-
-- `change`: `create` | `update` | `replace_type`
+Optional fields:
 - `type`: `file` | `dir` | `symlink`
+- `source_type` / `target_type`: `file` | `dir` | `symlink` | `missing` (for status drift entries)
 
-When `dry_run=true`, `copied` and `removed_unmanaged` represent planned operations (not executed operations).
+Ordering guarantees:
+- `syncs` are in execution order (config order after `[path]` filtering).
+- `operations` are deterministic and path-sorted within each produced phase.
 
-## 5) Import payload
+## 3) Command-specific phases and counts
 
-`import --json` (or `import --dry-run --json`) returns:
+### `status --json`
 
-```json
-{
-  "syncs": [
-    {
-      "sync_index": 0,
-      "source_root": "/abs/src/.config/nvim",
-      "target_root": "/Users/alice/.config/nvim",
-      "scope_prefix": "",
-      "updated_manifest": [
-        {
-          "path": "lua/init.lua",
-          "change": "update",
-          "type": "file"
-        }
-      ],
-      "added_unmanaged": [
-        {
-          "path": "lua/new.lua",
-          "type": "file"
-        }
-      ],
-      "removed_missing": [
-        {
-          "path": "lua/legacy.lua",
-          "type": "file"
-        }
-      ]
-    }
-  ],
-  "summary": {
-    "sync_count": 1,
-    "updated_manifest_count": 1,
-    "added_unmanaged_count": 1,
-    "removed_missing_count": 1
-  }
-}
-```
+Phases:
+- `deploy`
+- `import`
+- `incoming_unmanaged`
+- `remove_unmanaged`
+- `remove_missing`
 
-### Import enums
+Summary keys:
+- `sync_count`
+- `deploy_count`
+- `import_count`
+- `incoming_unmanaged_count`
+- `remove_unmanaged_count`
+- `remove_missing_count`
+- `operation_count`
 
-- `change`: `create` | `update` | `replace_type`
-- `type`: `file` | `dir` | `symlink`
+### `deploy --json`
 
-When `dry_run=true`, `updated_manifest`, `added_unmanaged`, and `removed_missing` represent planned operations (not executed operations).
+Phases:
+- `copy`
+- `remove_unmanaged`
 
-## 6) Error object
+Summary keys:
+- `sync_count`
+- `copy_count`
+- `remove_unmanaged_count`
+- `operation_count`
+
+### `import --json`
+
+Phases:
+- `update_managed`
+- `add_unmanaged`
+- `remove_missing`
+
+Summary keys:
+- `sync_count`
+- `update_managed_count`
+- `add_unmanaged_count`
+- `remove_missing_count`
+- `operation_count`
+
+## 4) Error object and partial results
 
 On failure (`ok=false`, non-zero exit):
 
@@ -217,26 +139,12 @@ On failure (`ok=false`, non-zero exit):
 }
 ```
 
-- `code`: stable machine-readable error code (see `validation-errors.md`)
-- `message`: human-readable summary
-- `details`: optional structured context
+If work was partially completed before failure:
+- `summary.partial = true`
+- `syncs` contains completed syncs and/or the partial failed sync subset with only already-applied operations.
 
-When failure happens after partial work, include in `summary`:
+## 5) Compatibility policy
 
-```json
-{
-  "partial": true
-}
-```
-
-and include already-applied operations up to failure:
-- `syncs` must include each completed sync payload prior to failure.
-- if failure occurs inside a sync after some operations already executed, include that sync with only executed subset arrays (for example `copied`, `updated_manifest`, etc).
-
-For dry-run failures, `summary.partial=true` indicates partial planning completed before failure and `syncs` contains the already-planned subset.
-
-## 7) Compatibility guarantees
-
-- Additive fields are allowed in `1.x`.
-- Existing fields in this contract must not change meaning in `1.x`.
-- Breaking changes require `schema_version` major bump.
+- Contract is currently `2.x`.
+- Additive fields are allowed in `2.x`.
+- Breaking changes require a major schema bump (`3.0`, etc.).
