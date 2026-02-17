@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PATH="/usr/local/go/bin:/go/bin:${PATH:-}"
+
 SHARD="${1:?usage: run-tests.sh <shard> [platform] [has_go_mod]}"
 PLATFORM="${2:-linux}"
 HAS_GO_MOD="${3:-$(bash scripts/ci/check-go-module.sh)}"

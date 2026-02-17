@@ -9,6 +9,7 @@ coverage-*.out
 
 # Temporary/local work dirs
 tmp/
+.ci-home/
 
 # Go workspace noise
 bin/
