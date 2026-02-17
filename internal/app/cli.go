@@ -17,7 +17,7 @@ import (
 
 type rootOptions struct {
 	configPath string
-	logFormat  string
+	logFile    string
 	logLevel   string
 }
 
@@ -34,7 +34,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().StringVar(&opts.configPath, "config", "", "Path to config file")
-	rootCmd.PersistentFlags().StringVar(&opts.logFormat, "log-format", "text", "Log format: text|json")
+	rootCmd.PersistentFlags().StringVar(&opts.logFile, "log-file", "", "Path to log file")
 	rootCmd.PersistentFlags().StringVar(&opts.logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 
 	rootCmd.AddCommand(newStatusCmd(opts))
@@ -146,7 +146,32 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		return err
 	}
 
-	logger, err := logging.New(opts.logFormat, opts.logLevel, cmd.ErrOrStderr())
+	logPath, err := logging.ResolvePath(opts.logFile)
+	if err != nil {
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:        commandOpts.Name,
+			DryRun:         commandOpts.DryRun,
+			PathInput:      pathInput,
+			PathNormalized: pathNormalized,
+		}, err)
+		return err
+	}
+
+	logWriter, err := logging.OpenFile(logPath)
+	if err != nil {
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:        commandOpts.Name,
+			DryRun:         commandOpts.DryRun,
+			PathInput:      pathInput,
+			PathNormalized: pathNormalized,
+		}, err)
+		return err
+	}
+	defer func() {
+		_ = logWriter.Close()
+	}()
+
+	logger, err := logging.New(opts.logLevel, logWriter)
 	if err != nil {
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
@@ -162,6 +187,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		slog.String("command", commandOpts.Name),
 		slog.Bool("dry_run", commandOpts.DryRun),
 	)
+	commandLogger.Debug("log.path", slog.String("log_path", logging.RedactString(logPath)))
 	commandLogger.Info("command.start")
 
 	resolvedConfigPath, err := config.ResolvePath(config.ResolveOptions{ExplicitPath: opts.configPath})
@@ -279,8 +305,9 @@ type jsonContext struct {
 }
 
 func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonContext, err error) {
+	_, _ = fmt.Fprintln(stderr, err.Error())
+
 	if !jsonOutput {
-		_, _ = fmt.Fprintln(stderr, err.Error())
 		return
 	}
 
