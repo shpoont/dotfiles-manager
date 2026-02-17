@@ -63,6 +63,14 @@ Pattern-based behavior is config-driven only.
 
 ## 4) Command semantics
 
+### `version` and `--version`
+
+- `dotfiles-manager version` and `dotfiles-manager --version` are equivalent.
+- Output format is one line: `dotfiles-manager version <value>`.
+- These paths bypass config resolution and sync planning/execution.
+- Release builds print semantic version; local non-release builds print `dev`.
+- `version` does not support `[path]`, `--json`, or `--dry-run`.
+
 ### `status [--json] [path]`
 
 Reports:
@@ -113,6 +121,7 @@ Metadata guarantees and best-effort behavior are defined in `../contracts/metada
 |---|---|
 | Commands are fail-fast on runtime errors | Prevents partial hidden failures. |
 | Exit `0` on success (including `status` with drift), non-zero on errors | Conventional CLI semantics. |
+| `version` and `--version` print version and exit without loading config | Keeps version checks lightweight and robust. |
 | `--json` supported on `status`, `deploy`, and `import` | Machine-readable automation support. |
 | `--dry-run` supported on `deploy` and `import`, not `status` | Keeps preview explicit for mutating commands; `status` is already preview-only. |
 | Text output suppresses empty phase blocks | Reduces noise and surfaces only actionable work. |

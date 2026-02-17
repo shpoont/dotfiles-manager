@@ -18,10 +18,11 @@ Main commands:
 - `status` (preview)
 - `deploy` (source → target)
 - `import` (target → source)
+- `version` / `--version` (print version and exit)
 
 ## Important baseline
 
-- Config is required for every run, resolved in this order:
+- Config is required for `status`/`deploy`/`import`, resolved in this order:
   1. `--config <path>`
   2. `DOTFILES_MANAGER_CONFIG`
   3. `./.dotfiles-manager.yaml` in the current working directory
@@ -35,5 +36,8 @@ Main commands:
   - logs are always human-readable text (no log format option)
 - Log level defaults to `info`; use `--log-level` to change verbosity.
 - Warnings/errors are emitted as human-readable diagnostics on stderr.
+- `dotfiles-manager version` and `dotfiles-manager --version` print version and exit without loading config.
+  - release builds print semantic version
+  - local non-release builds print `dev`
 
 For deeper implementation/spec details, see `../internal/README.md`.

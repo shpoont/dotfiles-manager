@@ -67,3 +67,17 @@ Yes. Use `--log-level <debug|info|warn|error>`.
 
 - default log level is `info`
 - applies to all commands
+
+## How do I check CLI version?
+
+Use either:
+
+```bash
+dotfiles-manager --version
+# or
+dotfiles-manager version
+```
+
+Both print `dotfiles-manager version <value>` and exit.
+They do not require config.
+Release builds print semantic version; local non-release builds print `dev`.
