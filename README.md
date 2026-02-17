@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/logo/logo.png" alt="dotfiles-manager logo" width="220" />
+  <img src="./assets/logo/logo.png" alt="dotfiles-manager logo" width="512" />
 </p>
 
 # dotfiles-manager
