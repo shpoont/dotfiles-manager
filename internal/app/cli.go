@@ -488,8 +488,17 @@ func selectSyncs(cfg *config.Config, configPath string, pathInput any, normalize
 	pathValue, hasScope := normalizedPath.(string)
 
 	for idx, syncCfg := range cfg.Syncs {
-		targetRoot := filepath.Clean(filepath.Join(home, syncCfg.Target))
-		sourceRoot := filepath.Clean(filepath.Join(configDir, syncCfg.Source))
+		targetPath, err := config.ExpandSyncPath(syncCfg.Target, fmt.Sprintf("syncs[%d].target", idx))
+		if err != nil {
+			return nil, err
+		}
+		sourcePath, err := config.ExpandSyncPath(syncCfg.Source, fmt.Sprintf("syncs[%d].source", idx))
+		if err != nil {
+			return nil, err
+		}
+
+		targetRoot := filepath.Clean(filepath.Join(home, targetPath))
+		sourceRoot := filepath.Clean(filepath.Join(configDir, sourcePath))
 
 		if !hasScope {
 			selections = append(selections, syncSelection{

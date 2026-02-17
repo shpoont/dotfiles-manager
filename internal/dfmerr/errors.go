@@ -17,6 +17,7 @@ const (
 	CodeConfigSchemaRequired   Code = "DFM_CONFIG_SCHEMA_REQUIRED"
 	CodeConfigPathNotRelative  Code = "DFM_CONFIG_PATH_NOT_RELATIVE"
 	CodeConfigPathEscape       Code = "DFM_CONFIG_PATH_ESCAPE"
+	CodeConfigPathEnvUndefined Code = "DFM_CONFIG_PATH_ENV_VAR_UNDEFINED"
 
 	CodeFlagUnsupported  Code = "DFM_FLAG_UNSUPPORTED"
 	CodeFlagInvalidValue Code = "DFM_FLAG_INVALID_VALUE"
