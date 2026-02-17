@@ -35,6 +35,22 @@ syncs:
             - 'lua/local/**'
 ```
 
+## JSON Schema reference
+
+Schema file:
+- `docs/internal/contracts/config-schema.json`
+
+You can use it for editor validation/autocomplete (for example with YAML language server):
+
+```yaml
+# yaml-language-server: $schema=./docs/internal/contracts/config-schema.json
+syncs:
+  - target: .config/nvim
+    source: .config/nvim
+```
+
+Runtime validation is still authoritative.
+
 ## `syncs[]` keys
 
 Required:
@@ -66,6 +82,7 @@ Optional behavior keys:
 
 - Config paths are relative-only.
 - Path normalization is lexical.
+- Paths must not escape their base via `..` after normalization.
 - Overlapping syncs are allowed.
 - Syncs run in config order.
 - If overlapping syncs mutate the same final path, later sync wins.

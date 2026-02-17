@@ -30,6 +30,10 @@ Path rules:
 - `target` is relative to `$HOME`
 - `source` is relative to the directory containing the config file
 - config paths must be relative (no absolute paths)
+- config paths must not escape base directories via `..` after normalization
+
+Optional editor schema:
+- `docs/internal/contracts/config-schema.json`
 
 ## 4) Run status first
 
