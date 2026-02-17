@@ -1,7 +1,7 @@
 ---
 owner: Documentation Maintainer (TBD)
 status: Reference
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/README.md
 ---
 
@@ -23,6 +23,7 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 
 ## 3) Contracts
 
+- `contracts/config-schema.json` — JSON Schema for `.dotfiles-manager.yaml`
 - `contracts/json-contract.md` — `--json` output contract
 - `contracts/metadata-contract.md` — metadata guarantees
 - `contracts/validation-errors.md` — error catalog + validation order

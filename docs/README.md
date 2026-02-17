@@ -14,7 +14,7 @@ This directory is organized by **audience** first, then by **scope/detail level*
 2. **Detailed specifications** (`internal/specs/`)
    - Behavior definitions, decisions, matrix outcomes, open questions.
 3. **Contracts** (`internal/contracts/`)
-   - Stable machine/engineering contracts (`--json`, metadata, logging, error codes).
+   - Stable machine/engineering contracts (`--json`, config schema, metadata, logging, error codes).
 4. **Engineering execution** (`internal/engineering/`)
    - Technical requirements, testing strategy, acceptance criteria, CI/CD requirements.
 5. **Process/governance** (`internal/process/`)

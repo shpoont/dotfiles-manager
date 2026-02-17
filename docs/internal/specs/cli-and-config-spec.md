@@ -60,6 +60,10 @@ Key constraints:
 - config paths are relative-only
 - unknown keys are validation errors
 
+Machine-readable schema:
+- `../contracts/config-schema.json` defines the YAML config structure for editor/tooling validation.
+- Runtime validation in `internal/config` remains authoritative.
+
 ## Behavior summary
 
 - `status`: report drift and candidate sets

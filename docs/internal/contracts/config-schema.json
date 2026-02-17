@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/shpoont/dotfiles-manager/main/docs/internal/contracts/config-schema.json",
+  "title": "dotfiles-manager config schema",
+  "description": "JSON Schema for .dotfiles-manager.yaml. Runtime validation in internal/config remains authoritative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "syncs"
+  ],
+  "properties": {
+    "syncs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sync"
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "description": "Relative path only. Runtime also rejects paths that lexically escape the base directory after normalization.",
+      "allOf": [
+        {
+          "minLength": 1
+        },
+        {
+          "not": {
+            "pattern": "^\\s*$"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*(?:/|\\\\)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^[A-Za-z]:[\\\\/]"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*~"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*\\$"
+          }
+        },
+        {
+          "not": {
+            "pattern": "\\$\\{"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*\\.\\.(?:[\\\\/]|\\s*$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*(?:\\./|\\.\\\\)+\\.\\.(?:[\\\\/]|\\s*$)"
+          }
+        }
+      ]
+    },
+    "pattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Glob pattern (supports **). Evaluated against sync-relative paths."
+    },
+    "patternList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pattern"
+      },
+      "default": []
+    },
+    "patternToggle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "$ref": "#/$defs/patternList"
+        },
+        "exclude": {
+          "$ref": "#/$defs/patternList"
+        }
+      },
+      "default": {}
+    },
+    "deployOn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "remove-unmanaged": {
+          "$ref": "#/$defs/patternList"
+        }
+      },
+      "default": {}
+    },
+    "importOn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "add-unmanaged": {
+          "$ref": "#/$defs/patternToggle"
+        },
+        "remove-missing": {
+          "$ref": "#/$defs/patternToggle"
+        }
+      },
+      "default": {}
+    },
+    "on": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deploy": {
+          "$ref": "#/$defs/deployOn"
+        },
+        "import": {
+          "$ref": "#/$defs/importOn"
+        }
+      },
+      "default": {}
+    },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "source"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/relativePath",
+          "description": "Relative to $HOME."
+        },
+        "source": {
+          "$ref": "#/$defs/relativePath",
+          "description": "Relative to the directory containing the config file."
+        },
+        "on": {
+          "$ref": "#/$defs/on"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "syncs": [
+        {
+          "target": ".config/nvim",
+          "source": ".config/nvim",
+          "on": {
+            "deploy": {
+              "remove-unmanaged": [
+                "**/*.bak"
+              ]
+            },
+            "import": {
+              "add-unmanaged": {
+                "include": [
+                  "**"
+                ],
+                "exclude": [
+                  "**/*.tmp"
+                ]
+              },
+              "remove-missing": {
+                "include": [
+                  "lua/**"
+                ],
+                "exclude": [
+                  "lua/local/**"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

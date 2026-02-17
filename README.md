@@ -161,3 +161,4 @@ dotfiles-manager status --json ~/.config/nvim
 - `docs/README.md` — full docs map (audience + scope levels)
 - `docs/internal/README.md` — canonical internal specs/contracts/engineering docs
 - `docs/user/README.md` — user-facing usage docs
+- `docs/internal/contracts/config-schema.json` — JSON Schema for `.dotfiles-manager.yaml`
