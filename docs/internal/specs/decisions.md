@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Canonical
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/specs/decisions.md
 ---
 
@@ -111,7 +111,10 @@ Metadata guarantees and best-effort behavior are defined in `../contracts/metada
 | Exit `0` on success (including `status` with drift), non-zero on errors | Conventional CLI semantics. |
 | `--json` supported on `status`, `deploy`, and `import` | Machine-readable automation support. |
 | `--dry-run` supported on `deploy` and `import`, not `status` | Keeps preview explicit for mutating commands; `status` is already preview-only. |
-| Logs default to human-readable text; `--log-format json` enables JSON logs | Balances local developer readability with machine parsing needs. |
+| Runtime logs are written to a platform-default log file | Keeps command output channels clean while preserving diagnostics history. |
+| `--log-file <path>` overrides the log file destination | Allows explicit per-run log routing. |
+| Logs are human-readable text only (no log format option) | Keeps operator-facing diagnostics simple and consistent. |
+| Warnings/errors are emitted as human-readable stderr diagnostics | Keeps failures visible in terminal while avoiding noisy routine logs. |
 | Log level defaults to `info` and is configurable via `--log-level` | Provides predictable default verbosity with explicit override. |
 | Logging backend is Go `log/slog` | Uses standard-library structured logging with low dependency overhead. |
 | Logging-critical paths require 100% branch coverage | Ensures redaction and error-path logging safety is continuously verified. |

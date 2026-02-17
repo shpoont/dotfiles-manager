@@ -15,17 +15,19 @@ Contract-level details are in `../contracts/*`.
 ## Command surface
 
 ```text
-dotfiles-manager [--config <path>] [--log-format <text|json>] [--log-level <debug|info|warn|error>] status [--json] [path]
-dotfiles-manager [--config <path>] [--log-format <text|json>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
-dotfiles-manager [--config <path>] [--log-format <text|json>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
 ```
 
 Rules:
 - config resolution order: `--config <path>` → `DOTFILES_MANAGER_CONFIG` → `./.dotfiles-manager.yaml` (cwd)
 - default lookup is cwd-only (no parent search)
 - default config filename is `.dotfiles-manager.yaml`
-- log format defaults to `text`; `json` is optional for machine parsing
+- logs are written to platform-default log file path unless overridden with `--log-file`
+- no log format flag is supported; logs are human-readable text only
 - log level defaults to `info`; supported levels: `debug`, `info`, `warn`, `error`
+- warnings/errors are emitted as human-readable stderr diagnostics
 - `--dry-run` is valid for `deploy`/`import` only
 - `[path]` narrows execution to matching target subpaths
 

@@ -48,12 +48,18 @@ No. `status` is already preview-only.
 
 Yes, use `--json` with `status`, `deploy`, or `import`.
 
-## Can I get logs in JSON format?
+## Where are logs written?
 
-Yes. Use `--log-format json`.
+Logs are always written to a file.
 
-- Logs are emitted on stderr.
-- Command output (including `--json`) remains on stdout.
+Default paths:
+- macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
+
+Use `--log-file <path>` to override the log location.
+
+Warnings/errors are still emitted as human-readable diagnostics on stderr.
+Log format is always human-readable text.
 
 ## Can I control log verbosity?
 

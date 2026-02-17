@@ -78,3 +78,7 @@ dotfiles-manager --config ./custom-config.yaml status
 - Source is treated as the manifest/source of truth.
 - Commands fail fast on runtime errors.
 - Add `--json` when you need machine-readable output.
+- Logs are written to:
+  - macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
+  - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
+- Use `--log-file <path>` to override the log file destination.

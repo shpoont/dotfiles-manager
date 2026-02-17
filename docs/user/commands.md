@@ -3,9 +3,9 @@
 ## Command format
 
 ```text
-dotfiles-manager [--config <path>] [--log-format <text|json>] [--log-level <debug|info|warn|error>] status [--json] [path]
-dotfiles-manager [--config <path>] [--log-format <text|json>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
-dotfiles-manager [--config <path>] [--log-format <text|json>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
 ```
 
 Config is resolved in this order:
@@ -15,15 +15,22 @@ Config is resolved in this order:
 
 No parent-directory config search is performed.
 
-Log format:
-- default: `text`
-- optional: `--log-format json`
-- logs are emitted on stderr (stdout remains command output, including `--json`)
+Log file destination:
+- default paths:
+  - macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
+  - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
+- override path with `--log-file <path>`
+- logs are always human-readable text
+- there is no log format option
 
 Log level:
 - default: `info`
 - supported: `debug`, `info`, `warn`, `error`
 - set with `--log-level <level>`
+
+stderr diagnostics:
+- warnings and errors are emitted as human-readable text on stderr
+- stdout remains command output (including `--json`)
 
 ## `status [--json] [path]`
 

@@ -41,7 +41,9 @@ Rules:
 - `command`: `status` | `deploy` | `import`.
 - `dry_run` is valid only for `deploy`/`import`; `status --dry-run` errors with `DFM_FLAG_UNSUPPORTED`.
 - `config_path` is the resolved loaded config path (absolute).
-- with `--json`, stdout must contain JSON only (logs remain stderr and are unaffected by `--log-format` / `--log-level`).
+- with `--json`, stdout must contain JSON only.
+- runtime logs are written to the log file defined in `logging-contract.md`.
+- warning/error diagnostics may be emitted to stderr as human-readable text.
 
 ## 2) Sync payload (shared shape)
 

@@ -27,7 +27,12 @@ Main commands:
   3. `./.dotfiles-manager.yaml` in the current working directory
 - Config format is YAML.
 - Default discovery is current-directory only (no parent-directory search).
-- Logs default to text; use `--log-format json` for machine-readable logs.
+- Logs are always written to a log file.
+  - macOS default: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
+  - Linux default: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
+  - override with `--log-file <path>`
+  - logs are always human-readable text (no log format option)
 - Log level defaults to `info`; use `--log-level` to change verbosity.
+- Warnings/errors are emitted as human-readable diagnostics on stderr.
 
 For deeper implementation/spec details, see `../internal/README.md`.
