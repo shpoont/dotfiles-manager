@@ -1,7 +1,7 @@
 ---
 owner: Engineering Operations
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/engineering/ci-cd.md
 ---
 
@@ -127,3 +127,30 @@ CI artifact contracts (when `go.mod` exists):
 - `linux-performance` -> `artifacts/perf-metrics.json` (used for threshold enforcement in-shard)
 
 Canonical artifact schemas and gate semantics: `../contracts/ci-artifacts-contract.md`.
+
+## 8) Post-release verification
+
+After a release is published, run smoke checks from release artifacts (not local source build).
+
+Manual procedure:
+
+1. Download release artifact + checksums.
+2. Verify artifact checksum.
+3. Run binary in isolated temp repo/temp HOME:
+   - `dotfiles-manager --help`
+   - `dotfiles-manager status`
+   - `dotfiles-manager deploy --dry-run`
+   - `dotfiles-manager import --dry-run`
+
+### Latest verification log
+
+- Date: 2026-02-17
+- Release: `v0.1.1`
+- Result: PASS
+- Verified assets:
+  - `dotfiles-manager_0.1.1_darwin_arm64.tar.gz`
+  - `dotfiles-manager_0.1.1_checksums.txt`
+- Command smoke-test results:
+  - `status: syncs=1 deploy_changes=1 import_changes=1 incoming_unmanaged=0 removable_unmanaged=0 removable_missing=0`
+  - `deploy (dry-run): syncs=1 copied=1 removed_unmanaged=0`
+  - `import (dry-run): syncs=1 updated_manifest=1 added_unmanaged=0 removed_missing=0`
