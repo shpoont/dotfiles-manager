@@ -189,3 +189,36 @@ func TestExpandSyncPathRejectsInvalidPlaceholderAndEscape(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, dfmerr.CodeConfigPathEscape, dfmerr.MustCode(err))
 }
+
+func TestExpandSyncPathSupportsDollarAndBracedVars(t *testing.T) {
+	t.Setenv("DFM_EXPAND_HOST", "mbp")
+	t.Setenv("DFM_EXPAND_USER", "alice")
+
+	expanded, err := ExpandSyncPath("./$DFM_EXPAND_HOST/$DFM_EXPAND_USER", "syncs[0].source")
+	require.NoError(t, err)
+	require.Equal(t, "mbp/alice", filepath.ToSlash(filepath.Clean(expanded)))
+
+	expanded, err = ExpandSyncPath("./${DFM_EXPAND_HOST}/${DFM_EXPAND_USER}", "syncs[0].source")
+	require.NoError(t, err)
+	require.Equal(t, "mbp/alice", filepath.ToSlash(filepath.Clean(expanded)))
+}
+
+func TestExpandSyncPathTreatsBareDollarAsLiteral(t *testing.T) {
+	t.Parallel()
+
+	expanded, err := ExpandSyncPath("./foo/$/bar", "syncs[0].source")
+	require.NoError(t, err)
+	require.Equal(t, "foo/$/bar", filepath.ToSlash(filepath.Clean(expanded)))
+}
+
+func TestExpandSyncPathRejectsInvalidBracedName(t *testing.T) {
+	t.Parallel()
+
+	_, err := expandPathPlaceholders("./${1BAD}/path", "syncs[0].source", func(string) (string, bool) { return "", false })
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigSchemaType, dfmerr.MustCode(err))
+
+	_, err = expandPathPlaceholders("./${BAD-NAME}/path", "syncs[0].source", func(string) (string, bool) { return "", false })
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigSchemaType, dfmerr.MustCode(err))
+}
