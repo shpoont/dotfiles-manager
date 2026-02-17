@@ -21,6 +21,12 @@ Core workflows:
 
 ## Installation
 
+### Install with Homebrew (recommended)
+
+```bash
+brew install shpoont/tap/dotfiles-manager
+```
+
 ### Install with Go
 
 ```bash

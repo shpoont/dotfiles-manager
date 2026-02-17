@@ -3,6 +3,12 @@
 ## 1) Install the CLI
 
 ```bash
+brew install shpoont/tap/dotfiles-manager
+```
+
+Or install with Go:
+
+```bash
 go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
 ```
 
