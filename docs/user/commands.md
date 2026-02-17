@@ -111,6 +111,8 @@ If `[path]` matches no syncs, command fails.
 - text mode prints per-sync sections with exact file operations.
 - every sync header uses:
   - `sync[idx] target=~/<target> source=./<source>`
+- when `[path]` scopes into a subpath, header appends:
+  - `scope=<sync-relative-prefix>`
 - actions are explicit words (`create`, `update`, `replace_type`, `add`, `remove`).
 - `--json` returns machine-readable output (`schema_version: "2.0"`), with:
   - `syncs[].operations[]` for exact per-file operations

@@ -152,5 +152,6 @@ Manual procedure:
   - `dotfiles-manager_0.1.1_checksums.txt`
 - Command smoke-test results:
   - `status` output included sync header (`sync[0] target=... source=...`) and `summary deploy=... import=...`
+  - for scoped runs, sync header includes `scope=<prefix>`
   - `deploy --dry-run` output included phase blocks `copy[...]`, `remove-unmanaged[...]`, and `summary dry-run=true ...`
   - `import --dry-run` output included phase blocks `update-managed[...]`, `add-unmanaged[...]`, `remove-missing[...]`
