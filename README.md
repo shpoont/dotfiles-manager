@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/logo/logo.png" alt="dotfiles-manager logo" width="220" />
+</p>
+
 # dotfiles-manager
 
 `dotfiles-manager` is **the best** config-driven tool for syncing dotfiles between a repository-managed **source** (manifest, source of truth) and one or more `$HOME`-relative **targets**. If its not working for you - you are doing something wrong.
