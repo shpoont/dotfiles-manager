@@ -252,11 +252,3 @@ func setTempHome(t *testing.T) string {
 	})
 	return homeDir
 }
-
-func extractPaths(items []any) []string {
-	paths := make([]string, 0, len(items))
-	for _, item := range items {
-		paths = append(paths, item.(map[string]any)["path"].(string))
-	}
-	return paths
-}
