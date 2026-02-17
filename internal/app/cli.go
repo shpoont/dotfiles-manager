@@ -157,13 +157,16 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		return err
 	}
 
-	logger.Info("command.start",
+	commandLogger := logger.With(
+		slog.String("component", "cli"),
 		slog.String("command", commandOpts.Name),
 		slog.Bool("dry_run", commandOpts.DryRun),
 	)
+	commandLogger.Info("command.start")
 
 	resolvedConfigPath, err := config.ResolvePath(config.ResolveOptions{ExplicitPath: opts.configPath})
 	if err != nil {
+		logCommandError(commandLogger, err)
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
@@ -176,6 +179,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 	absConfigPath, err := filepath.Abs(resolvedConfigPath)
 	if err != nil {
 		cfgErr := dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", resolvedConfigPath), map[string]any{"path": resolvedConfigPath}, err)
+		logCommandError(commandLogger, cfgErr)
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
@@ -184,9 +188,11 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		}, cfgErr)
 		return cfgErr
 	}
+	commandLogger.Debug("config.resolved", slog.String("config_path", logging.RedactString(absConfigPath)))
 
 	cfg, err := config.Load(resolvedConfigPath)
 	if err != nil {
+		logCommandError(commandLogger, err)
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
@@ -199,6 +205,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	selections, err := selectSyncs(cfg, absConfigPath, pathInput, pathNormalized)
 	if err != nil {
+		logCommandError(commandLogger, err)
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
@@ -215,6 +222,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections)
 	if err != nil {
+		logCommandError(commandLogger, err)
 		partialSyncs, partialSummary := extractPartialResult(err)
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:            commandOpts.Name,
@@ -231,17 +239,32 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	if commandOpts.JSONOutput {
 		if err := emitJSON(cmd.OutOrStdout(), result); err != nil {
+			logCommandError(commandLogger, err)
 			return err
 		}
 	} else {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), buildTextSummaryLine(commandOpts.Name, commandOpts.DryRun, result["summary"]))
 	}
 
-	logger.Info("command.complete",
-		slog.String("command", commandOpts.Name),
-		slog.Bool("dry_run", commandOpts.DryRun),
-	)
+	commandLogger.Info("command.complete")
 	return nil
+}
+
+func logCommandError(logger *slog.Logger, err error) {
+	if logger == nil || err == nil {
+		return
+	}
+
+	dfmCode := ""
+	if dfmError, ok := dfmerr.As(err); ok {
+		dfmCode = string(dfmError.Code)
+	}
+
+	logger.Error(
+		"command.error",
+		slog.String("error_code", dfmCode),
+		slog.String("error_message", logging.RedactString(err.Error())),
+	)
 }
 
 type jsonContext struct {
