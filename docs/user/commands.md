@@ -135,6 +135,8 @@ A sync is selected only when `[path]` is:
 - exactly the sync target, or
 - inside the sync target subtree
 
+Target matching uses post-expansion target roots (after `$VAR`/`${VAR}` resolution).
+
 If `[path]` matches no syncs, command fails.
 
 ## Output and exit codes
@@ -144,6 +146,7 @@ If `[path]` matches no syncs, command fails.
 - text mode prints per-sync sections with exact file operations.
 - every sync header uses:
   - `sync[idx] target=~/<target> source=./<source>`
+- sync headers show configured path text (placeholders stay visible if present in config)
 - when `[path]` scopes into a subpath, header appends:
   - `scope=<sync-relative-prefix>`
 - text mode only prints non-empty phase blocks.

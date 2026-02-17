@@ -35,13 +35,19 @@ Use YAML (default filename: `.dotfiles-manager.yaml` in your current working dir
 syncs:
   - target: .config/nvim
     source: .config/nvim
+  - target: ./
+    source: "./$HOSTNAME/$USER"
 ```
 
 Path rules:
-- `target` is relative to `$HOME`
-- `source` is relative to the directory containing the config file
-- config paths must be relative (no absolute paths)
+- `target` is relative to `$HOME` after env expansion
+- `source` is relative to the directory containing the config file after env expansion
+- config paths must be relative after env expansion (no absolute paths)
 - config paths must not escape base directories via `..` after normalization
+- env vars are supported in `target`/`source`: `$VAR` and `${VAR}`
+- expansion happens before path validation
+- missing or empty env values are errors
+- expanded path must still be relative and non-escaping
 
 Optional editor schema:
 - `docs/internal/contracts/config-schema.json`

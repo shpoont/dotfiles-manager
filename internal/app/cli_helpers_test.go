@@ -128,6 +128,39 @@ func TestSelectSyncsMultipleMatches(t *testing.T) {
 	require.Equal(t, "", selected[1].ScopePrefix)
 }
 
+func TestSelectSyncsExpandsEnvPaths(t *testing.T) {
+	t.Setenv("DFM_TEST_HOST_ENV", "host-a")
+	t.Setenv("DFM_TEST_USER_ENV", "alice")
+
+	cfgPath := filepath.Join(t.TempDir(), ".dotfiles-manager.yaml")
+	cfg := &config.Config{Syncs: []config.Sync{
+		{Target: ".config/$DFM_TEST_HOST_ENV", Source: "./$DFM_TEST_USER_ENV/global"},
+	}}
+
+	selected, err := selectSyncs(cfg, cfgPath, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, selected, 1)
+
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, ".config", "host-a"), selected[0].TargetRoot)
+	require.Equal(t, filepath.Join(filepath.Dir(cfgPath), "alice", "global"), selected[0].SourceRoot)
+}
+
+func TestSelectSyncsRejectsMissingEnvPath(t *testing.T) {
+	t.Setenv("DFM_TEST_EMPTY_ENV", "")
+
+	cfgPath := filepath.Join(t.TempDir(), ".dotfiles-manager.yaml")
+	cfg := &config.Config{Syncs: []config.Sync{
+		{Target: ".config/nvim", Source: "./$DFM_TEST_EMPTY_ENV/global"},
+	}}
+
+	selected, err := selectSyncs(cfg, cfgPath, nil, nil)
+	require.Nil(t, selected)
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigPathEnvUndefined, dfmerr.MustCode(err))
+}
+
 func TestIsWithinTarget(t *testing.T) {
 	t.Parallel()
 	target := filepath.Join("/tmp", "root")

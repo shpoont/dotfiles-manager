@@ -58,6 +58,9 @@ GitHub Releases publish:
 1. **Source vs target**
    - `source` = manifest, source of truth (relative to config file directory)
    - `target` = live location under `$HOME` (relative path in config)
+   - both may include environment variables (`$VAR` / `${VAR}`) that are expanded at runtime
+   - expansion happens before normalization/validation
+   - missing/empty env vars are errors; expanded paths must still be relative and non-escaping
 
 2. **Sync entries**
    - config has `syncs[]`, each with one `target` + one `source`
@@ -70,6 +73,7 @@ GitHub Releases publish:
 
 4. **Scoped runs**
    - optional `[path]` narrows commands to matching target subpaths
+   - matching uses post-expansion target roots
 
 5. **Preview and safety**
    - `status` is preview
@@ -108,6 +112,10 @@ GitHub Releases publish:
 syncs:
   - target: .config/nvim
     source: .config/nvim
+  - target: ./
+    source: ./global
+  - target: ./
+    source: "./$HOSTNAME/$USER"
     on:
       deploy:
         remove-unmanaged:

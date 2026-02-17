@@ -46,6 +46,12 @@ Examples:
 - `target: .config/nvim` + `[path]=~/.config/nvim/lua` → selected (subtree only)
 - `target: .config/nvim` + `[path]=~/.config` → not selected
 
+### Env-var placeholders and CLI scope
+
+- `syncs[].source`/`target` may contain `$VAR` and `${VAR}` placeholders expanded from the runtime environment before lexical normalization and CLI scoping.
+- The post-expansion path is what `[path]` matching uses, so scope behavior remains the same (equal target or inside target subtree).
+- Missing/empty placeholders, absolute post-expansion paths, or post-expansion escape (`..`) paths fail validation before scoping.
+
 ## 3) Per-path behavior matrix
 
 | Scenario | Deploy | Import | Status |

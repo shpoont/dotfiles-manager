@@ -53,6 +53,8 @@ type ResolveOptions struct {
 	Stat         func(string) (os.FileInfo, error)
 }
 
+type lookupEnvFunc func(string) (string, bool)
+
 func ResolvePath(opts ResolveOptions) (string, error) {
 	getenv := opts.Getenv
 	if getenv == nil {
@@ -163,6 +165,10 @@ func extractUnknownKey(message string) string {
 }
 
 func Validate(cfg *Config) error {
+	return validateWithLookup(cfg, os.LookupEnv)
+}
+
+func validateWithLookup(cfg *Config, lookup lookupEnvFunc) error {
 	if cfg == nil {
 		return dfmerr.New(dfmerr.CodeConfigParse, "Failed to parse YAML config: <nil>", nil)
 	}
@@ -181,10 +187,10 @@ func Validate(cfg *Config) error {
 			return dfmerr.New(dfmerr.CodeConfigSchemaRequired, fmt.Sprintf("Missing required key: %s", sourceKey), map[string]any{"key_path": sourceKey})
 		}
 
-		if err := validateRelative(sync.Target, targetKey); err != nil {
+		if _, err := expandAndValidateSyncPath(sync.Target, targetKey, lookup); err != nil {
 			return err
 		}
-		if err := validateRelative(sync.Source, sourceKey); err != nil {
+		if _, err := expandAndValidateSyncPath(sync.Source, sourceKey, lookup); err != nil {
 			return err
 		}
 	}
@@ -192,9 +198,130 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
+func ExpandSyncPath(value string, keyPath string) (string, error) {
+	return expandAndValidateSyncPath(value, keyPath, os.LookupEnv)
+}
+
+func expandAndValidateSyncPath(value string, keyPath string, lookup lookupEnvFunc) (string, error) {
+	expanded, err := expandPathPlaceholders(value, keyPath, lookup)
+	if err != nil {
+		return "", err
+	}
+	if err := validateRelative(expanded, keyPath); err != nil {
+		return "", err
+	}
+	return expanded, nil
+}
+
+func expandPathPlaceholders(value string, keyPath string, lookup lookupEnvFunc) (string, error) {
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+
+	var out strings.Builder
+	out.Grow(len(value))
+
+	for idx := 0; idx < len(value); {
+		if value[idx] != '$' {
+			out.WriteByte(value[idx])
+			idx++
+			continue
+		}
+
+		if idx+1 >= len(value) {
+			out.WriteByte('$')
+			idx++
+			continue
+		}
+
+		if value[idx+1] == '{' {
+			closeOffset := strings.IndexByte(value[idx+2:], '}')
+			if closeOffset < 0 {
+				return "", dfmerr.New(
+					dfmerr.CodeConfigSchemaType,
+					fmt.Sprintf("Invalid env placeholder in path: %s", keyPath),
+					map[string]any{"key_path": keyPath},
+				)
+			}
+
+			name := value[idx+2 : idx+2+closeOffset]
+			if !isValidEnvName(name) {
+				return "", dfmerr.New(
+					dfmerr.CodeConfigSchemaType,
+					fmt.Sprintf("Invalid env placeholder in path: %s", keyPath),
+					map[string]any{"key_path": keyPath},
+				)
+			}
+
+			val, ok := lookup(name)
+			if !ok || val == "" {
+				return "", dfmerr.New(
+					dfmerr.CodeConfigPathEnvUndefined,
+					fmt.Sprintf("Environment variable %s required for path: %s", name, keyPath),
+					map[string]any{"key_path": keyPath, "var": name},
+				)
+			}
+
+			out.WriteString(val)
+			idx += closeOffset + 3
+			continue
+		}
+
+		next := value[idx+1]
+		if !isEnvVarStart(next) {
+			out.WriteByte('$')
+			idx++
+			continue
+		}
+
+		end := idx + 2
+		for end < len(value) && isEnvVarPart(value[end]) {
+			end++
+		}
+
+		name := value[idx+1 : end]
+		val, ok := lookup(name)
+		if !ok || val == "" {
+			return "", dfmerr.New(
+				dfmerr.CodeConfigPathEnvUndefined,
+				fmt.Sprintf("Environment variable %s required for path: %s", name, keyPath),
+				map[string]any{"key_path": keyPath, "var": name},
+			)
+		}
+
+		out.WriteString(val)
+		idx = end
+	}
+
+	return out.String(), nil
+}
+
+func isValidEnvName(name string) bool {
+	if name == "" {
+		return false
+	}
+	if !isEnvVarStart(name[0]) {
+		return false
+	}
+	for idx := 1; idx < len(name); idx++ {
+		if !isEnvVarPart(name[idx]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isEnvVarStart(ch byte) bool {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_'
+}
+
+func isEnvVarPart(ch byte) bool {
+	return isEnvVarStart(ch) || (ch >= '0' && ch <= '9')
+}
+
 func validateRelative(value, keyPath string) error {
 	trimmed := strings.TrimSpace(value)
-	if filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "~") || strings.HasPrefix(trimmed, "$") || strings.Contains(trimmed, "${") {
+	if filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "~") {
 		return dfmerr.New(dfmerr.CodeConfigPathNotRelative, fmt.Sprintf("Path must be relative: %s", keyPath), map[string]any{"key_path": keyPath})
 	}
 

@@ -33,7 +33,7 @@ Rules:
 - log level defaults to `info`; supported levels: `debug`, `info`, `warn`, `error`
 - warnings/errors are emitted as human-readable stderr diagnostics
 - `--dry-run` is valid for `deploy`/`import` only
-- `[path]` narrows execution to matching target subpaths
+- `[path]` narrows execution to matching target subpaths (against post-expansion target roots)
 
 ## Config surface
 
@@ -59,9 +59,11 @@ syncs:
 ```
 
 Key constraints:
-- `target`: relative to `$HOME`
-- `source`: relative to config file directory
-- config paths are relative-only
+- `target`: relative to `$HOME` after env expansion
+- `source`: relative to config file directory after env expansion
+- env placeholders are supported in `target`/`source`: `$VAR`, `${VAR}`
+- missing or empty env values are validation errors
+- expanded paths are still required to be relative-only and non-escaping
 - unknown keys are validation errors
 
 Machine-readable schema:
@@ -81,6 +83,7 @@ Machine-readable schema:
 Text mode:
 - sync blocks always start with:
   - `sync[idx] target=~/<target> source=./<source>`
+  - header uses configured path text (placeholders stay visible if present)
 - each command prints only non-empty phase blocks
 - summary line prints only non-zero categories
 - status uses potential-action phrases (`can create`, `can update`, `can replace type`, `can add`, `can remove`)

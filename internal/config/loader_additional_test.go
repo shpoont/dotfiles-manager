@@ -108,14 +108,117 @@ func TestValidateRelativeSuccess(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestValidateRejectsTildeAndEnvLikePaths(t *testing.T) {
+func TestValidateRejectsTildeAndAbsoluteEnvExpansion(t *testing.T) {
 	t.Parallel()
 
-	err := Validate(&Config{Syncs: []Sync{{Target: "~/.config/nvim", Source: ".config/nvim"}}})
+	err := validateWithLookup(
+		&Config{Syncs: []Sync{{Target: "~/.config/nvim", Source: ".config/nvim"}}},
+		func(string) (string, bool) { return "", false },
+	)
 	require.Error(t, err)
 	require.Equal(t, dfmerr.CodeConfigPathNotRelative, dfmerr.MustCode(err))
 
-	err = Validate(&Config{Syncs: []Sync{{Target: ".config/nvim", Source: "$HOME/nvim"}}})
+	err = validateWithLookup(
+		&Config{Syncs: []Sync{{Target: ".config/nvim", Source: "$HOME/nvim"}}},
+		func(key string) (string, bool) {
+			if key == "HOME" {
+				return "/Users/shpoont", true
+			}
+			return "", false
+		},
+	)
 	require.Error(t, err)
 	require.Equal(t, dfmerr.CodeConfigPathNotRelative, dfmerr.MustCode(err))
+}
+
+func TestValidateAllowsEnvPlaceholders(t *testing.T) {
+	t.Parallel()
+
+	err := validateWithLookup(
+		&Config{Syncs: []Sync{{Target: ".config/$HOSTNAME", Source: "./$HOSTNAME/$USER"}}},
+		func(key string) (string, bool) {
+			switch key {
+			case "HOSTNAME":
+				return "mbp", true
+			case "USER":
+				return "alice", true
+			default:
+				return "", false
+			}
+		},
+	)
+	require.NoError(t, err)
+}
+
+func TestValidateRejectsMissingOrEmptyEnvPlaceholders(t *testing.T) {
+	t.Parallel()
+
+	err := validateWithLookup(
+		&Config{Syncs: []Sync{{Target: ".config/$HOSTNAME", Source: ".config/nvim"}}},
+		func(string) (string, bool) { return "", false },
+	)
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigPathEnvUndefined, dfmerr.MustCode(err))
+
+	err = validateWithLookup(
+		&Config{Syncs: []Sync{{Target: ".config/nvim", Source: "./$USER"}}},
+		func(key string) (string, bool) {
+			if key == "USER" {
+				return "", true
+			}
+			return "", false
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigPathEnvUndefined, dfmerr.MustCode(err))
+}
+
+func TestExpandSyncPathRejectsInvalidPlaceholderAndEscape(t *testing.T) {
+	t.Parallel()
+
+	_, err := expandPathPlaceholders("./${HOSTNAME", "syncs[0].source", func(string) (string, bool) { return "", false })
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigSchemaType, dfmerr.MustCode(err))
+
+	_, err = expandAndValidateSyncPath("./$ENV", "syncs[0].source", func(key string) (string, bool) {
+		if key == "ENV" {
+			return "../escape", true
+		}
+		return "", false
+	})
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigPathEscape, dfmerr.MustCode(err))
+}
+
+func TestExpandSyncPathSupportsDollarAndBracedVars(t *testing.T) {
+	t.Setenv("DFM_EXPAND_HOST", "mbp")
+	t.Setenv("DFM_EXPAND_USER", "alice")
+
+	expanded, err := ExpandSyncPath("./$DFM_EXPAND_HOST/$DFM_EXPAND_USER", "syncs[0].source")
+	require.NoError(t, err)
+	require.Equal(t, "mbp/alice", filepath.ToSlash(filepath.Clean(expanded)))
+
+	expanded, err = ExpandSyncPath("./${DFM_EXPAND_HOST}/${DFM_EXPAND_USER}", "syncs[0].source")
+	require.NoError(t, err)
+	require.Equal(t, "mbp/alice", filepath.ToSlash(filepath.Clean(expanded)))
+}
+
+func TestExpandSyncPathTreatsBareDollarAsLiteral(t *testing.T) {
+	t.Parallel()
+
+	expanded, err := ExpandSyncPath("./foo/$/bar", "syncs[0].source")
+	require.NoError(t, err)
+	require.Equal(t, "foo/$/bar", filepath.ToSlash(filepath.Clean(expanded)))
+}
+
+func TestExpandSyncPathRejectsInvalidBracedName(t *testing.T) {
+	t.Parallel()
+
+	_, err := expandPathPlaceholders("./${1BAD}/path", "syncs[0].source", func(string) (string, bool) { return "", false })
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigSchemaType, dfmerr.MustCode(err))
+
+	_, err = expandPathPlaceholders("./${BAD-NAME}/path", "syncs[0].source", func(string) (string, bool) { return "", false })
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigSchemaType, dfmerr.MustCode(err))
 }

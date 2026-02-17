@@ -20,6 +20,19 @@ Use `status` first to preview both sides.
 
 `source` is the manifest/source of truth. Command direction (`deploy` vs `import`) determines which side updates the other.
 
+## Can I use environment variables in `source`/`target` paths?
+
+Yes.
+
+Supported syntax:
+- `$VAR`
+- `${VAR}`
+
+Rules:
+- expansion happens before path validation
+- missing or empty env values are errors
+- expanded paths must still be relative and must not escape base directories via `..`
+
 ## How does `[path]` filtering work?
 
 A command-scoped `[path]` only selects syncs where that path is the sync target or inside it. Parent-of-target paths do not match.

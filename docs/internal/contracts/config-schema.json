@@ -20,7 +20,7 @@
   "$defs": {
     "relativePath": {
       "type": "string",
-      "description": "Relative path only. Runtime also rejects paths that lexically escape the base directory after normalization.",
+      "description": "Relative path only; runtime expands `$VAR` and `${VAR}` placeholders before normalization. Missing/empty variables fail validation. Expanded paths must still be relative and non-escaping.",
       "allOf": [
         {
           "minLength": 1
@@ -47,12 +47,7 @@
         },
         {
           "not": {
-            "pattern": "^\\s*\\$"
-          }
-        },
-        {
-          "not": {
-            "pattern": "\\$\\{"
+            "pattern": "\\$\\{[^}]*$"
           }
         },
         {
