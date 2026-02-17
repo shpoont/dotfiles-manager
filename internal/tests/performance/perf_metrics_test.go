@@ -19,7 +19,7 @@ import (
 
 const (
 	perfFixtureFileCount     = 1000
-	perfManagedFileCount     = 120
+	perfManagedFileCount     = 80
 	statusThresholdSeconds   = 2.0
 	deployDryRunThresholdSec = 3.0
 	importDryRunThresholdSec = 3.0

@@ -104,6 +104,7 @@ CI helper scripts:
 - `scripts/ci/install-linters.sh`
 - `scripts/ci/run-static-checks.sh`
 - `scripts/ci/run-tests.sh`
+- `scripts/ci/write-branch-metrics.sh`
 - `scripts/ci/docker-shard.sh`
 - `scripts/ci/assert-performance.sh`
 - `scripts/ci/coverage-aggregate.sh`

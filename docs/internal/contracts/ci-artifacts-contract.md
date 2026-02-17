@@ -17,6 +17,9 @@ Produced by: `linux-contract` shard
 Path: `artifacts/branch-metrics.json`  
 Consumed by: `coverage-aggregation`
 
+Implementation note:
+- produced from `artifacts/coverage-contract.out` via `scripts/ci/write-branch-metrics.sh`
+
 Required JSON shape:
 
 ```json
