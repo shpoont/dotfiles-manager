@@ -1,7 +1,8 @@
 project_name: dotfiles-manager
 builds:
   - id: linux
-    main: .
+    main: ./cmd/dotfiles-manager
+    binary: dotfiles-manager
     goos:
       - linux
     goarch:
@@ -10,7 +11,8 @@ builds:
     env:
       - CGO_ENABLED=0
   - id: darwin
-    main: .
+    main: ./cmd/dotfiles-manager
+    binary: dotfiles-manager
     goos:
       - darwin
     goarch:
