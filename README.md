@@ -6,7 +6,7 @@
 
 ## Introduction
 
-This repository currently contains the internal specification and engineering docs that define the tool behavior before/while implementation is built.
+This repository contains the CLI implementation plus internal/user docs for behavior, contracts, and engineering standards.
 
 Core workflows:
 - `status` — preview drift and candidate operations
@@ -17,18 +17,26 @@ Core workflows:
 
 ## Installation
 
-### Current state
+### Install with Go
 
-The project is in specification/implementation phase. A packaged installer is not published yet.
+```bash
+go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
+```
 
-### Get the repository
+### Build locally from source
 
 ```bash
 git clone <repo-url>
 cd dotfiles-manager
+go build -o dotfiles-manager ./cmd/dotfiles-manager
 ```
 
-When implementation binaries/scripts are available, this section should be updated with concrete install commands.
+### Release artifacts
+
+GitHub Releases publish:
+- macOS amd64/arm64
+- Linux amd64/arm64
+- checksums
 
 ---
 

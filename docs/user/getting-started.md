@@ -1,10 +1,16 @@
 # Getting started
 
-## 1) Prepare your repo
+## 1) Install the CLI
+
+```bash
+go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
+```
+
+## 2) Prepare your repo
 
 Create or choose a repo where your managed dotfiles live.
 
-## 2) Create config file
+## 3) Create config file
 
 Use YAML (default filename: `.dotfiles-manager.yaml` in your current working directory).
 
@@ -19,7 +25,7 @@ Path rules:
 - `source` is relative to the directory containing the config file
 - config paths must be relative (no absolute paths)
 
-## 3) Run status first
+## 4) Run status first
 
 ```bash
 dotfiles-manager status
@@ -27,7 +33,7 @@ dotfiles-manager status
 
 This previews what `deploy` and `import` would do.
 
-## 4) Dry-run deploy/import
+## 5) Dry-run deploy/import
 
 ```bash
 dotfiles-manager deploy --dry-run ~/.config/nvim
@@ -36,14 +42,14 @@ dotfiles-manager import --dry-run ~/.config/nvim
 
 `--dry-run` is available on `deploy` and `import` only.
 
-## 5) Apply changes
+## 6) Apply changes
 
 ```bash
 dotfiles-manager deploy ~/.config/nvim
 dotfiles-manager import ~/.config/nvim
 ```
 
-## 6) Optional overrides for config path
+## 7) Optional overrides for config path
 
 Precedence is:
 1. `--config <path>`
