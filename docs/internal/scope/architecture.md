@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/scope/architecture.md
 ---
 
@@ -14,13 +14,13 @@ This document defines the runtime architecture that implements the approved spec
 - **Contract-first**: behavior is driven by `specs/decisions.md` + `contracts/*`.
 - **Deterministic**: config order + lexical path ordering everywhere.
 - **Fail-fast**: stop at first validation/runtime failure.
-- **Channel separation**: reporter owns stdout, logger owns stderr.
+- **Channel separation**: reporter owns stdout, diagnostics own stderr, logger owns log file.
 - **Portable core**: macOS/Linux now; platform adapter boundary for future Windows.
 
 ## 2) Runtime module boundaries
 
 1. **CLI / command layer**
-   - parses global flags (`--config`, `--log-format`, `--log-level`) and command flags
+   - parses global flags (`--config`, `--log-file`, `--log-level`) and command flags
    - dispatches `status`, `deploy`, `import`
    - maps unsupported/invalid flags to stable error codes
 
@@ -65,8 +65,9 @@ This document defines the runtime architecture that implements the approved spec
    - emits errors in contract format when `--json` is enabled
 
 7. **Logger**
-   - emits runtime logs to stderr only
-   - supports text/json formats + log levels
+   - emits runtime logs to file (platform default unless overridden)
+   - supports log levels
+   - emits warning/error diagnostics to stderr in human-readable form
    - enforces redaction policy from `../contracts/logging-contract.md`
 
 ## 3) Command data flows

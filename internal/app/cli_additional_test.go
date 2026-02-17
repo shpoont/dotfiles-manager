@@ -15,6 +15,7 @@ import (
 
 func TestStatusTextOutputAndStderrLogging(t *testing.T) {
 	tempDir := t.TempDir()
+	setTempHome(t)
 	oldWD, err := os.Getwd()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
@@ -32,12 +33,12 @@ func TestStatusTextOutputAndStderrLogging(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	require.Contains(t, stdout.String(), "sync[0] target=~/.config/zsh source=./zsh")
 	require.Contains(t, stdout.String(), "summary deploy=0")
-	require.Contains(t, stderr.String(), "command.start")
-	require.Contains(t, stderr.String(), "command.complete")
+	require.Empty(t, stderr.String())
 }
 
-func TestInvalidLogFormatWithJSONEnvelope(t *testing.T) {
+func TestInvalidLogLevelWithJSONEnvelope(t *testing.T) {
 	tempDir := t.TempDir()
+	setTempHome(t)
 	oldWD, err := os.Getwd()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
@@ -48,11 +49,11 @@ func TestInvalidLogFormatWithJSONEnvelope(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"status", "--json", "--log-format", "yaml"})
+	cmd.SetArgs([]string{"status", "--json", "--log-level", "verbose"})
 
 	err = cmd.Execute()
 	require.Error(t, err)
-	require.Empty(t, stderr.String())
+	require.Contains(t, stderr.String(), "Invalid value for --log-level")
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
@@ -135,7 +136,7 @@ func TestExecuteReturnsOneOnError(t *testing.T) {
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
 
-	os.Args = []string{"dotfiles-manager", "status", "--log-format", "yaml", "--json"}
+	os.Args = []string{"dotfiles-manager", "status", "--log-level", "verbose", "--json"}
 	require.Equal(t, 1, Execute())
 }
 
@@ -176,11 +177,13 @@ func TestEmitErrorTextAndJSONBranches(t *testing.T) {
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, errors.New("plain error"))
 	require.Contains(t, stdout.String(), "\"ok\":false")
 	require.Contains(t, stdout.String(), "\"schema_version\":\"2.0\"")
+	require.Contains(t, stderr.String(), "plain error")
 
 	stdout.Reset()
 	stderr.Reset()
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, dfmerr.New(dfmerr.CodeScopeNoMatch, "No sync matched provided path", map[string]any{"path": "~/.config"}))
 	require.Contains(t, stdout.String(), "DFM_SCOPE_NO_MATCH")
+	require.Contains(t, stderr.String(), "No sync matched provided path")
 }
 
 func TestEmitErrorJSONIncludesPartialSummary(t *testing.T) {

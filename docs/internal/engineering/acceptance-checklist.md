@@ -94,13 +94,14 @@ Use this checklist before calling implementation complete.
 
 ## I) Logging and observability
 
-- [ ] default logging format is text.
-- [ ] `--log-format json` emits JSON Lines on stderr.
+- [ ] logs are written to platform-default log file path.
+- [ ] missing log directory is created automatically.
+- [ ] `--log-file` overrides default log path.
+- [ ] failure to open/write log file fails command.
 - [ ] default logging level is `info`.
 - [ ] `--log-level` accepts `debug|info|warn|error`.
-- [ ] logs are emitted on stderr, not stdout.
+- [ ] warning/error diagnostics are emitted on stderr as human-readable text.
 - [ ] `--json` stdout output is never polluted by logs.
-- [ ] invalid `--log-format` values fail with `DFM_FLAG_INVALID_VALUE`.
 - [ ] invalid `--log-level` values fail with `DFM_FLAG_INVALID_VALUE`.
 - [ ] logging-critical modules/paths meet 100% branch coverage.
 - [ ] redaction/masking branches have full branch coverage.

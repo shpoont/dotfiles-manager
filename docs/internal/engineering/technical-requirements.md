@@ -1,7 +1,7 @@
 ---
 owner: Engineering Leadership
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/engineering/technical-requirements.md
 ---
 
@@ -105,6 +105,7 @@ Reference: `ci-cd.md`
 - No path traversal outside declared roots: **required**
 - No unintended writes in dry-run mode: **required**
 - Error messages must not leak sensitive data: **required**
-- Runtime logging must follow `../contracts/logging-contract.md` (stderr channel separation + redaction).
-- Runtime logging default format is `text`; `json` format is supported via CLI option.
+- Runtime logging must follow `../contracts/logging-contract.md` (file-first logging + stderr diagnostics + redaction).
+- Runtime logging destination defaults to platform path and is overridable via `--log-file`.
+- Runtime logs are human-readable text only (no log format option).
 - Runtime logging default level is `info`; allowed levels are `debug|info|warn|error`.

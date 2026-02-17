@@ -1,13 +1,13 @@
 ---
 owner: Core Engineering
-status: Contract v1
-last-updated: 2026-02-16
+status: Contract v2
+last-updated: 2026-02-17
 canonical-source: docs/internal/contracts/logging-contract.md
 ---
 
 # dotfiles-manager: logging contract
 
-This document defines logging requirements for v1.
+This document defines logging requirements for v2.
 
 ## 1) Scope
 
@@ -18,25 +18,34 @@ This contract covers internal runtime logging behavior for:
 
 It does not replace user-facing command output documentation.
 
-## 2) Output channel contract
+## 2) Output channels and destinations
 
-- Logs must be emitted to **stderr**.
-- Human/JSON command outputs remain on **stdout**.
-- For `--json`, stdout must remain valid JSON-only output.
+- Command output remains on **stdout**.
+- Warnings and errors are emitted as human-readable diagnostics on **stderr**.
+- Runtime logs are written to a **log file** (not stdout/stderr stream logs).
+- For `--json`, stdout must remain JSON-only output.
 
-## 3) Log format contract
+## 3) Default log file paths
 
-- Global CLI option: `--log-format <text|json>`
-- Default log format: `text`
-- `--log-format json` emits one JSON object per line to stderr (JSON Lines)
-- Invalid format values must fail with error code `DFM_FLAG_INVALID_VALUE`
+- macOS:
+  - `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
+- Linux:
+  - `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
 
-## 4) Log level contract
+Rules:
+- Missing parent directories must be created automatically.
+- Log file writes are append-only.
+- If the log file cannot be opened/written, the command fails (non-zero).
 
+## 4) CLI controls
+
+- Global CLI option: `--log-file <path>`
+  - overrides default platform log file path
 - Global CLI option: `--log-level <debug|info|warn|error>`
-- Default log level: `info`
-- Log level applies to all commands (`status`, `deploy`, `import`)
-- Invalid level values must fail with error code `DFM_FLAG_INVALID_VALUE`
+  - default: `info`
+  - invalid values must fail with `DFM_FLAG_INVALID_VALUE`
+
+No log format option is supported; logs are human-readable text only.
 
 ## 5) Minimum log semantics
 
@@ -54,13 +63,14 @@ When available, include contextual fields:
 
 - Logs must not expose secret/sensitive values.
 - Any sensitive values that reach logging paths must be redacted before emission.
-- Error messages should contain diagnostic context without leaking sensitive content.
+- Error diagnostics should include actionable context without leaking sensitive content.
 
 ## 7) Coverage requirement (logging-critical)
 
 Logging-critical code must have **100% branch coverage**.
 
 Logging-critical includes:
+- log file writer initialization/error branches
 - redaction/masking helpers
 - error logging branches
 - level/field gating branches in logging emitters

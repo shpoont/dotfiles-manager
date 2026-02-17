@@ -79,13 +79,21 @@ GitHub Releases publish:
    - `./.dotfiles-manager.yaml` in the current working directory (fallback)
    - no parent-directory search is performed
 
-7. **Logging format**
-   - default logs are human-readable text
-   - `--log-format json` enables machine-readable logs (stderr)
+7. **Logging destination**
+   - logs are always written to a log file
+   - default paths:
+     - macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
+     - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
+   - `--log-file <path>` overrides the destination path
+   - logs are always human-readable text (no log format option)
 
 8. **Logging level**
    - default log level is `info`
    - set `--log-level <debug|info|warn|error>` for verbosity control
+
+9. **stderr behavior**
+   - warnings and errors are emitted as human-readable diagnostics on stderr
+   - command output remains on stdout
 
 ---
 

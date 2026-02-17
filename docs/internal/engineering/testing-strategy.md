@@ -1,7 +1,7 @@
 ---
 owner: QA / Testing Lead
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/engineering/testing-strategy.md
 ---
 
@@ -26,7 +26,7 @@ This document defines the test structure that validates the specification.
 3. **Contract tests**
    - JSON envelope and payload schemas
    - stable error codes and deterministic validation order
-   - logging contract conformance (channel separation/redaction)
+   - logging contract conformance (file sink/stderr diagnostics/redaction)
 
 4. **Acceptance tests**
   - full checklist execution (`acceptance-checklist.md`)
@@ -106,11 +106,11 @@ internal/testkit/
 - redaction/masking paths: full branch coverage
 - error logging branches (including `DFM_*` codes): full branch coverage
 - per-command integration assertions (`status`/`deploy`/`import`):
-  - default logging format is human-readable text
-  - `--log-format json` emits valid JSON Lines on stderr
+  - logs are written to platform-default log file path
+  - `--log-file` overrides destination path
   - default logging level is `info`
   - `--log-level` accepts `debug|info|warn|error` and rejects invalid values
-  - logs emitted to stderr
+  - warning/error diagnostics are emitted on stderr
   - stdout contract remains valid (including `--json`)
   - no sensitive values in emitted logs
 
@@ -142,7 +142,7 @@ CI sharding is required for PR and `main` pipelines.
 - `linux-contract`
   - JSON contract tests
   - validation error ordering/codes
-  - logging contract checks (stderr channel, format/level behavior, redaction)
+  - logging contract checks (file sink, level behavior, stderr diagnostics, redaction)
   - emits `artifacts/branch-metrics.json` (`branch`, `logging_branch`) for coverage gating
 - `linux-performance`
   - dotfiles-sized fixture (~1,000 files)

@@ -31,13 +31,13 @@ func TestAsUnknownAndMustCodeUnknown(t *testing.T) {
 }
 
 func TestInvalidFlagValueAndWithDetails(t *testing.T) {
-	err := InvalidFlagValue("--log-format", "xml", "text|json")
+	err := InvalidFlagValue("--log-level", "verbose", "debug|info|warn|error")
 	require.Equal(t, CodeFlagInvalidValue, MustCode(err))
 
-	updated := WithDetails(err, map[string]any{"flag": "--log-format", "expected": "text|json"})
+	updated := WithDetails(err, map[string]any{"flag": "--log-level", "expected": "debug|info|warn|error"})
 	dfm, ok := As(updated)
 	require.True(t, ok)
-	require.Equal(t, "--log-format", dfm.Details["flag"])
+	require.Equal(t, "--log-level", dfm.Details["flag"])
 }
 
 func TestWithDetailsNonDFMError(t *testing.T) {

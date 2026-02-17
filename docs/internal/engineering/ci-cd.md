@@ -39,7 +39,7 @@ All must pass before merge:
 3. **Contract checks**
    - JSON contract tests
    - validation/error code tests
-   - logging contract tests (stderr separation, format behavior, redaction)
+   - logging contract tests (file destination behavior, stderr diagnostics, redaction)
 
 4. **Performance regression checks**
    - run dotfiles-sized fixture benchmark tests in `linux-performance`

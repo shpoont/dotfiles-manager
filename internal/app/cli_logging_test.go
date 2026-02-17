@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStatusJSONLogsIncludeComponentAndRedactConfigPath(t *testing.T) {
+func TestStatusLogsWrittenToFileAndRedactConfigPath(t *testing.T) {
 	projectDir := t.TempDir()
 	setTempHome(t)
 	setCWD(t, projectDir)
@@ -25,58 +25,51 @@ func TestStatusJSONLogsIncludeComponentAndRedactConfigPath(t *testing.T) {
     source: zsh
 `), 0o644))
 
+	logPath := filepath.Join(projectDir, "logs", "command.log")
+
 	cmd := NewRootCmd()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"status", "--config", configPath, "--log-format", "json", "--log-level", "debug"})
+	cmd.SetArgs([]string{"status", "--config", configPath, "--log-file", logPath, "--log-level", "debug"})
 
 	require.NoError(t, cmd.Execute(), stderr.String())
 	require.Contains(t, stdout.String(), "sync[0] target=~/.config/zsh source=./zsh")
 	require.Contains(t, stdout.String(), "summary deploy=0")
-	require.NotContains(t, stderr.String(), "secret-token")
+	require.Empty(t, stderr.String())
 
-	entries := parseJSONLogLines(t, stderr.String())
-	require.NotEmpty(t, entries)
-
-	start := findLogByMessage(entries, "command.start")
-	require.NotNil(t, start)
-	require.Equal(t, "cli", start["component"])
-	require.Equal(t, "status", start["command"])
-	require.Equal(t, false, start["dry_run"])
-
-	resolved := findLogByMessage(entries, "config.resolved")
-	require.NotNil(t, resolved)
-	require.Equal(t, logging.RedactedValue, resolved["config_path"])
-
-	complete := findLogByMessage(entries, "command.complete")
-	require.NotNil(t, complete)
-	require.Equal(t, "cli", complete["component"])
+	logBody := readLogFile(t, logPath)
+	require.Contains(t, logBody, "msg=command.start")
+	require.Contains(t, logBody, "component=cli")
+	require.Contains(t, logBody, "command=status")
+	require.Contains(t, logBody, "msg=config.resolved")
+	require.Contains(t, logBody, "config_path="+logging.RedactedValue)
+	require.Contains(t, logBody, "msg=command.complete")
+	require.NotContains(t, logBody, "secret-token")
 }
 
 func TestStatusJSONErrorLogsIncludeCode(t *testing.T) {
 	projectDir := t.TempDir()
+	setTempHome(t)
 	setCWD(t, projectDir)
+
+	logPath := filepath.Join(projectDir, "logs", "errors.log")
 
 	cmd := NewRootCmd()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"status", "--json", "--log-format", "json"})
+	cmd.SetArgs([]string{"status", "--json", "--log-file", logPath})
 
 	err := cmd.Execute()
 	require.Error(t, err)
+	require.Contains(t, stderr.String(), "Config not found")
 
-	entries := parseJSONLogLines(t, stderr.String())
-	require.NotEmpty(t, entries)
-
-	errorLog := findLogByMessage(entries, "command.error")
-	require.NotNil(t, errorLog)
-	require.Equal(t, "cli", errorLog["component"])
-	require.Equal(t, "status", errorLog["command"])
-	require.Equal(t, string(dfmerr.CodeConfigRequired), errorLog["error_code"])
+	logBody := readLogFile(t, logPath)
+	require.Contains(t, logBody, "msg=command.error")
+	require.Contains(t, logBody, "error_code="+string(dfmerr.CodeConfigRequired))
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
@@ -85,7 +78,7 @@ func TestStatusJSONErrorLogsIncludeCode(t *testing.T) {
 
 func TestLogCommandErrorBranches(t *testing.T) {
 	var buffer bytes.Buffer
-	logger, err := logging.New("json", "error", &buffer)
+	logger, err := logging.New("error", &buffer)
 	require.NoError(t, err)
 
 	logCommandError(nil, errors.New("ignored"))
@@ -93,41 +86,19 @@ func TestLogCommandErrorBranches(t *testing.T) {
 	require.Equal(t, "", strings.TrimSpace(buffer.String()))
 
 	logCommandError(logger, errors.New("plain failure"))
-	entries := parseJSONLogLines(t, buffer.String())
-	require.Len(t, entries, 1)
-	require.Equal(t, "command.error", entries[0]["msg"])
-	require.Equal(t, "", entries[0]["error_code"])
-	require.Equal(t, "plain failure", entries[0]["error_message"])
+	require.Contains(t, buffer.String(), "msg=command.error")
+	require.Contains(t, buffer.String(), "error_code=")
+	require.Contains(t, buffer.String(), "error_message=\"plain failure\"")
 
 	buffer.Reset()
 	logCommandError(logger, dfmerr.New(dfmerr.CodeIOWrite, "Write failed: token=abc", nil))
-	entries = parseJSONLogLines(t, buffer.String())
-	require.Len(t, entries, 1)
-	require.Equal(t, string(dfmerr.CodeIOWrite), entries[0]["error_code"])
-	require.Equal(t, logging.RedactedValue, entries[0]["error_message"])
+	require.Contains(t, buffer.String(), "error_code="+string(dfmerr.CodeIOWrite))
+	require.Contains(t, buffer.String(), "error_message="+logging.RedactedValue)
 }
 
-func parseJSONLogLines(t *testing.T, raw string) []map[string]any {
+func readLogFile(t *testing.T, path string) string {
 	t.Helper()
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
-	entries := make([]map[string]any, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var entry map[string]any
-		require.NoError(t, json.Unmarshal([]byte(line), &entry), line)
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
-func findLogByMessage(entries []map[string]any, message string) map[string]any {
-	for _, entry := range entries {
-		if entry["msg"] == message {
-			return entry
-		}
-	}
-	return nil
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(content)
 }

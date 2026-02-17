@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Contract v1
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/contracts/validation-errors.md
 ---
 
@@ -43,7 +43,7 @@ When `--json` is set, errors are emitted via JSON envelope (`ok=false`, `error.c
 | Code | Trigger | Message template |
 |---|---|---|
 | `DFM_FLAG_UNSUPPORTED` | unsupported flag used for command (e.g. `status --dry-run`) | `Flag not supported for command: {flag}` |
-| `DFM_FLAG_INVALID_VALUE` | invalid value provided for a supported flag (e.g. `--log-format yaml`, `--log-level verbose`) | `Invalid value for {flag}: {value} (expected: {expected})` |
+| `DFM_FLAG_INVALID_VALUE` | invalid value provided for a supported flag (e.g. `--log-level verbose`) | `Invalid value for {flag}: {value} (expected: {expected})` |
 | `DFM_SCOPE_NO_MATCH` | provided `[path]` matches no sync targets | `No sync matched provided path` |
 | `DFM_SCOPE_INVALID_PATH` | `[path]` cannot be normalized/resolved | `Invalid path argument: {input_path}` |
 
