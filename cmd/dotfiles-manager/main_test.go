@@ -15,6 +15,14 @@ func TestRunReturnsZeroForHelp(t *testing.T) {
 	require.Equal(t, 0, run())
 }
 
+func TestRunReturnsZeroForVersion(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"dotfiles-manager", "--version"}
+
+	require.Equal(t, 0, run())
+}
+
 func TestMainUsesExitHook(t *testing.T) {
 	oldArgs := os.Args
 	oldExit := osExit

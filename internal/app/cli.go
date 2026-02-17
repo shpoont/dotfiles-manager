@@ -32,16 +32,32 @@ func NewRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	rootCmd.Version = currentVersion()
+	rootCmd.SetVersionTemplate("dotfiles-manager version {{.Version}}\n")
+	rootCmd.Flags().Bool("version", false, "Print version and exit")
 
 	rootCmd.PersistentFlags().StringVar(&opts.configPath, "config", "", "Path to config file")
 	rootCmd.PersistentFlags().StringVar(&opts.logFile, "log-file", "", "Path to log file")
 	rootCmd.PersistentFlags().StringVar(&opts.logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 
+	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newStatusCmd(opts))
 	rootCmd.AddCommand(newDeployCmd(opts))
 	rootCmd.AddCommand(newImportCmd(opts))
 
 	return rootCmd
+}
+
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), versionLine())
+			return nil
+		},
+	}
 }
 
 func newStatusCmd(opts *rootOptions) *cobra.Command {
