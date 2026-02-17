@@ -27,14 +27,13 @@ func TestDeployCreatesDirectoryEntries(t *testing.T) {
 	require.Equal(t, false, payload["dry_run"])
 
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	copied := sync["copied"].([]any)
+	copied := operationsForPhase(sync, "copy")
 
 	foundDir := false
 	for _, entry := range copied {
-		item := entry.(map[string]any)
-		if item["path"] == "lua/plugins" {
-			require.Equal(t, "dir", item["type"])
-			require.Equal(t, "create", item["change"])
+		if entry["path"] == "lua/plugins" {
+			require.Equal(t, "dir", entry["type"])
+			require.Equal(t, "create", entry["action"])
 			foundDir = true
 		}
 	}

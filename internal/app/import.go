@@ -48,10 +48,11 @@ func buildImportSyncPayloads(cfg *config.Config, selections []syncSelection, dry
 			}
 			if len(payloads) > 0 || errorIsPartial(err) {
 				return nil, nil, newPartialCommandError(err, payloads, map[string]any{
-					"sync_count":             len(payloads),
-					"updated_manifest_count": summary.updatedManifest,
-					"added_unmanaged_count":  summary.addedUnmanaged,
-					"removed_missing_count":  summary.removedMissing,
+					"sync_count":           len(payloads),
+					"update_managed_count": summary.updatedManifest,
+					"add_unmanaged_count":  summary.addedUnmanaged,
+					"remove_missing_count": summary.removedMissing,
+					"operation_count":      summary.updatedManifest + summary.addedUnmanaged + summary.removedMissing,
 				})
 			}
 			return nil, nil, err
@@ -63,10 +64,11 @@ func buildImportSyncPayloads(cfg *config.Config, selections []syncSelection, dry
 	}
 
 	summaryPayload := map[string]any{
-		"sync_count":             len(payloads),
-		"updated_manifest_count": summary.updatedManifest,
-		"added_unmanaged_count":  summary.addedUnmanaged,
-		"removed_missing_count":  summary.removedMissing,
+		"sync_count":           len(payloads),
+		"update_managed_count": summary.updatedManifest,
+		"add_unmanaged_count":  summary.addedUnmanaged,
+		"remove_missing_count": summary.removedMissing,
+		"operation_count":      summary.updatedManifest + summary.addedUnmanaged + summary.removedMissing,
 	}
 
 	return payloads, summaryPayload, nil
@@ -173,19 +175,11 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 				if appliedAny {
 					err = markPartial(err)
 				}
-				return map[string]any{
-						"sync_index":       syncIndex,
-						"source_root":      selection.SourceRoot,
-						"target_root":      selection.TargetRoot,
-						"scope_prefix":     selection.ScopePrefix,
-						"updated_manifest": executedUpdatedManifestPayload,
-						"added_unmanaged":  executedAddedUnmanagedPayload,
-						"removed_missing":  executedRemovedMissingPayload,
-					}, importCounts{
-						updatedManifest: len(executedUpdatedManifestPayload),
-						addedUnmanaged:  len(executedAddedUnmanagedPayload),
-						removedMissing:  len(executedRemovedMissingPayload),
-					}, err
+				return buildImportSyncPayload(syncIndex, syncCfg, selection, executedUpdatedManifestPayload, executedAddedUnmanagedPayload, executedRemovedMissingPayload, "applied"), importCounts{
+					updatedManifest: len(executedUpdatedManifestPayload),
+					addedUnmanaged:  len(executedAddedUnmanagedPayload),
+					removedMissing:  len(executedRemovedMissingPayload),
+				}, err
 			}
 			appliedAny = true
 			if op.change == "create" {
@@ -199,19 +193,11 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 				if appliedAny {
 					err = markPartial(err)
 				}
-				return map[string]any{
-						"sync_index":       syncIndex,
-						"source_root":      selection.SourceRoot,
-						"target_root":      selection.TargetRoot,
-						"scope_prefix":     selection.ScopePrefix,
-						"updated_manifest": executedUpdatedManifestPayload,
-						"added_unmanaged":  executedAddedUnmanagedPayload,
-						"removed_missing":  executedRemovedMissingPayload,
-					}, importCounts{
-						updatedManifest: len(executedUpdatedManifestPayload),
-						addedUnmanaged:  len(executedAddedUnmanagedPayload),
-						removedMissing:  len(executedRemovedMissingPayload),
-					}, err
+				return buildImportSyncPayload(syncIndex, syncCfg, selection, executedUpdatedManifestPayload, executedAddedUnmanagedPayload, executedRemovedMissingPayload, "applied"), importCounts{
+					updatedManifest: len(executedUpdatedManifestPayload),
+					addedUnmanaged:  len(executedAddedUnmanagedPayload),
+					removedMissing:  len(executedRemovedMissingPayload),
+				}, err
 			}
 			appliedAny = true
 			executedRemovedMissingPayload = append(executedRemovedMissingPayload, buildTypedPath(op.path, op.typeID))
@@ -222,15 +208,11 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 		removedMissingPayload = executedRemovedMissingPayload
 	}
 
-	payload := map[string]any{
-		"sync_index":       syncIndex,
-		"source_root":      selection.SourceRoot,
-		"target_root":      selection.TargetRoot,
-		"scope_prefix":     selection.ScopePrefix,
-		"updated_manifest": updatedManifestPayload,
-		"added_unmanaged":  addedUnmanagedPayload,
-		"removed_missing":  removedMissingPayload,
+	state := "applied"
+	if dryRun {
+		state = "planned"
 	}
+	payload := buildImportSyncPayload(syncIndex, syncCfg, selection, updatedManifestPayload, addedUnmanagedPayload, removedMissingPayload, state)
 
 	counts := importCounts{
 		updatedManifest: len(updatedManifestPayload),
@@ -258,4 +240,74 @@ func buildImportManifest(path, change, entryType string) map[string]any {
 		"change": change,
 		"type":   entryType,
 	}
+}
+
+func buildImportSyncPayload(syncIndex int, syncCfg config.Sync, selection syncSelection, updatedManifestPayload []any, addedUnmanagedPayload []any, removedMissingPayload []any, state string) map[string]any {
+	display := buildSyncDisplay(syncIndex, syncCfg)
+	return map[string]any{
+		"sync_index":   syncIndex,
+		"sync":         display.Label,
+		"target":       display.Target,
+		"source":       display.Source,
+		"source_root":  selection.SourceRoot,
+		"target_root":  selection.TargetRoot,
+		"scope_prefix": selection.ScopePrefix,
+		"operations":   buildImportOperations(updatedManifestPayload, addedUnmanagedPayload, removedMissingPayload, state),
+		"counts": map[string]any{
+			"update_managed": len(updatedManifestPayload),
+			"add_unmanaged":  len(addedUnmanagedPayload),
+			"remove_missing": len(removedMissingPayload),
+			"operation_count": len(updatedManifestPayload) +
+				len(addedUnmanagedPayload) +
+				len(removedMissingPayload),
+		},
+	}
+}
+
+func buildImportOperations(updatedManifestPayload []any, addedUnmanagedPayload []any, removedMissingPayload []any, state string) []any {
+	operations := make([]any, 0, len(updatedManifestPayload)+len(addedUnmanagedPayload)+len(removedMissingPayload))
+
+	for _, item := range updatedManifestPayload {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		operations = append(operations, map[string]any{
+			"phase":  "update_managed",
+			"action": entry["change"],
+			"state":  state,
+			"path":   entry["path"],
+			"type":   entry["type"],
+		})
+	}
+
+	for _, item := range addedUnmanagedPayload {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		operations = append(operations, map[string]any{
+			"phase":  "add_unmanaged",
+			"action": "add",
+			"state":  state,
+			"path":   entry["path"],
+			"type":   entry["type"],
+		})
+	}
+
+	for _, item := range removedMissingPayload {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		operations = append(operations, map[string]any{
+			"phase":  "remove_missing",
+			"action": "remove",
+			"state":  state,
+			"path":   entry["path"],
+			"type":   entry["type"],
+		})
+	}
+
+	return operations
 }

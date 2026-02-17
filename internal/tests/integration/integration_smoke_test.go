@@ -33,7 +33,8 @@ func TestIntegrationStatusSmoke(t *testing.T) {
 	cmd.SetArgs([]string{"status"})
 
 	require.NoError(t, cmd.Execute())
-	require.Contains(t, out.String(), "status: syncs=1")
+	require.Contains(t, out.String(), "sync[0] target=~/.config/nvim source=./.config/nvim")
+	require.Contains(t, out.String(), "summary deploy=0")
 }
 
 func TestIntegrationDeployOverlapLaterSyncWins(t *testing.T) {

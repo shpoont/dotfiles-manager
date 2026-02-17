@@ -51,7 +51,7 @@ func TestStatusJSONReportsDriftAndCandidates(t *testing.T) {
 	payload := runJSONCommand(t, []string{"status", "--json"})
 	require.Equal(t, true, payload["ok"])
 	require.Equal(t, "status", payload["command"])
-	require.Equal(t, "1.0", payload["schema_version"])
+	require.Equal(t, "2.0", payload["schema_version"])
 
 	pathScope := payload["path_scope"].(map[string]any)
 	require.Nil(t, pathScope["input"])
@@ -63,32 +63,28 @@ func TestStatusJSONReportsDriftAndCandidates(t *testing.T) {
 	sync := syncs[0].(map[string]any)
 	require.Equal(t, float64(0), sync["sync_index"])
 	require.Equal(t, "", sync["scope_prefix"])
+	require.Equal(t, "sync[0] target=~/.config/nvim source=./source/nvim", sync["sync"])
 
-	deployChanges := sync["deploy_changes"].([]any)
-	require.Equal(t, []string{"alpha", "alpha/a.lua", "alpha/z.lua", "lua/init.lua", "lua/only-source.lua"}, extractPaths(deployChanges))
-	require.Equal(t, "create", deployChanges[0].(map[string]any)["change"])
-	require.Equal(t, "update", deployChanges[3].(map[string]any)["change"])
+	require.Equal(t, []string{"alpha", "alpha/a.lua", "alpha/z.lua", "lua/init.lua", "lua/only-source.lua"}, operationPaths(sync, "deploy"))
+	require.Equal(t, "create", findOperation(sync, "deploy", "alpha")["action"])
+	require.Equal(t, "update", findOperation(sync, "deploy", "lua/init.lua")["action"])
 
-	importChanges := sync["import_changes"].([]any)
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(importChanges))
-	require.Equal(t, "update", importChanges[0].(map[string]any)["change"])
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "import"))
+	require.Equal(t, "update", findOperation(sync, "import", "lua/init.lua")["action"])
 
-	incoming := sync["incoming_unmanaged"].([]any)
-	require.Equal(t, []string{"lua/new.lua", "lua/old.bak"}, extractPaths(incoming))
+	require.Equal(t, []string{"lua/new.lua", "lua/old.bak"}, operationPaths(sync, "incoming_unmanaged"))
 
-	removableUnmanaged := sync["removable_unmanaged"].([]any)
-	require.Equal(t, []string{"lua/old.bak"}, extractPaths(removableUnmanaged))
+	require.Equal(t, []string{"lua/old.bak"}, operationPaths(sync, "remove_unmanaged"))
 
-	removableMissing := sync["removable_missing"].([]any)
-	require.Equal(t, []string{"lua/only-source.lua"}, extractPaths(removableMissing))
+	require.Equal(t, []string{"lua/only-source.lua"}, operationPaths(sync, "remove_missing"))
 
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, float64(1), summary["sync_count"])
-	require.Equal(t, float64(5), summary["deploy_change_count"])
-	require.Equal(t, float64(1), summary["import_change_count"])
+	require.Equal(t, float64(5), summary["deploy_count"])
+	require.Equal(t, float64(1), summary["import_count"])
 	require.Equal(t, float64(2), summary["incoming_unmanaged_count"])
-	require.Equal(t, float64(1), summary["removable_unmanaged_count"])
-	require.Equal(t, float64(1), summary["removable_missing_count"])
+	require.Equal(t, float64(1), summary["remove_unmanaged_count"])
+	require.Equal(t, float64(1), summary["remove_missing_count"])
 }
 
 func TestStatusJSONScopeFiltersSubtree(t *testing.T) {
@@ -112,8 +108,8 @@ func TestStatusJSONScopeFiltersSubtree(t *testing.T) {
 	payload := runJSONCommand(t, []string{"status", "--json", filepath.Join(homeDir, ".config", "nvim", "lua")})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
 	require.Equal(t, "lua", sync["scope_prefix"])
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(sync["deploy_changes"].([]any)))
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(sync["import_changes"].([]any)))
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "deploy"))
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "import"))
 
 	pathScope := payload["path_scope"].(map[string]any)
 	require.Equal(t, []any{float64(0)}, pathScope["matched_sync_indexes"])
@@ -137,11 +133,11 @@ func TestStatusJSONReportsReplaceTypeChange(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"status", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	deploy := sync["deploy_changes"].([]any)
+	deploy := operationsForPhase(sync, "deploy")
 	require.Equal(t, 1, len(deploy))
-	require.Equal(t, "replace_type", deploy[0].(map[string]any)["change"])
-	require.Equal(t, "file", deploy[0].(map[string]any)["source_type"])
-	require.Equal(t, "symlink", deploy[0].(map[string]any)["target_type"])
+	require.Equal(t, "replace_type", deploy[0]["action"])
+	require.Equal(t, "file", deploy[0]["source_type"])
+	require.Equal(t, "symlink", deploy[0]["target_type"])
 }
 
 func TestStatusJSONInvalidPatternReturnsError(t *testing.T) {
@@ -208,8 +204,8 @@ func TestStatusJSONCoversUnmanagedDecisionMatrixRows(t *testing.T) {
 	payload := runJSONCommand(t, []string{"status", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
 
-	require.Equal(t, []string{"in", "in/keep.txt", "in/remove.rm"}, extractPaths(sync["incoming_unmanaged"].([]any)))
-	require.Equal(t, []string{"in/remove.rm", "out/remove.rm"}, extractPaths(sync["removable_unmanaged"].([]any)))
+	require.Equal(t, []string{"in", "in/keep.txt", "in/remove.rm"}, operationPaths(sync, "incoming_unmanaged"))
+	require.Equal(t, []string{"in/remove.rm", "out/remove.rm"}, operationPaths(sync, "remove_unmanaged"))
 }
 
 func runJSONCommand(t *testing.T, args []string) map[string]any {
@@ -255,12 +251,4 @@ func setTempHome(t *testing.T) string {
 		}
 	})
 	return homeDir
-}
-
-func extractPaths(items []any) []string {
-	paths := make([]string, 0, len(items))
-	for _, item := range items {
-		paths = append(paths, item.(map[string]any)["path"].(string))
-	}
-	return paths
 }

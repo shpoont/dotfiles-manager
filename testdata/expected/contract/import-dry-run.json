@@ -1,46 +1,62 @@
 {
-  "schema_version": "1.0",
-  "ok": true,
-  "dry_run": true,
   "command": "import",
   "config_path": "<CONFIG_PATH>",
+  "dry_run": true,
+  "error": null,
+  "ok": true,
   "path_scope": {
     "input": null,
-    "normalized": null,
-    "matched_sync_indexes": [0]
+    "matched_sync_indexes": [
+      0
+    ],
+    "normalized": null
+  },
+  "schema_version": "2.0",
+  "summary": {
+    "add_unmanaged_count": 1,
+    "operation_count": 3,
+    "remove_missing_count": 1,
+    "sync_count": 1,
+    "update_managed_count": 1
   },
   "syncs": [
     {
-      "sync_index": 0,
-      "source_root": "<SOURCE_ROOT_0>",
-      "target_root": "<TARGET_ROOT_0>",
-      "scope_prefix": "",
-      "updated_manifest": [
+      "counts": {
+        "add_unmanaged": 1,
+        "operation_count": 3,
+        "remove_missing": 1,
+        "update_managed": 1
+      },
+      "operations": [
         {
+          "action": "update",
           "path": "lua/init.lua",
-          "change": "update",
+          "phase": "update_managed",
+          "state": "planned",
           "type": "file"
-        }
-      ],
-      "added_unmanaged": [
+        },
         {
+          "action": "add",
           "path": "lua/new.lua",
+          "phase": "add_unmanaged",
+          "state": "planned",
+          "type": "file"
+        },
+        {
+          "action": "remove",
+          "path": "lua/missing.lua",
+          "phase": "remove_missing",
+          "state": "planned",
           "type": "file"
         }
       ],
-      "removed_missing": [
-        {
-          "path": "lua/missing.lua",
-          "type": "file"
-        }
-      ]
+      "scope_prefix": "",
+      "source": "./source/nvim",
+      "source_root": "<SOURCE_ROOT_0>",
+      "sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+      "sync_index": 0,
+      "target": "~/.config/nvim",
+      "target_root": "<TARGET_ROOT_0>"
     }
-  ],
-  "summary": {
-    "sync_count": 1,
-    "updated_manifest_count": 1,
-    "added_unmanaged_count": 1,
-    "removed_missing_count": 1
-  },
-  "error": null
+  ]
 }

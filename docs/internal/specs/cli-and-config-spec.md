@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Reference
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/specs/cli-and-config-spec.md
 ---
 
@@ -63,6 +63,21 @@ Key constraints:
 - `status`: report drift and candidate sets
 - `deploy`: source -> target; optional unmanaged removal by patterns
 - `import`: target -> source; optional unmanaged adds + optional missing deletes by patterns
+
+## Output model summary
+
+Text mode:
+- sync blocks always start with:
+  - `sync[idx] target=~/<target> source=./<source>`
+- each command prints phase blocks with exact file operations
+- verbs are word-based (`create`, `update`, `replace_type`, `add`, `remove`)
+- no color output by default
+
+JSON mode (`--json`):
+- schema version is `2.0`
+- each sync has `operations[]` (exact files + phase/action/state)
+- summary fields are command-specific aggregate counts
+- see full details in `../contracts/json-contract.md`
 
 Cross-cutting:
 - source is manifest/source-of-truth

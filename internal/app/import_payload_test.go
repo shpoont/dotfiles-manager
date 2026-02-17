@@ -53,14 +53,14 @@ func TestImportDryRunPlansWithoutMutating(t *testing.T) {
 	require.Equal(t, true, payload["dry_run"])
 
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(sync["updated_manifest"].([]any)))
-	require.Equal(t, []string{"lua/new.lua"}, extractPaths(sync["added_unmanaged"].([]any)))
-	require.Equal(t, []string{"lua/missing.lua"}, extractPaths(sync["removed_missing"].([]any)))
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "update_managed"))
+	require.Equal(t, []string{"lua/new.lua"}, operationPaths(sync, "add_unmanaged"))
+	require.Equal(t, []string{"lua/missing.lua"}, operationPaths(sync, "remove_missing"))
 
 	summary := payload["summary"].(map[string]any)
-	require.Equal(t, float64(1), summary["updated_manifest_count"])
-	require.Equal(t, float64(1), summary["added_unmanaged_count"])
-	require.Equal(t, float64(1), summary["removed_missing_count"])
+	require.Equal(t, float64(1), summary["update_managed_count"])
+	require.Equal(t, float64(1), summary["add_unmanaged_count"])
+	require.Equal(t, float64(1), summary["remove_missing_count"])
 
 	content, err := os.ReadFile(filepath.Join(projectDir, "source", "nvim", "lua", "init.lua"))
 	require.NoError(t, err)
@@ -109,9 +109,9 @@ func TestImportAppliesUpdatesAddsAndMissingRemovals(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"import", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(sync["updated_manifest"].([]any)))
-	require.Equal(t, []string{"lua/new.lua"}, extractPaths(sync["added_unmanaged"].([]any)))
-	require.Equal(t, []string{"lua/missing.lua"}, extractPaths(sync["removed_missing"].([]any)))
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "update_managed"))
+	require.Equal(t, []string{"lua/new.lua"}, operationPaths(sync, "add_unmanaged"))
+	require.Equal(t, []string{"lua/missing.lua"}, operationPaths(sync, "remove_missing"))
 
 	content, err := os.ReadFile(filepath.Join(projectDir, "source", "nvim", "lua", "init.lua"))
 	require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestImportScopeFiltersToSubtree(t *testing.T) {
 	payload := runJSONCommand(t, []string{"import", "--json", scopePath})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
 	require.Equal(t, "lua", sync["scope_prefix"])
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(sync["updated_manifest"].([]any)))
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "update_managed"))
 
 	luaContent, err := os.ReadFile(filepath.Join(projectDir, "source", "nvim", "lua", "init.lua"))
 	require.NoError(t, err)
@@ -186,12 +186,11 @@ func TestImportReplaceTypeToSymlink(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"import", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	updated := sync["updated_manifest"].([]any)
+	updated := operationsForPhase(sync, "update_managed")
 	foundReplace := false
 	for _, entry := range updated {
-		item := entry.(map[string]any)
-		if item["path"] == "lua/link" {
-			require.Equal(t, "replace_type", item["change"])
+		if entry["path"] == "lua/link" {
+			require.Equal(t, "replace_type", entry["action"])
 			foundReplace = true
 		}
 	}
@@ -254,9 +253,9 @@ func TestImportWithoutPatternsSkipsUnmanagedAddAndMissingRemoval(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"import", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	require.Empty(t, sync["added_unmanaged"].([]any))
-	require.Empty(t, sync["removed_missing"].([]any))
-	require.Empty(t, sync["updated_manifest"].([]any))
+	require.Empty(t, operationPaths(sync, "add_unmanaged"))
+	require.Empty(t, operationPaths(sync, "remove_missing"))
+	require.Empty(t, operationPaths(sync, "update_managed"))
 
 	_, err := os.Stat(filepath.Join(projectDir, "source", "nvim", "lua", "missing.lua"))
 	require.NoError(t, err)
@@ -350,14 +349,14 @@ func TestImportJSONErrorIncludesAppliedPartialOperations(t *testing.T) {
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, true, summary["partial"])
 	require.Equal(t, float64(1), summary["sync_count"])
-	require.Equal(t, float64(0), summary["updated_manifest_count"])
-	require.Equal(t, float64(1), summary["added_unmanaged_count"])
+	require.Equal(t, float64(0), summary["update_managed_count"])
+	require.Equal(t, float64(1), summary["add_unmanaged_count"])
 
 	syncs := payload["syncs"].([]any)
 	require.Len(t, syncs, 1)
 	sync := syncs[0].(map[string]any)
-	require.Empty(t, sync["updated_manifest"].([]any))
-	require.Equal(t, []string{"a.lua"}, extractPaths(sync["added_unmanaged"].([]any)))
+	require.Empty(t, operationPaths(sync, "update_managed"))
+	require.Equal(t, []string{"a.lua"}, operationPaths(sync, "add_unmanaged"))
 }
 
 func TestImportJSONErrorIncludesCompletedAndFailedSyncEntries(t *testing.T) {
@@ -421,12 +420,12 @@ func TestImportJSONErrorIncludesCompletedAndFailedSyncEntries(t *testing.T) {
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, true, summary["partial"])
 	require.Equal(t, float64(2), summary["sync_count"])
-	require.Equal(t, float64(1), summary["added_unmanaged_count"])
+	require.Equal(t, float64(1), summary["add_unmanaged_count"])
 
 	syncs := payload["syncs"].([]any)
 	require.Len(t, syncs, 2)
-	require.Equal(t, []string{"a.lua"}, extractPaths(syncs[0].(map[string]any)["added_unmanaged"].([]any)))
-	require.Empty(t, syncs[1].(map[string]any)["added_unmanaged"].([]any))
+	require.Equal(t, []string{"a.lua"}, operationPaths(syncs[0].(map[string]any), "add_unmanaged"))
+	require.Empty(t, operationPaths(syncs[1].(map[string]any), "add_unmanaged"))
 }
 
 func TestImportPreservesXattrsWhenSupported(t *testing.T) {

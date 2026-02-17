@@ -243,7 +243,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			return err
 		}
 	} else {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), buildTextSummaryLine(commandOpts.Name, commandOpts.DryRun, result["summary"]))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), buildTextOutput(commandOpts.Name, commandOpts.DryRun, result))
 	}
 
 	commandLogger.Info("command.complete")
@@ -302,7 +302,7 @@ func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonCont
 	}
 
 	payload := map[string]any{
-		"schema_version": "1.0",
+		"schema_version": jsonSchemaVersion,
 		"ok":             false,
 		"dry_run":        ctx.DryRun,
 		"command":        ctx.Command,
@@ -360,7 +360,7 @@ func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, config
 	}
 
 	return map[string]any{
-		"schema_version": "1.0",
+		"schema_version": jsonSchemaVersion,
 		"ok":             true,
 		"dry_run":        commandOpts.DryRun,
 		"command":        commandOpts.Name,
@@ -385,44 +385,47 @@ func buildSyncPayloads(command string, selections []syncSelection) []any {
 		targetRoot := selection.TargetRoot
 		scopePrefix := selection.ScopePrefix
 
+		basePayload := map[string]any{
+			"sync_index":   syncIndex,
+			"sync":         fmt.Sprintf("sync[%d]", syncIndex),
+			"target":       targetRoot,
+			"source":       sourceRoot,
+			"source_root":  sourceRoot,
+			"target_root":  targetRoot,
+			"scope_prefix": scopePrefix,
+		}
+
 		switch command {
 		case "status":
-			out = append(out, map[string]any{
-				"sync_index":          syncIndex,
-				"source_root":         sourceRoot,
-				"target_root":         targetRoot,
-				"scope_prefix":        scopePrefix,
-				"deploy_changes":      []any{},
-				"import_changes":      []any{},
-				"incoming_unmanaged":  []any{},
-				"removable_unmanaged": []any{},
-				"removable_missing":   []any{},
-			})
+			basePayload["operations"] = []any{}
+			basePayload["counts"] = map[string]any{
+				"deploy":             0,
+				"import":             0,
+				"incoming_unmanaged": 0,
+				"remove_unmanaged":   0,
+				"remove_missing":     0,
+				"operation_count":    0,
+			}
+			out = append(out, basePayload)
 		case "deploy":
-			out = append(out, map[string]any{
-				"sync_index":        syncIndex,
-				"source_root":       sourceRoot,
-				"target_root":       targetRoot,
-				"scope_prefix":      scopePrefix,
-				"copied":            []any{},
-				"removed_unmanaged": []any{},
-			})
+			basePayload["operations"] = []any{}
+			basePayload["counts"] = map[string]any{
+				"copy":             0,
+				"remove_unmanaged": 0,
+				"operation_count":  0,
+			}
+			out = append(out, basePayload)
 		case "import":
-			out = append(out, map[string]any{
-				"sync_index":       syncIndex,
-				"source_root":      sourceRoot,
-				"target_root":      targetRoot,
-				"scope_prefix":     scopePrefix,
-				"updated_manifest": []any{},
-				"added_unmanaged":  []any{},
-				"removed_missing":  []any{},
-			})
+			basePayload["operations"] = []any{}
+			basePayload["counts"] = map[string]any{
+				"update_managed":  0,
+				"add_unmanaged":   0,
+				"remove_missing":  0,
+				"operation_count": 0,
+			}
+			out = append(out, basePayload)
 		default:
-			out = append(out, map[string]any{
-				"sync_index":  syncIndex,
-				"source_root": sourceRoot,
-				"target_root": targetRoot,
-			})
+			out = append(out, basePayload)
 		}
 	}
 	return out
@@ -496,16 +499,28 @@ func buildSummary(command string, syncCount int) map[string]any {
 	switch command {
 	case "deploy":
 		return map[string]any{
-			"sync_count":              syncCount,
-			"copied_count":            0,
-			"removed_unmanaged_count": 0,
+			"sync_count":             syncCount,
+			"copy_count":             0,
+			"remove_unmanaged_count": 0,
+			"operation_count":        0,
 		}
 	case "import":
 		return map[string]any{
-			"sync_count":             syncCount,
-			"updated_manifest_count": 0,
-			"added_unmanaged_count":  0,
-			"removed_missing_count":  0,
+			"sync_count":           syncCount,
+			"update_managed_count": 0,
+			"add_unmanaged_count":  0,
+			"remove_missing_count": 0,
+			"operation_count":      0,
+		}
+	case "status":
+		return map[string]any{
+			"sync_count":               syncCount,
+			"deploy_count":             0,
+			"import_count":             0,
+			"incoming_unmanaged_count": 0,
+			"remove_unmanaged_count":   0,
+			"remove_missing_count":     0,
+			"operation_count":          0,
 		}
 	default:
 		return map[string]any{
@@ -584,42 +599,34 @@ func errorIsPartial(err error) bool {
 
 func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string {
 	summary, _ := summaryValue.(map[string]any)
-	prefix := command
-	if dryRun {
-		prefix = command + " (dry-run)"
-	}
 
 	switch command {
 	case "status":
 		return fmt.Sprintf(
-			"%s: syncs=%d deploy_changes=%d import_changes=%d incoming_unmanaged=%d removable_unmanaged=%d removable_missing=%d",
-			prefix,
-			summaryInt(summary, "sync_count"),
-			summaryInt(summary, "deploy_change_count"),
-			summaryInt(summary, "import_change_count"),
+			"summary deploy=%d import=%d incoming-unmanaged=%d remove-unmanaged=%d remove-missing=%d",
+			summaryInt(summary, "deploy_count"),
+			summaryInt(summary, "import_count"),
 			summaryInt(summary, "incoming_unmanaged_count"),
-			summaryInt(summary, "removable_unmanaged_count"),
-			summaryInt(summary, "removable_missing_count"),
+			summaryInt(summary, "remove_unmanaged_count"),
+			summaryInt(summary, "remove_missing_count"),
 		)
 	case "deploy":
 		return fmt.Sprintf(
-			"%s: syncs=%d copied=%d removed_unmanaged=%d",
-			prefix,
-			summaryInt(summary, "sync_count"),
-			summaryInt(summary, "copied_count"),
-			summaryInt(summary, "removed_unmanaged_count"),
+			"summary dry-run=%t copied=%d remove-unmanaged=%d",
+			dryRun,
+			summaryInt(summary, "copy_count"),
+			summaryInt(summary, "remove_unmanaged_count"),
 		)
 	case "import":
 		return fmt.Sprintf(
-			"%s: syncs=%d updated_manifest=%d added_unmanaged=%d removed_missing=%d",
-			prefix,
-			summaryInt(summary, "sync_count"),
-			summaryInt(summary, "updated_manifest_count"),
-			summaryInt(summary, "added_unmanaged_count"),
-			summaryInt(summary, "removed_missing_count"),
+			"summary dry-run=%t updated-managed=%d added-unmanaged=%d removed-missing=%d",
+			dryRun,
+			summaryInt(summary, "update_managed_count"),
+			summaryInt(summary, "add_unmanaged_count"),
+			summaryInt(summary, "remove_missing_count"),
 		)
 	default:
-		return fmt.Sprintf("%s: syncs=%d", prefix, summaryInt(summary, "sync_count"))
+		return fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))
 	}
 }
 

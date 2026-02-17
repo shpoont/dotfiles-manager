@@ -33,7 +33,8 @@ func TestStatusJSONLogsIncludeComponentAndRedactConfigPath(t *testing.T) {
 	cmd.SetArgs([]string{"status", "--config", configPath, "--log-format", "json", "--log-level", "debug"})
 
 	require.NoError(t, cmd.Execute(), stderr.String())
-	require.Contains(t, stdout.String(), "status: syncs=1")
+	require.Contains(t, stdout.String(), "sync[0] target=~/.config/zsh source=./zsh")
+	require.Contains(t, stdout.String(), "summary deploy=0")
 	require.NotContains(t, stderr.String(), "secret-token")
 
 	entries := parseJSONLogLines(t, stderr.String())

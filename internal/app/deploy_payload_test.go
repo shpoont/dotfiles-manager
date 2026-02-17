@@ -42,12 +42,12 @@ func TestDeployDryRunPlansWithoutMutating(t *testing.T) {
 	require.Equal(t, true, payload["dry_run"])
 
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	require.Equal(t, []string{"lua/init.lua", "lua/new.lua"}, extractPaths(sync["copied"].([]any)))
-	require.Equal(t, []string{"lua/old.bak"}, extractPaths(sync["removed_unmanaged"].([]any)))
+	require.Equal(t, []string{"lua/init.lua", "lua/new.lua"}, operationPaths(sync, "copy"))
+	require.Equal(t, []string{"lua/old.bak"}, operationPaths(sync, "remove_unmanaged"))
 
 	summary := payload["summary"].(map[string]any)
-	require.Equal(t, float64(2), summary["copied_count"])
-	require.Equal(t, float64(1), summary["removed_unmanaged_count"])
+	require.Equal(t, float64(2), summary["copy_count"])
+	require.Equal(t, float64(1), summary["remove_unmanaged_count"])
 
 	content, err := os.ReadFile(filepath.Join(homeDir, ".config", "nvim", "lua", "init.lua"))
 	require.NoError(t, err)
@@ -80,8 +80,8 @@ func TestDeployAppliesCopyAndRemoval(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"deploy", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	require.Equal(t, []string{"lua/init.lua", "lua/new.lua"}, extractPaths(sync["copied"].([]any)))
-	require.Equal(t, []string{"lua/old.bak"}, extractPaths(sync["removed_unmanaged"].([]any)))
+	require.Equal(t, []string{"lua/init.lua", "lua/new.lua"}, operationPaths(sync, "copy"))
+	require.Equal(t, []string{"lua/old.bak"}, operationPaths(sync, "remove_unmanaged"))
 
 	content, err := os.ReadFile(filepath.Join(homeDir, ".config", "nvim", "lua", "init.lua"))
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestDeployScopeFiltersToSubtree(t *testing.T) {
 	payload := runJSONCommand(t, []string{"deploy", "--json", scopePath})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
 	require.Equal(t, "lua", sync["scope_prefix"])
-	require.Equal(t, []string{"lua/init.lua"}, extractPaths(sync["copied"].([]any)))
+	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "copy"))
 
 	luaContent, err := os.ReadFile(filepath.Join(homeDir, ".config", "nvim", "lua", "init.lua"))
 	require.NoError(t, err)
@@ -149,12 +149,11 @@ func TestDeployReplaceTypeToSymlink(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"deploy", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	copied := sync["copied"].([]any)
+	copied := operationsForPhase(sync, "copy")
 	foundReplace := false
 	for _, entry := range copied {
-		item := entry.(map[string]any)
-		if item["path"] == "lua/link" {
-			require.Equal(t, "replace_type", item["change"])
+		if entry["path"] == "lua/link" {
+			require.Equal(t, "replace_type", entry["action"])
 			foundReplace = true
 		}
 	}
@@ -215,7 +214,7 @@ func TestDeployEmptyRemovePatternsDoNotDeleteUnmanaged(t *testing.T) {
 
 	payload := runJSONCommand(t, []string{"deploy", "--json"})
 	sync := payload["syncs"].([]any)[0].(map[string]any)
-	require.Empty(t, sync["removed_unmanaged"].([]any))
+	require.Empty(t, operationPaths(sync, "remove_unmanaged"))
 
 	_, err := os.Stat(filepath.Join(homeDir, ".config", "nvim", "keep.txt"))
 	require.NoError(t, err)
@@ -299,12 +298,12 @@ func TestDeployJSONErrorIncludesAppliedPartialOperations(t *testing.T) {
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, true, summary["partial"])
 	require.Equal(t, float64(1), summary["sync_count"])
-	require.Equal(t, float64(1), summary["copied_count"])
+	require.Equal(t, float64(1), summary["copy_count"])
 
 	syncs := payload["syncs"].([]any)
 	require.Len(t, syncs, 1)
 	sync := syncs[0].(map[string]any)
-	require.Equal(t, []string{"a.lua"}, extractPaths(sync["copied"].([]any)))
+	require.Equal(t, []string{"a.lua"}, operationPaths(sync, "copy"))
 }
 
 func TestDeployJSONErrorIncludesCompletedAndFailedSyncEntries(t *testing.T) {
@@ -358,12 +357,12 @@ func TestDeployJSONErrorIncludesCompletedAndFailedSyncEntries(t *testing.T) {
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, true, summary["partial"])
 	require.Equal(t, float64(2), summary["sync_count"])
-	require.Equal(t, float64(1), summary["copied_count"])
+	require.Equal(t, float64(1), summary["copy_count"])
 
 	syncs := payload["syncs"].([]any)
 	require.Len(t, syncs, 2)
-	require.Equal(t, []string{"a.lua"}, extractPaths(syncs[0].(map[string]any)["copied"].([]any)))
-	require.Empty(t, syncs[1].(map[string]any)["copied"].([]any))
+	require.Equal(t, []string{"a.lua"}, operationPaths(syncs[0].(map[string]any), "copy"))
+	require.Empty(t, operationPaths(syncs[1].(map[string]any), "copy"))
 }
 
 func TestDeployPreservesXattrsWhenSupported(t *testing.T) {

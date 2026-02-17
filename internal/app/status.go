@@ -47,12 +47,13 @@ func buildStatusSyncPayloads(cfg *config.Config, selections []syncSelection) ([]
 	}
 
 	summaryPayload := map[string]any{
-		"sync_count":                len(payloads),
-		"deploy_change_count":       summary.deployChanges,
-		"import_change_count":       summary.importChanges,
-		"incoming_unmanaged_count":  summary.incomingUnmanaged,
-		"removable_unmanaged_count": summary.removableUnmanaged,
-		"removable_missing_count":   summary.removableMissing,
+		"sync_count":               len(payloads),
+		"deploy_count":             summary.deployChanges,
+		"import_count":             summary.importChanges,
+		"incoming_unmanaged_count": summary.incomingUnmanaged,
+		"remove_unmanaged_count":   summary.removableUnmanaged,
+		"remove_missing_count":     summary.removableMissing,
+		"operation_count":          summary.deployChanges + summary.importChanges + summary.incomingUnmanaged + summary.removableUnmanaged + summary.removableMissing,
 	}
 
 	return payloads, summaryPayload, nil
@@ -75,6 +76,8 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	incomingUnmanaged := make([]any, 0)
 	removableUnmanaged := make([]any, 0)
 	removableMissing := make([]any, 0)
+	operations := make([]any, 0)
+	display := buildSyncDisplay(syncIndex, syncCfg)
 
 	for _, relPath := range allPaths {
 		sourceEntry, hasSource := sourceEntries[relPath]
@@ -86,6 +89,8 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 				change := buildChange(relPath, "replace_type", sourceEntry.typeID, targetEntry.typeID)
 				deployChanges = append(deployChanges, change)
 				importChanges = append(importChanges, change)
+				operations = append(operations, buildStatusManagedOperation("deploy", relPath, "replace_type", sourceEntry.typeID, targetEntry.typeID))
+				operations = append(operations, buildStatusManagedOperation("import", relPath, "replace_type", sourceEntry.typeID, targetEntry.typeID))
 				continue
 			}
 
@@ -97,10 +102,13 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 				change := buildChange(relPath, "update", sourceEntry.typeID, targetEntry.typeID)
 				deployChanges = append(deployChanges, change)
 				importChanges = append(importChanges, change)
+				operations = append(operations, buildStatusManagedOperation("deploy", relPath, "update", sourceEntry.typeID, targetEntry.typeID))
+				operations = append(operations, buildStatusManagedOperation("import", relPath, "update", sourceEntry.typeID, targetEntry.typeID))
 			}
 
 		case hasSource && !hasTarget:
 			deployChanges = append(deployChanges, buildChange(relPath, "create", sourceEntry.typeID, "missing"))
+			operations = append(operations, buildStatusManagedOperation("deploy", relPath, "create", sourceEntry.typeID, "missing"))
 
 			matchMissing, matchErr := matchesIncludeExclude(
 				relPath,
@@ -114,6 +122,7 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 			}
 			if matchMissing {
 				removableMissing = append(removableMissing, buildTypedPath(relPath, sourceEntry.typeID))
+				operations = append(operations, buildStatusTypedOperation("remove_missing", "remove", relPath, sourceEntry.typeID))
 			}
 
 		case !hasSource && hasTarget:
@@ -129,6 +138,7 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 			}
 			if matchIncoming {
 				incomingUnmanaged = append(incomingUnmanaged, buildTypedPath(relPath, targetEntry.typeID))
+				operations = append(operations, buildStatusTypedOperation("incoming_unmanaged", "add", relPath, targetEntry.typeID))
 			}
 
 			matchRemovable, removableErr := matchesAny(
@@ -141,20 +151,28 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 			}
 			if matchRemovable {
 				removableUnmanaged = append(removableUnmanaged, buildTypedPath(relPath, targetEntry.typeID))
+				operations = append(operations, buildStatusTypedOperation("remove_unmanaged", "remove", relPath, targetEntry.typeID))
 			}
 		}
 	}
 
 	payload := map[string]any{
-		"sync_index":          syncIndex,
-		"source_root":         selection.SourceRoot,
-		"target_root":         selection.TargetRoot,
-		"scope_prefix":        selection.ScopePrefix,
-		"deploy_changes":      deployChanges,
-		"import_changes":      importChanges,
-		"incoming_unmanaged":  incomingUnmanaged,
-		"removable_unmanaged": removableUnmanaged,
-		"removable_missing":   removableMissing,
+		"sync_index":   syncIndex,
+		"sync":         display.Label,
+		"target":       display.Target,
+		"source":       display.Source,
+		"source_root":  selection.SourceRoot,
+		"target_root":  selection.TargetRoot,
+		"scope_prefix": selection.ScopePrefix,
+		"operations":   operations,
+		"counts": map[string]any{
+			"deploy":             len(deployChanges),
+			"import":             len(importChanges),
+			"incoming_unmanaged": len(incomingUnmanaged),
+			"remove_unmanaged":   len(removableUnmanaged),
+			"remove_missing":     len(removableMissing),
+			"operation_count":    len(operations),
+		},
 	}
 
 	counts := statusCounts{
@@ -166,6 +184,27 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	}
 
 	return payload, counts, nil
+}
+
+func buildStatusManagedOperation(phase, path, action, sourceType, targetType string) map[string]any {
+	return map[string]any{
+		"phase":       phase,
+		"action":      action,
+		"state":       "candidate",
+		"path":        path,
+		"source_type": sourceType,
+		"target_type": targetType,
+	}
+}
+
+func buildStatusTypedOperation(phase, action, path, entryType string) map[string]any {
+	return map[string]any{
+		"phase":  phase,
+		"action": action,
+		"state":  "candidate",
+		"path":   path,
+		"type":   entryType,
+	}
 }
 
 func scanSyncEntries(root, scopePrefix string) (map[string]statusEntry, error) {
