@@ -1,0 +1,14 @@
+syncs:
+  - target: .config/perf/managed
+    source: source/managed
+    on:
+      deploy:
+        remove-unmanaged:
+          - 'trash/**'
+      import:
+        add-unmanaged:
+          include:
+            - 'incoming/**'
+        remove-missing:
+          include:
+            - '**'
