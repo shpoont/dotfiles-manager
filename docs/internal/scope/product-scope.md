@@ -1,7 +1,7 @@
 ---
 owner: Product + Core Engineering
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/scope/product-scope.md
 ---
 
@@ -15,6 +15,7 @@ canonical-source: docs/internal/scope/product-scope.md
 
 ## Core commands (scope)
 
+- `version` / `--version` — report CLI version
 - `status` — preview drift and candidate operations
 - `deploy` — apply source -> target
 - `import` — apply target -> source within configured rules
@@ -22,6 +23,7 @@ canonical-source: docs/internal/scope/product-scope.md
 ## In-scope behavior
 
 - Config-driven sync definitions (`syncs`)
+- Version reporting command (`version` / `--version`)
 - Path-scoped execution with optional `[path]`
 - Pattern-driven unmanaged import and unmanaged removal behavior
 - Missing-path import deletion behavior by include/exclude patterns

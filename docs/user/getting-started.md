@@ -12,6 +12,17 @@ Or install with Go:
 go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
 ```
 
+## 1.1) Check installed version
+
+```bash
+dotfiles-manager --version
+# or
+dotfiles-manager version
+```
+
+Release builds show semantic version.
+Local non-release builds show `dev`.
+
 ## 2) Prepare your repo
 
 Create or choose a repo where your managed dotfiles live.

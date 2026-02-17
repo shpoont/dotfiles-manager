@@ -91,6 +91,9 @@ Use this checklist before calling implementation complete.
 - [ ] any validation/runtime error exits `1`.
 - [ ] runtime failures are fail-fast.
 - [ ] `status --dry-run` fails with `DFM_FLAG_UNSUPPORTED`.
+- [ ] `dotfiles-manager version` prints `dotfiles-manager version <value>` and exits `0`.
+- [ ] `dotfiles-manager --version` prints `dotfiles-manager version <value>` and exits `0`.
+- [ ] `version`/`--version` work without config present.
 
 ## I) Logging and observability
 

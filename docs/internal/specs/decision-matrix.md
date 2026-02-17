@@ -23,6 +23,7 @@ Canonical rules and rationale live in **`decisions.md`**.
 
 | Command | Direction | Base scope | Pattern sets used | Outcome focus |
 |---|---|---|---|---|
+| `version` / `--version` | info | n/a | none | Reports CLI version and exits. |
 | `status [--json] [path]` | compare | Manifest + candidates | add-unmanaged include/exclude, remove-unmanaged, remove-missing include/exclude | Reports drift + candidate sets. |
 | `deploy [--dry-run] [--json] [path]` | S → T | Manifest paths | remove-unmanaged | Applies copy/remove behavior (or plans only with `--dry-run`). |
 | `import [--dry-run] [--json] [path]` | T → S | Manifest paths | add-unmanaged include/exclude, remove-missing include/exclude | Applies import behavior (or plans only with `--dry-run`). |

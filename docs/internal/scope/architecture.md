@@ -20,8 +20,9 @@ This document defines the runtime architecture that implements the approved spec
 ## 2) Runtime module boundaries
 
 1. **CLI / command layer**
-   - parses global flags (`--config`, `--log-file`, `--log-level`) and command flags
-   - dispatches `status`, `deploy`, `import`
+   - parses global flags (`--version`, `--config`, `--log-file`, `--log-level`) and command flags
+   - dispatches `version`, `status`, `deploy`, `import`
+   - handles global `--version` short-circuit
    - maps unsupported/invalid flags to stable error codes
 
 2. **Config resolver + validator**
@@ -78,6 +79,13 @@ This document defines the runtime architecture that implements the approved spec
 
 - no executor write phase
 - status-only candidate sets are reported
+
+### version
+
+`CLI -> version reporter`
+
+- no config resolver, scope resolver, planner, or executor path
+- outputs `dotfiles-manager version <value>` and exits
 
 ### deploy
 

@@ -15,6 +15,8 @@ Contract-level details are in `../contracts/*`.
 ## Command surface
 
 ```text
+dotfiles-manager --version
+dotfiles-manager version
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
@@ -24,6 +26,8 @@ Rules:
 - config resolution order: `--config <path>` → `DOTFILES_MANAGER_CONFIG` → `./.dotfiles-manager.yaml` (cwd)
 - default lookup is cwd-only (no parent search)
 - default config filename is `.dotfiles-manager.yaml`
+- `version` / `--version` bypass config resolution and print version immediately
+- `version` does not accept `[path]`, `--json`, or `--dry-run`
 - logs are written to platform-default log file path unless overridden with `--log-file`
 - no log format flag is supported; logs are human-readable text only
 - log level defaults to `info`; supported levels: `debug`, `info`, `warn`, `error`
@@ -66,6 +70,7 @@ Machine-readable schema:
 
 ## Behavior summary
 
+- `version`/`--version`: print `dotfiles-manager version <value>` and exit (`dev` for non-release local builds)
 - `status`: report drift and candidate sets
 - `deploy`: source -> target; optional unmanaged removal by patterns
 - `import`: target -> source; optional unmanaged adds + optional missing deletes by patterns

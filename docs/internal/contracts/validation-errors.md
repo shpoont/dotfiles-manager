@@ -11,6 +11,7 @@ This document defines stable error codes and when they are raised.
 
 All runtime errors are fail-fast and return non-zero exit.
 When `--json` is set, errors are emitted via JSON envelope (`ok=false`, `error.code`, `error.message`, optional `error.details`).
+`version`/`--version` bypass config loading and normally do not traverse this validation pipeline.
 
 ## 1) Exit codes
 
@@ -23,7 +24,7 @@ When `--json` is set, errors are emitted via JSON envelope (`ok=false`, `error.c
 
 | Code | Trigger | Message template |
 |---|---|---|
-| `DFM_CONFIG_REQUIRED` | no config source resolved from `--config`, `DOTFILES_MANAGER_CONFIG`, or `./.dotfiles-manager.yaml` in cwd | `Config not found: pass --config, set DOTFILES_MANAGER_CONFIG, or create ./.dotfiles-manager.yaml` |
+| `DFM_CONFIG_REQUIRED` | no config source resolved for config-dependent commands (`status`/`deploy`/`import`) from `--config`, `DOTFILES_MANAGER_CONFIG`, or `./.dotfiles-manager.yaml` in cwd | `Config not found: pass --config, set DOTFILES_MANAGER_CONFIG, or create ./.dotfiles-manager.yaml` |
 | `DFM_CONFIG_NOT_FOUND` | config path does not exist | `Config file not found: {config_path}` |
 | `DFM_CONFIG_NOT_FILE` | config path exists but is not a regular file | `Config path is not a file: {config_path}` |
 | `DFM_CONFIG_PARSE` | YAML parse failure | `Failed to parse YAML config: {config_path}` |
@@ -82,3 +83,6 @@ To keep errors deterministic:
 5. runtime filesystem operations
 
 Stop at first failure.
+
+Exception:
+- `version` and `--version` short-circuit before config/path/runtime validation.

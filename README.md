@@ -18,6 +18,7 @@ Core workflows:
 - `status` — preview drift and candidate operations
 - `deploy` — apply source -> target
 - `import` — apply target -> source (managed updates + optional unmanaged/missing rules)
+- `version` / `--version` — print CLI version and exit
 
 ---
 
@@ -124,12 +125,15 @@ syncs:
 2) Run commands (using default config discovery in current directory):
 
 ```bash
+dotfiles-manager --version
 dotfiles-manager status
 dotfiles-manager deploy --dry-run ~/.config/nvim
 dotfiles-manager deploy ~/.config/nvim
 dotfiles-manager import --dry-run ~/.config/nvim
 dotfiles-manager import ~/.config/nvim
 ```
+
+`--version`/`version` prints `dotfiles-manager version <value>` and exits (`dev` on local non-release builds).
 
 3) Optional explicit override:
 

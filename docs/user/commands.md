@@ -3,6 +3,8 @@
 ## Command format
 
 ```text
+dotfiles-manager --version
+dotfiles-manager version
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
@@ -14,6 +16,7 @@ Config is resolved in this order:
 3. `./.dotfiles-manager.yaml` in the current working directory
 
 No parent-directory config search is performed.
+`version`/`--version` do not require config resolution.
 
 Log file destination:
 - default paths:
@@ -31,6 +34,21 @@ Log level:
 stderr diagnostics:
 - warnings and errors are emitted as human-readable text on stderr
 - stdout remains command output (including `--json`)
+
+## `version` and `--version`
+
+Both commands print a single line and exit:
+
+```text
+dotfiles-manager version 0.1.4
+```
+
+Behavior:
+- `dotfiles-manager version` and `dotfiles-manager --version` are equivalent
+- they do not load config
+- they do not accept `[path]`, `--json`, or `--dry-run`
+- release builds print semantic version
+- local non-release builds print `dev`
 
 ## `status [--json] [path]`
 
@@ -113,6 +131,8 @@ If `[path]` matches no syncs, command fails.
 
 ## Output and exit codes
 
+- `version`/`--version` output one line: `dotfiles-manager version <value>`.
+- `version`/`--version` exit `0` and do not require config.
 - text mode prints per-sync sections with exact file operations.
 - every sync header uses:
   - `sync[idx] target=~/<target> source=./<source>`

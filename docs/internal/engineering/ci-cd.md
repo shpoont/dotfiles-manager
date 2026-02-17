@@ -138,6 +138,7 @@ Manual procedure:
 2. Verify artifact checksum.
 3. Run binary in isolated temp repo/temp HOME:
    - `dotfiles-manager --help`
+   - `dotfiles-manager --version`
    - `dotfiles-manager status`
    - `dotfiles-manager deploy --dry-run`
    - `dotfiles-manager import --dry-run`

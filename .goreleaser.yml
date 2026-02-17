@@ -12,6 +12,8 @@ builds:
       - arm64
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -X github.com/shpoont/dotfiles-manager/internal/app.buildVersion={{ .Version }}
   - id: darwin
     main: ./cmd/dotfiles-manager
     binary: dotfiles-manager
@@ -22,6 +24,8 @@ builds:
       - arm64
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -X github.com/shpoont/dotfiles-manager/internal/app.buildVersion={{ .Version }}
 archives:
   - id: default
     ids:
