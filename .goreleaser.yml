@@ -1,3 +1,5 @@
+version: 2
+
 project_name: dotfiles-manager
 builds:
   - id: linux
@@ -22,10 +24,11 @@ builds:
       - CGO_ENABLED=0
 archives:
   - id: default
-    builds:
+    ids:
       - linux
       - darwin
-    format: tar.gz
+    formats:
+      - tar.gz
     files:
       - README.md
       - docs/**
