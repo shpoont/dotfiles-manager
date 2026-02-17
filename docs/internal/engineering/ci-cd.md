@@ -69,6 +69,10 @@ Rules:
 
 - Versioning: **Semantic Versioning** (`vX.Y.Z`)
 - Release tooling: **GoReleaser**
+- Release workflow preflight gate (tag build):
+  - static checks
+  - linux unit/integration/contract/performance shards
+  - coverage aggregation thresholds
 - Artifacts:
   - macOS arm64
   - macOS amd64
