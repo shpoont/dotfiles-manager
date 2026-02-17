@@ -32,7 +32,8 @@ func TestStatusTextOutputAndStderrLogging(t *testing.T) {
 
 	require.NoError(t, cmd.Execute())
 	require.Contains(t, stdout.String(), "sync[0] target=~/.config/zsh source=./zsh")
-	require.Contains(t, stdout.String(), "summary deploy=0")
+	require.Contains(t, stdout.String(), "summary")
+	require.NotContains(t, stdout.String(), "deploy[0]")
 	require.Empty(t, stderr.String())
 }
 
@@ -176,7 +177,7 @@ func TestEmitErrorTextAndJSONBranches(t *testing.T) {
 	stderr.Reset()
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, errors.New("plain error"))
 	require.Contains(t, stdout.String(), "\"ok\":false")
-	require.Contains(t, stdout.String(), "\"schema_version\":\"2.0\"")
+	require.Contains(t, stdout.String(), "\"schema_version\":\"3.0\"")
 	require.Contains(t, stderr.String(), "plain error")
 
 	stdout.Reset()

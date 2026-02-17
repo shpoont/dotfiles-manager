@@ -71,14 +71,17 @@ Key constraints:
 Text mode:
 - sync blocks always start with:
   - `sync[idx] target=~/<target> source=./<source>`
-- each command prints phase blocks with exact file operations
-- verbs are word-based (`create`, `update`, `replace_type`, `add`, `remove`)
+- each command prints only non-empty phase blocks
+- summary line prints only non-zero categories
+- status uses potential-action phrases (`can create`, `can update`, `can replace type`, `can add`, `can remove`)
+- deploy/import use execution verbs (`create`, `update`, `replace_type`, `add`, `remove`)
 - no color output by default
 
 JSON mode (`--json`):
-- schema version is `2.0`
+- schema version is `3.0`
 - each sync has `operations[]` (exact files + phase/action/state)
-- summary fields are command-specific aggregate counts
+- summary fields are command-specific aggregate counts with fixed keys (zero values retained)
+- status `action` values use the same potential-action wording as text mode
 - see full details in `../contracts/json-contract.md`
 
 Cross-cutting:

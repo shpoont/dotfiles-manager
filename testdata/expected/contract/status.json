@@ -11,7 +11,7 @@
     ],
     "normalized": null
   },
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "summary": {
     "deploy_count": 2,
     "import_count": 1,
@@ -33,7 +33,7 @@
       },
       "operations": [
         {
-          "action": "update",
+          "action": "can update",
           "path": "lua/init.lua",
           "phase": "deploy",
           "source_type": "file",
@@ -41,7 +41,7 @@
           "target_type": "file"
         },
         {
-          "action": "update",
+          "action": "can update",
           "path": "lua/init.lua",
           "phase": "import",
           "source_type": "file",
@@ -49,28 +49,28 @@
           "target_type": "file"
         },
         {
-          "action": "add",
+          "action": "can add",
           "path": "lua/new.lua",
           "phase": "incoming_unmanaged",
           "state": "candidate",
           "type": "file"
         },
         {
-          "action": "add",
+          "action": "can add",
           "path": "lua/old.bak",
           "phase": "incoming_unmanaged",
           "state": "candidate",
           "type": "file"
         },
         {
-          "action": "remove",
+          "action": "can remove",
           "path": "lua/old.bak",
           "phase": "remove_unmanaged",
           "state": "candidate",
           "type": "file"
         },
         {
-          "action": "create",
+          "action": "can create",
           "path": "lua/only-source.lua",
           "phase": "deploy",
           "source_type": "file",
@@ -78,7 +78,7 @@
           "target_type": "missing"
         },
         {
-          "action": "remove",
+          "action": "can remove",
           "path": "lua/only-source.lua",
           "phase": "remove_missing",
           "state": "candidate",

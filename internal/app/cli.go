@@ -629,32 +629,34 @@ func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string 
 
 	switch command {
 	case "status":
-		return fmt.Sprintf(
-			"summary deploy=%d import=%d incoming-unmanaged=%d remove-unmanaged=%d remove-missing=%d",
-			summaryInt(summary, "deploy_count"),
-			summaryInt(summary, "import_count"),
-			summaryInt(summary, "incoming_unmanaged_count"),
-			summaryInt(summary, "remove_unmanaged_count"),
-			summaryInt(summary, "remove_missing_count"),
-		)
+		parts := []string{"summary"}
+		parts = appendSummaryCount(parts, "deploy", summaryInt(summary, "deploy_count"))
+		parts = appendSummaryCount(parts, "import", summaryInt(summary, "import_count"))
+		parts = appendSummaryCount(parts, "incoming-unmanaged", summaryInt(summary, "incoming_unmanaged_count"))
+		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
+		parts = appendSummaryCount(parts, "remove-missing", summaryInt(summary, "remove_missing_count"))
+		return strings.Join(parts, " ")
 	case "deploy":
-		return fmt.Sprintf(
-			"summary dry-run=%t copied=%d remove-unmanaged=%d",
-			dryRun,
-			summaryInt(summary, "copy_count"),
-			summaryInt(summary, "remove_unmanaged_count"),
-		)
+		parts := []string{fmt.Sprintf("summary dry-run=%t", dryRun)}
+		parts = appendSummaryCount(parts, "copied", summaryInt(summary, "copy_count"))
+		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
+		return strings.Join(parts, " ")
 	case "import":
-		return fmt.Sprintf(
-			"summary dry-run=%t updated-managed=%d added-unmanaged=%d removed-missing=%d",
-			dryRun,
-			summaryInt(summary, "update_managed_count"),
-			summaryInt(summary, "add_unmanaged_count"),
-			summaryInt(summary, "remove_missing_count"),
-		)
+		parts := []string{fmt.Sprintf("summary dry-run=%t", dryRun)}
+		parts = appendSummaryCount(parts, "updated-managed", summaryInt(summary, "update_managed_count"))
+		parts = appendSummaryCount(parts, "added-unmanaged", summaryInt(summary, "add_unmanaged_count"))
+		parts = appendSummaryCount(parts, "removed-missing", summaryInt(summary, "remove_missing_count"))
+		return strings.Join(parts, " ")
 	default:
 		return fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))
 	}
+}
+
+func appendSummaryCount(parts []string, label string, count int) []string {
+	if count <= 0 {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=%d", label, count))
 }
 
 func summaryInt(summary map[string]any, key string) int {

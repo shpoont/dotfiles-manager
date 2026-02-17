@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Reference
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/specs/decision-matrix.md
 ---
 
@@ -63,4 +63,6 @@ Examples:
 - `source` is authoritative; there is no separate conflict state.
 - Deploy removal order is copy/update first, remove second.
 - Status should include candidate visibility (incoming unmanaged, removable unmanaged, removable missing).
+- Status text/json actions use potential wording (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
+- Text output suppresses empty phase blocks; text summary omits zero-count categories.
 - `--dry-run` for deploy/import uses the same scope and outcome planning, but performs no writes.

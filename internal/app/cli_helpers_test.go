@@ -142,27 +142,30 @@ func TestBuildTextSummaryLineAndSummaryInt(t *testing.T) {
 	status := buildTextSummaryLine("status", false, map[string]any{
 		"sync_count":               2,
 		"deploy_count":             3,
-		"import_count":             4,
+		"import_count":             0,
 		"incoming_unmanaged_count": 5,
-		"remove_unmanaged_count":   6,
+		"remove_unmanaged_count":   0,
 		"remove_missing_count":     7,
 	})
-	require.Equal(t, "summary deploy=3 import=4 incoming-unmanaged=5 remove-unmanaged=6 remove-missing=7", status)
+	require.Equal(t, "summary deploy=3 incoming-unmanaged=5 remove-missing=7", status)
 
 	deploy := buildTextSummaryLine("deploy", true, map[string]any{
 		"sync_count":             float64(1),
 		"copy_count":             int64(2),
-		"remove_unmanaged_count": 3,
+		"remove_unmanaged_count": 0,
 	})
-	require.Equal(t, "summary dry-run=true copied=2 remove-unmanaged=3", deploy)
+	require.Equal(t, "summary dry-run=true copied=2", deploy)
 
 	importLine := buildTextSummaryLine("import", false, map[string]any{
 		"sync_count":           1,
 		"update_managed_count": 2,
-		"add_unmanaged_count":  3,
+		"add_unmanaged_count":  0,
 		"remove_missing_count": 4,
 	})
-	require.Equal(t, "summary dry-run=false updated-managed=2 added-unmanaged=3 removed-missing=4", importLine)
+	require.Equal(t, "summary dry-run=false updated-managed=2 removed-missing=4", importLine)
+
+	require.Equal(t, "summary", buildTextSummaryLine("status", false, map[string]any{}))
+	require.Equal(t, "summary dry-run=false", buildTextSummaryLine("deploy", false, map[string]any{}))
 
 	unknown := buildTextSummaryLine("unknown", false, map[string]any{"sync_count": 9})
 	require.Equal(t, "summary syncs=9", unknown)

@@ -1,6 +1,6 @@
 ---
 owner: Core Engineering
-status: Contract v2
+status: Contract v3
 last-updated: 2026-02-17
 canonical-source: docs/internal/contracts/json-contract.md
 ---
@@ -12,7 +12,7 @@ This document defines machine-readable output for:
 - `deploy [--dry-run] --json`
 - `import [--dry-run] --json`
 
-Current schema version is **`2.0`**.
+Current schema version is **`3.0`**.
 
 ## 1) Common envelope
 
@@ -20,7 +20,7 @@ All `--json` outputs are a single JSON object:
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "ok": true,
   "dry_run": false,
   "command": "status",
@@ -37,7 +37,7 @@ All `--json` outputs are a single JSON object:
 ```
 
 Rules:
-- `schema_version` is currently `"2.0"`.
+- `schema_version` is currently `"3.0"`.
 - `command`: `status` | `deploy` | `import`.
 - `dry_run` is valid only for `deploy`/`import`; `status --dry-run` errors with `DFM_FLAG_UNSUPPORTED`.
 - `config_path` is the resolved loaded config path (absolute).
@@ -67,7 +67,9 @@ Each `syncs[]` entry:
 
 Common fields:
 - `phase`: command-specific phase key.
-- `action`: operation verb (`create`, `update`, `replace_type`, `add`, `remove`).
+- `action`:
+  - `status`: potential-action phrase (`can create`, `can update`, `can replace type`, `can add`, `can remove`)
+  - `deploy`/`import`: execution verb (`create`, `update`, `replace_type`, `add`, `remove`)
 - `state`: `candidate` (status), `planned` (dry-run), or `applied` (non-dry-run successful execution).
 - `path`: sync-relative path using `/`.
 
@@ -80,6 +82,10 @@ Ordering guarantees:
 - `operations` are deterministic and path-sorted within each produced phase.
 
 ## 3) Command-specific phases and counts
+
+Summary object rule:
+- each command keeps a fixed summary key set listed below
+- all listed keys are present even when value is `0`
 
 ### `status --json`
 
@@ -147,6 +153,6 @@ If work was partially completed before failure:
 
 ## 5) Compatibility policy
 
-- Contract is currently `2.x`.
-- Additive fields are allowed in `2.x`.
-- Breaking changes require a major schema bump (`3.0`, etc.).
+- Contract is currently `3.x`.
+- Additive fields are allowed in `3.x`.
+- Breaking changes require a major schema bump (`4.0`, etc.).
