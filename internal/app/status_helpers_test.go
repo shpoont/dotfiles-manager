@@ -43,6 +43,64 @@ func TestScanSyncEntriesScopeFiltering(t *testing.T) {
 	require.NotContains(t, entries, "other/b.lua")
 }
 
+func TestScanSyncEntriesScopeFilteringKeepsScopeAncestors(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "lua", "sub"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "other"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "lua", "sub", "a.lua"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "other", "b.lua"), []byte("b"), 0o644))
+
+	entries, err := scanSyncEntries(root, "lua/sub")
+	require.NoError(t, err)
+	require.NotContains(t, entries, "lua")
+	require.Contains(t, entries, "lua/sub")
+	require.Contains(t, entries, "lua/sub/a.lua")
+	require.NotContains(t, entries, "other")
+	require.NotContains(t, entries, "other/b.lua")
+}
+
+func TestScanTargetEntriesManifestOnlySkipsUnmanaged(t *testing.T) {
+	t.Parallel()
+
+	targetRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(targetRoot, "managed.txt"), []byte("managed"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(targetRoot, "unmanaged.txt"), []byte("unmanaged"), 0o644))
+
+	sourceEntries := map[string]statusEntry{
+		"managed.txt": {path: "managed.txt"},
+	}
+
+	targetEntries, err := scanTargetEntries(targetRoot, "", sourceEntries, false)
+	require.NoError(t, err)
+	require.Contains(t, targetEntries, "managed.txt")
+	require.NotContains(t, targetEntries, "unmanaged.txt")
+
+	targetEntries, err = scanTargetEntries(targetRoot, "", sourceEntries, true)
+	require.NoError(t, err)
+	require.Contains(t, targetEntries, "managed.txt")
+	require.Contains(t, targetEntries, "unmanaged.txt")
+}
+
+func TestScanTargetEntriesTreatsNotDirectoryAsMissing(t *testing.T) {
+	t.Parallel()
+
+	targetRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(targetRoot, "lua"), []byte("not-a-dir"), 0o644))
+
+	sourceEntries := map[string]statusEntry{
+		"lua":          {path: "lua"},
+		"lua/init.lua": {path: "lua/init.lua"},
+	}
+
+	targetEntries, err := scanTargetEntries(targetRoot, "", sourceEntries, false)
+	require.NoError(t, err)
+	require.Contains(t, targetEntries, "lua")
+	require.Equal(t, "file", targetEntries["lua"].typeID)
+	require.NotContains(t, targetEntries, "lua/init.lua")
+}
+
 func TestEntryTypeFromDirEntryFallbackAndError(t *testing.T) {
 	t.Parallel()
 

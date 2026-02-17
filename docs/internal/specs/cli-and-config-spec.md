@@ -71,9 +71,10 @@ Machine-readable schema:
 ## Behavior summary
 
 - `version`/`--version`: print `dotfiles-manager version <value>` and exit (`dev` for non-release local builds)
-- `status`: report drift and candidate sets
+- `status`: report drift and candidate sets; unmanaged/missing candidates are pattern-gated
 - `deploy`: source -> target; optional unmanaged removal by patterns
 - `import`: target -> source; optional unmanaged adds + optional missing deletes by patterns
+- with default empty pattern lists, commands evaluate manifest paths only (no broad unmanaged target scan)
 
 ## Output model summary
 

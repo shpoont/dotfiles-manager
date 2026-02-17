@@ -69,6 +69,9 @@ Optional behavior keys:
 - no unmanaged removal on deploy
 - no unmanaged import on import
 - no delete-on-missing on import
+- include-gated candidate sets stay disabled by default (`include: []`)
+- practical effect: only manifest paths are evaluated unless you opt into unmanaged/missing patterns
+- this safety default still applies for broad targets (for example `target: ./`)
 
 ## Pattern behavior
 

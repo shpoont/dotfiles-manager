@@ -28,6 +28,13 @@ A command-scoped `[path]` only selects syncs where that path is the sync target 
 
 Yes. Configure `on.deploy.remove-unmanaged` patterns.
 
+## Will `target: ./` scan my whole home directory by default?
+
+No.
+
+By default, unmanaged/missing candidate lists are disabled (`include: []`), so commands evaluate manifest paths only.
+Broad target scans only happen when you explicitly enable unmanaged/missing pattern rules.
+
 ## Can import add files that are not in source yet?
 
 Yes. Configure `on.import.add-unmanaged.include` (and optional exclude).

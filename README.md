@@ -66,6 +66,7 @@ GitHub Releases publish:
    - deploy cleanup: `on.deploy.remove-unmanaged`
    - import unmanaged adds: `on.import.add-unmanaged.include/exclude`
    - import missing deletes: `on.import.remove-missing.include/exclude`
+   - defaults are safe (`[]`): unmanaged/missing candidate scans stay off unless explicitly configured
 
 4. **Scoped runs**
    - optional `[path]` narrows commands to matching target subpaths

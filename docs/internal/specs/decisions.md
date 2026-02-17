@@ -79,6 +79,11 @@ Reports:
 - incoming unmanaged candidates
 - removable unmanaged candidates
 - removable missing-manifest candidates
+- candidate discovery is pattern-gated:
+  - `on.import.add-unmanaged.include/exclude`
+  - `on.deploy.remove-unmanaged`
+  - `on.import.remove-missing.include/exclude`
+- with default empty pattern lists, status evaluates manifest paths only (no broad unmanaged target scan)
 
 Output semantics:
 - status operation wording is potential/human-readable (`can create`, `can update`, `can replace type`, `can add`, `can remove`)
@@ -91,6 +96,7 @@ JSON format is defined in `../contracts/json-contract.md`.
 - Copy/update only when content differs.
 - Type mismatches are replaced to match source type.
 - If remove patterns are empty/missing, no unmanaged removal occurs.
+- If remove patterns are empty/missing, deploy does not perform unmanaged target-tree scanning.
 - With `[path]`, cleanup/removal applies only in the scoped subtree.
 - Order is **copy then remove**.
 - Preserve metadata as much as the platform supports.
@@ -102,6 +108,7 @@ JSON format is defined in `../contracts/json-contract.md`.
 - Unmanaged add candidates: target-only + add-unmanaged include match + not add-unmanaged exclude.
 - Missing-delete candidates: source-only (missing in target) + remove-missing include match + not remove-missing exclude.
 - Default (without remove-missing include patterns): do not delete source entries just because target is missing.
+- With default empty include lists, import evaluates manifest paths only (no unmanaged target-tree scan).
 - Type mismatches are replaced to match target type.
 - Preserve metadata as much as the platform supports.
 - With `--dry-run`, plan and report actions but do not mutate filesystem.

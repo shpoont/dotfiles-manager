@@ -29,6 +29,7 @@ Main commands:
 - Config format is YAML.
 - Default discovery is current-directory only (no parent-directory search).
 - Config JSON Schema is available at `../internal/contracts/config-schema.json` for editor/tooling validation.
+- Unmanaged/missing behavior is opt-in by patterns; empty defaults evaluate manifest paths only.
 - Logs are always written to a log file.
   - macOS default: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
   - Linux default: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`

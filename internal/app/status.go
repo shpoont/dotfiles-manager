@@ -2,12 +2,14 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/shpoont/dotfiles-manager/internal/config"
@@ -64,7 +66,7 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	if err != nil {
 		return nil, statusCounts{}, err
 	}
-	targetEntries, err := scanSyncEntries(selection.TargetRoot, selection.ScopePrefix)
+	targetEntries, err := scanTargetEntries(selection.TargetRoot, selection.ScopePrefix, sourceEntries, statusNeedsTargetWalk(syncCfg))
 	if err != nil {
 		return nil, statusCounts{}, err
 	}
@@ -186,6 +188,10 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	return payload, counts, nil
 }
 
+func statusNeedsTargetWalk(syncCfg config.Sync) bool {
+	return len(syncCfg.On.Deploy.RemoveUnmanaged) > 0 || len(syncCfg.On.Import.AddUnmanaged.Include) > 0
+}
+
 func buildStatusManagedOperation(phase, path, action, sourceType, targetType string) map[string]any {
 	return map[string]any{
 		"phase":       phase,
@@ -224,6 +230,33 @@ func statusActionLabel(action string) string {
 	}
 }
 
+func scanTargetEntries(root, scopePrefix string, sourceEntries map[string]statusEntry, includeUnmanaged bool) (map[string]statusEntry, error) {
+	entries := make(map[string]statusEntry, len(sourceEntries))
+
+	for relPath := range sourceEntries {
+		entry, exists, err := probeSyncEntry(root, relPath)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			entries[relPath] = entry
+		}
+	}
+
+	if !includeUnmanaged {
+		return entries, nil
+	}
+
+	scannedEntries, err := scanSyncEntries(root, scopePrefix)
+	if err != nil {
+		return nil, err
+	}
+	for relPath, entry := range scannedEntries {
+		entries[relPath] = entry
+	}
+	return entries, nil
+}
+
 func scanSyncEntries(root, scopePrefix string) (map[string]statusEntry, error) {
 	entries := map[string]statusEntry{}
 
@@ -254,6 +287,9 @@ func scanSyncEntries(root, scopePrefix string) (map[string]statusEntry, error) {
 		relPath = filepath.ToSlash(relPath)
 
 		if !isPathInScope(relPath, scopePrefix) {
+			if d.IsDir() && !pathCanContainScope(relPath, scopePrefix) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -276,6 +312,27 @@ func scanSyncEntries(root, scopePrefix string) (map[string]statusEntry, error) {
 	return entries, nil
 }
 
+func probeSyncEntry(root, relPath string) (statusEntry, bool, error) {
+	absPath := filepath.Join(root, filepath.FromSlash(relPath))
+	info, err := os.Lstat(absPath)
+	if err != nil {
+		if pathMissing(err) {
+			return statusEntry{}, false, nil
+		}
+		return statusEntry{}, false, dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", absPath), map[string]any{"path": absPath}, err)
+	}
+
+	return statusEntry{
+		path:    relPath,
+		absPath: absPath,
+		typeID:  entryTypeFromInfo(info),
+	}, true, nil
+}
+
+func pathMissing(err error) bool {
+	return os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR)
+}
+
 func isPathInScope(path, scopePrefix string) bool {
 	if scopePrefix == "" {
 		return true
@@ -284,6 +341,27 @@ func isPathInScope(path, scopePrefix string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, scopePrefix+"/")
+}
+
+func pathCanContainScope(path, scopePrefix string) bool {
+	if scopePrefix == "" {
+		return true
+	}
+	if path == "" {
+		return true
+	}
+	return strings.HasPrefix(scopePrefix, path+"/")
+}
+
+func entryTypeFromInfo(info os.FileInfo) string {
+	mode := info.Mode()
+	if mode&os.ModeSymlink != 0 {
+		return "symlink"
+	}
+	if info.IsDir() {
+		return "dir"
+	}
+	return "file"
 }
 
 func entryTypeFromDirEntry(path string, d fs.DirEntry) (string, error) {

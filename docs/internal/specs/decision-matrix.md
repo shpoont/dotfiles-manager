@@ -24,9 +24,9 @@ Canonical rules and rationale live in **`decisions.md`**.
 | Command | Direction | Base scope | Pattern sets used | Outcome focus |
 |---|---|---|---|---|
 | `version` / `--version` | info | n/a | none | Reports CLI version and exits. |
-| `status [--json] [path]` | compare | Manifest + candidates | add-unmanaged include/exclude, remove-unmanaged, remove-missing include/exclude | Reports drift + candidate sets. |
-| `deploy [--dry-run] [--json] [path]` | S → T | Manifest paths | remove-unmanaged | Applies copy/remove behavior (or plans only with `--dry-run`). |
-| `import [--dry-run] [--json] [path]` | T → S | Manifest paths | add-unmanaged include/exclude, remove-missing include/exclude | Applies import behavior (or plans only with `--dry-run`). |
+| `status [--json] [path]` | compare | Manifest paths by default; candidate expansion when pattern-gated | add-unmanaged include/exclude, remove-unmanaged, remove-missing include/exclude | Reports drift + candidate sets. |
+| `deploy [--dry-run] [--json] [path]` | S → T | Manifest paths; unmanaged removals only for matching patterns | remove-unmanaged | Applies copy/remove behavior (or plans only with `--dry-run`). |
+| `import [--dry-run] [--json] [path]` | T → S | Manifest paths by default; unmanaged/missing expansion when include-gated | add-unmanaged include/exclude, remove-missing include/exclude | Applies import behavior (or plans only with `--dry-run`). |
 
 ## 2) `[path]` subset matrix
 
@@ -64,6 +64,7 @@ Examples:
 - `source` is authoritative; there is no separate conflict state.
 - Deploy removal order is copy/update first, remove second.
 - Status should include candidate visibility (incoming unmanaged, removable unmanaged, removable missing).
+- Empty default pattern lists imply no broad unmanaged target scan.
 - Status text/json actions use potential wording (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
 - Text output suppresses empty phase blocks; text summary omits zero-count categories.
 - `--dry-run` for deploy/import uses the same scope and outcome planning, but performs no writes.
