@@ -16,9 +16,9 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 				"sync":         "sync[0] target=~/.config/nvim source=./source/nvim",
 				"scope_prefix": "lua",
 				"operations": []any{
-					map[string]any{"phase": "deploy", "action": "create", "path": "lua/init.lua", "source_type": "file", "target_type": "missing"},
-					map[string]any{"phase": "import", "action": "update", "path": "lua/init.lua", "source_type": "file", "target_type": "file"},
-					map[string]any{"phase": "incoming_unmanaged", "action": "add", "path": "lua/new.lua", "type": "file"},
+					map[string]any{"phase": "deploy", "action": "can create", "path": "lua/init.lua", "source_type": "file", "target_type": "missing"},
+					map[string]any{"phase": "import", "action": "can update", "path": "lua/init.lua", "source_type": "file", "target_type": "file"},
+					map[string]any{"phase": "incoming_unmanaged", "action": "can add", "path": "lua/new.lua", "type": "file"},
 				},
 			},
 		},
@@ -34,9 +34,11 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 
 	require.Contains(t, statusOutput, "sync[0] target=~/.config/nvim source=./source/nvim scope=lua")
 	require.Contains(t, statusOutput, "deploy[1]")
-	require.Contains(t, statusOutput, "create       lua/init.lua (file->missing)")
+	require.Contains(t, statusOutput, "can create   lua/init.lua (file->missing)")
 	require.Contains(t, statusOutput, "incoming-unmanaged[1]")
-	require.Contains(t, statusOutput, "summary deploy=1 import=1 incoming-unmanaged=1 remove-unmanaged=0 remove-missing=0")
+	require.Contains(t, statusOutput, "summary deploy=1 import=1 incoming-unmanaged=1")
+	require.NotContains(t, statusOutput, "remove-unmanaged[0]")
+	require.NotContains(t, statusOutput, "remove-missing[0]")
 
 	deployOutput := buildTextOutput("deploy", true, map[string]any{
 		"syncs": []any{

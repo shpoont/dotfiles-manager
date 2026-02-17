@@ -51,7 +51,7 @@ func TestStatusJSONReportsDriftAndCandidates(t *testing.T) {
 	payload := runJSONCommand(t, []string{"status", "--json"})
 	require.Equal(t, true, payload["ok"])
 	require.Equal(t, "status", payload["command"])
-	require.Equal(t, "2.0", payload["schema_version"])
+	require.Equal(t, "3.0", payload["schema_version"])
 
 	pathScope := payload["path_scope"].(map[string]any)
 	require.Nil(t, pathScope["input"])
@@ -66,11 +66,11 @@ func TestStatusJSONReportsDriftAndCandidates(t *testing.T) {
 	require.Equal(t, "sync[0] target=~/.config/nvim source=./source/nvim", sync["sync"])
 
 	require.Equal(t, []string{"alpha", "alpha/a.lua", "alpha/z.lua", "lua/init.lua", "lua/only-source.lua"}, operationPaths(sync, "deploy"))
-	require.Equal(t, "create", findOperation(sync, "deploy", "alpha")["action"])
-	require.Equal(t, "update", findOperation(sync, "deploy", "lua/init.lua")["action"])
+	require.Equal(t, "can create", findOperation(sync, "deploy", "alpha")["action"])
+	require.Equal(t, "can update", findOperation(sync, "deploy", "lua/init.lua")["action"])
 
 	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "import"))
-	require.Equal(t, "update", findOperation(sync, "import", "lua/init.lua")["action"])
+	require.Equal(t, "can update", findOperation(sync, "import", "lua/init.lua")["action"])
 
 	require.Equal(t, []string{"lua/new.lua", "lua/old.bak"}, operationPaths(sync, "incoming_unmanaged"))
 
@@ -135,7 +135,7 @@ func TestStatusJSONReportsReplaceTypeChange(t *testing.T) {
 	sync := payload["syncs"].([]any)[0].(map[string]any)
 	deploy := operationsForPhase(sync, "deploy")
 	require.Equal(t, 1, len(deploy))
-	require.Equal(t, "replace_type", deploy[0]["action"])
+	require.Equal(t, "can replace type", deploy[0]["action"])
 	require.Equal(t, "file", deploy[0]["source_type"])
 	require.Equal(t, "symlink", deploy[0]["target_type"])
 }

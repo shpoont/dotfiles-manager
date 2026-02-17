@@ -8,7 +8,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/config"
 )
 
-const jsonSchemaVersion = "2.0"
+const jsonSchemaVersion = "3.0"
 
 type syncDisplay struct {
 	Label  string

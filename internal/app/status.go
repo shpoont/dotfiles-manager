@@ -189,7 +189,7 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 func buildStatusManagedOperation(phase, path, action, sourceType, targetType string) map[string]any {
 	return map[string]any{
 		"phase":       phase,
-		"action":      action,
+		"action":      statusActionLabel(action),
 		"state":       "candidate",
 		"path":        path,
 		"source_type": sourceType,
@@ -200,10 +200,27 @@ func buildStatusManagedOperation(phase, path, action, sourceType, targetType str
 func buildStatusTypedOperation(phase, action, path, entryType string) map[string]any {
 	return map[string]any{
 		"phase":  phase,
-		"action": action,
+		"action": statusActionLabel(action),
 		"state":  "candidate",
 		"path":   path,
 		"type":   entryType,
+	}
+}
+
+func statusActionLabel(action string) string {
+	switch action {
+	case "create":
+		return "can create"
+	case "update":
+		return "can update"
+	case "replace_type":
+		return "can replace type"
+	case "add":
+		return "can add"
+	case "remove":
+		return "can remove"
+	default:
+		return action
 	}
 }
 

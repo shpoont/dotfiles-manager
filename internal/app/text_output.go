@@ -54,6 +54,10 @@ func buildSyncHeader(sync map[string]any) string {
 }
 
 func appendPhaseBlock(lines []string, label string, operations []map[string]any) []string {
+	if len(operations) == 0 {
+		return lines
+	}
+
 	lines = append(lines, fmt.Sprintf("%s[%d]", label, len(operations)))
 	for _, op := range operations {
 		action := stringValue(op["action"])

@@ -36,7 +36,8 @@ func TestStatusLogsWrittenToFileAndRedactConfigPath(t *testing.T) {
 
 	require.NoError(t, cmd.Execute(), stderr.String())
 	require.Contains(t, stdout.String(), "sync[0] target=~/.config/zsh source=./zsh")
-	require.Contains(t, stdout.String(), "summary deploy=0")
+	require.Contains(t, stdout.String(), "summary")
+	require.NotContains(t, stdout.String(), "deploy[0]")
 	require.Empty(t, stderr.String())
 
 	logBody := readLogFile(t, logPath)
