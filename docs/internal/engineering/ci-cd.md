@@ -151,7 +151,7 @@ Manual procedure:
   - `dotfiles-manager_0.1.1_darwin_arm64.tar.gz`
   - `dotfiles-manager_0.1.1_checksums.txt`
 - Command smoke-test results:
-  - `status` output included sync header (`sync[0] target=... source=...`) and `summary deploy=... import=...`
+  - `status` output included sync header (`sync[0] target=... source=...`), only non-empty phase blocks, and summary with only non-zero categories
   - for scoped runs, sync header includes `scope=<prefix>`
-  - `deploy --dry-run` output included phase blocks `copy[...]`, `remove-unmanaged[...]`, and `summary dry-run=true ...`
-  - `import --dry-run` output included phase blocks `update-managed[...]`, `add-unmanaged[...]`, `remove-missing[...]`
+  - `deploy --dry-run` output included only non-empty phase blocks (`copy[...]`, `remove-unmanaged[...]`) and concise summary
+  - `import --dry-run` output included only non-empty phase blocks (`update-managed[...]`, `add-unmanaged[...]`, `remove-missing[...]`) and concise summary

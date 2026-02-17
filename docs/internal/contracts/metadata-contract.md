@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Contract v1
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/contracts/metadata-contract.md
 ---
 
@@ -16,7 +16,7 @@ For both `deploy` and `import`, dotfiles-manager must preserve:
 - regular file **content bytes**
 - symlink **link target value**
 
-Type mismatches are resolved by replacement (`replace_type`).
+Type mismatches are resolved by replacement (`replace_type` in deploy/import reporting, `can replace type` in status reporting).
 
 Failures in these strict operations are runtime errors (fail-fast).
 

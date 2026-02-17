@@ -48,14 +48,12 @@ Example text output shape:
 ```text
 sync[0] target=~/.config/nvim source=./source/nvim
 deploy[2]
-  create       lua/init.lua (file->missing)
+  can create   lua/init.lua (file->missing)
 import[1]
-  update       lua/plugins.lua (file->file)
-incoming-unmanaged[0]
-remove-unmanaged[0]
+  can update   lua/plugins.lua (file->file)
 remove-missing[1]
-  remove       lua/legacy.lua (file)
-summary deploy=2 import=1 incoming-unmanaged=0 remove-unmanaged=0 remove-missing=1
+  can remove   lua/legacy.lua (file)
+summary deploy=2 import=1 remove-missing=1
 ```
 
 ## `deploy [--dry-run] [--json] [path]`
@@ -120,10 +118,13 @@ If `[path]` matches no syncs, command fails.
   - `sync[idx] target=~/<target> source=./<source>`
 - when `[path]` scopes into a subpath, header appends:
   - `scope=<sync-relative-prefix>`
-- actions are explicit words (`create`, `update`, `replace_type`, `add`, `remove`).
-- `--json` returns machine-readable output (`schema_version: "2.0"`), with:
+- text mode only prints non-empty phase blocks.
+- text summary line only includes non-zero categories.
+- status actions are potential, human-readable phrases (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
+- deploy/import actions remain actual execution verbs (`create`, `update`, `replace_type`, `add`, `remove`).
+- `--json` returns machine-readable output (`schema_version: "3.0"`), with:
   - `syncs[].operations[]` for exact per-file operations
-  - command-specific summary counts
+  - command-specific summary counts (fixed key set; zero values retained)
 - Exit `0` on success (including `status` with drift).
 - Non-zero on validation/runtime errors.
 - Commands are fail-fast on runtime errors.

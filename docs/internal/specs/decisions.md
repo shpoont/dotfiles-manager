@@ -72,6 +72,10 @@ Reports:
 - removable unmanaged candidates
 - removable missing-manifest candidates
 
+Output semantics:
+- status operation wording is potential/human-readable (`can create`, `can update`, `can replace type`, `can add`, `can remove`)
+- phase names stay unchanged (`deploy`, `import`, `incoming-unmanaged`, `remove-unmanaged`, `remove-missing`)
+
 JSON format is defined in `../contracts/json-contract.md`.
 
 ### `deploy [--dry-run] [--json] [path]`
@@ -111,6 +115,10 @@ Metadata guarantees and best-effort behavior are defined in `../contracts/metada
 | Exit `0` on success (including `status` with drift), non-zero on errors | Conventional CLI semantics. |
 | `--json` supported on `status`, `deploy`, and `import` | Machine-readable automation support. |
 | `--dry-run` supported on `deploy` and `import`, not `status` | Keeps preview explicit for mutating commands; `status` is already preview-only. |
+| Text output suppresses empty phase blocks | Reduces noise and surfaces only actionable work. |
+| Text summary includes only non-zero categories | Keeps human output concise. |
+| JSON `summary` keeps fixed command-specific keys (including zero values) | Preserves stable machine-readable structure. |
+| JSON schema version bumped to `3.0` for status action wording change | Captures breaking contract update explicitly. |
 | Runtime logs are written to a platform-default log file | Keeps command output channels clean while preserving diagnostics history. |
 | `--log-file <path>` overrides the log file destination | Allows explicit per-run log routing. |
 | Logs are human-readable text only (no log format option) | Keeps operator-facing diagnostics simple and consistent. |
