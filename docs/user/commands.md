@@ -61,6 +61,11 @@ Reports:
 
 `status` does not write files.
 
+Candidate-set scanning is opt-in:
+- unmanaged/removal candidate discovery runs only when related pattern lists are configured
+- with default empty pattern lists, `status` compares manifest paths only
+- even with a broad sync like `target: ./`, it does not scan unrelated target paths unless those pattern rules are enabled
+
 Example text output shape:
 
 ```text
@@ -81,6 +86,7 @@ Behavior:
 - replace type mismatches (file/dir/symlink)
 - then remove unmanaged target paths matching `on.deploy.remove-unmanaged`
 - if remove patterns are empty/missing, no unmanaged paths are removed
+- with empty remove patterns, deploy does not perform unmanaged target-tree scanning
 
 `--dry-run` plans and reports operations without writing.
 
@@ -103,6 +109,8 @@ Behavior:
 - optionally add unmanaged target files via `on.import.add-unmanaged.include/exclude`
 - optionally remove source paths missing in target via `on.import.remove-missing.include/exclude`
 - replace type mismatches (file/dir/symlink)
+- unmanaged add/remove-missing candidate discovery is include-gated
+- with default empty include lists, import evaluates manifest paths only (no unmanaged target-tree scan)
 
 `--dry-run` plans and reports operations without writing.
 
