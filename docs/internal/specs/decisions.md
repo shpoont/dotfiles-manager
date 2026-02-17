@@ -29,9 +29,12 @@ It complements:
 
 | Decision | Why |
 |---|---|
-| `source` and `target` in config are relative-only | Prevents surprising absolute-path writes and keeps configs portable. |
+| `source` and `target` in config are relative-only **after env expansion** | Prevents surprising absolute-path writes and keeps configs portable. |
 | `source` is relative to config directory; `target` is relative to `$HOME` | Clear, stable roots for both sides. |
 | Lexical normalization applies (`.`, `..`, duplicate separators) | Ensures consistent matching and validation. |
+| Config paths may embed env placeholders (`$VAR` and `${VAR}`) that are expanded from the runtime environment before normalization | Lets configs reuse environment-specific roots while keeping resolution deterministic. |
+| Missing or empty env vars referenced by path placeholders are errors | Prevents silent fallback to unintended roots. |
+| Expanded paths must still sit inside their base roots and pass relative/escape validation | Preserves safety guarantees even when runtime env is used. |
 | Escaping base roots via `..` is invalid | Prevents traversal outside intended scope. |
 | Symlinks are treated as symlink entries (no realpath-based sync semantics) | Matches “treat like git entries” model and avoids hidden path rewrites. |
 | CLI `[path]` accepts absolute, `~`-based, and relative forms | Convenient for both shell and scripting usage. |

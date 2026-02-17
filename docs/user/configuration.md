@@ -18,6 +18,8 @@ The default config filename is `.dotfiles-manager.yaml`.
 syncs:
   - target: .config/nvim
     source: .config/nvim
+  - target: ./
+    source: "./$HOSTNAME/$USER"
     on:
       deploy:
         remove-unmanaged:
@@ -54,8 +56,14 @@ Runtime validation is still authoritative.
 ## `syncs[]` keys
 
 Required:
-- `target` — relative to `$HOME`
-- `source` — relative to config file directory
+- `target` — relative to `$HOME` after env expansion
+- `source` — relative to config file directory after env expansion
+
+Env expansion in paths:
+- supported in `target` and `source`: `$VAR` and `${VAR}`
+- expansion runs before path normalization and validation
+- missing or empty env values are errors
+- expanded paths must still be relative and must not escape base via `..`
 
 Optional behavior keys:
 - `on.deploy.remove-unmanaged` — patterns for unmanaged target paths removed during `deploy`
@@ -83,7 +91,7 @@ Optional behavior keys:
 
 ## Path and order behavior
 
-- Config paths are relative-only.
+- Config paths are relative-only after env expansion.
 - Path normalization is lexical.
 - Paths must not escape their base via `..` after normalization.
 - Overlapping syncs are allowed.

@@ -36,8 +36,11 @@ When `--json` is set, errors are emitted via JSON envelope (`ok=false`, `error.c
 | `DFM_CONFIG_SCHEMA_UNKNOWN_KEY` | unknown key present | `Unknown config key: {key_path}` |
 | `DFM_CONFIG_SCHEMA_TYPE` | wrong type for key (e.g. string instead of list) | `Invalid type at {key_path}: expected {expected}` |
 | `DFM_CONFIG_SCHEMA_REQUIRED` | missing required key | `Missing required key: {key_path}` |
-| `DFM_CONFIG_PATH_NOT_RELATIVE` | `syncs[].source` or `syncs[].target` is absolute / `~` / env-like | `Path must be relative: {key_path}` |
-| `DFM_CONFIG_PATH_ESCAPE` | normalized config path escapes base via `..` | `Path escapes base directory: {key_path}` |
+| `DFM_CONFIG_PATH_NOT_RELATIVE` | resolved `syncs[].source` or `syncs[].target` is absolute / starts with `~` / otherwise not relative after placeholder expansion | `Path must be relative: {key_path}` |
+| `DFM_CONFIG_PATH_ESCAPE` | normalized config path escapes base via `..` after placeholder expansion | `Path escapes base directory: {key_path}` |
+| `DFM_CONFIG_PATH_ENV_VAR_UNDEFINED` | `$VAR`/`${VAR}` placeholder references missing or empty environment variable during expansion | `Environment variable {var} required for path: {key_path}` |
+
+Paths that include `$VAR`/`${VAR}` placeholders are expanded using the runtime environment before the checks above; missing/empty variables raise `DFM_CONFIG_PATH_ENV_VAR_UNDEFINED` and the resulting path is subjected to the usual relative/escape validation.
 
 ## CLI path scoping
 
@@ -78,7 +81,7 @@ When `--json` is set, errors are emitted via JSON envelope (`ok=false`, `error.c
 To keep errors deterministic:
 1. config source resolution + path checks
 2. YAML parse
-3. schema + path validation
+3. schema + placeholder expansion + path validation (missing/empty env vars raise `DFM_CONFIG_PATH_ENV_VAR_UNDEFINED` before other path checks)
 4. `[path]` matching checks
 5. runtime filesystem operations
 

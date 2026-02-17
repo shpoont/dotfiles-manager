@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Implementation-ready
-last-updated: 2026-02-16
+last-updated: 2026-02-17
 canonical-source: docs/internal/specs/open-questions.md
 ---
 
@@ -27,7 +27,7 @@ Most previously open items are now resolved in:
 - Config is YAML-only, unknown keys are errors.
 - Config resolution order is `--config` → `DOTFILES_MANAGER_CONFIG` → `./.dotfiles-manager.yaml` (cwd).
 - Default config lookup is cwd-only (no parent search).
-- Config `source`/`target` are relative-only.
+- Config `source`/`target` accept env placeholders (`$VAR`, `${VAR}`) and are validated as relative-only after expansion.
 - Lexical path normalization; base escape via `..` is invalid.
 - `[path]` accepts absolute, `~`, and relative forms.
 - `[path]` must be target or subpath; parent-of-target does not match.
