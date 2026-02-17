@@ -1,0 +1,93 @@
+name: dispatch-homebrew-tap
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to dispatch (e.g. v0.1.2)"
+        required: true
+      source_sha256:
+        description: "Optional SHA256 for https://github.com/shpoont/dotfiles-manager/archive/refs/tags/<tag>.tar.gz"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dispatch-homebrew-tap-${{ github.event.release.tag_name || inputs.tag || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: dispatch repository event
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      PROVIDED_SHA256: ${{ inputs.source_sha256 }}
+    steps:
+      - name: Validate tag
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_TAG:-}" ]]; then
+            echo "::error::Missing release tag."
+            exit 1
+          fi
+          if [[ "${RELEASE_TAG}" != v* ]]; then
+            echo "::error::Tag must start with 'v'. Got: ${RELEASE_TAG}"
+            exit 1
+          fi
+
+      - name: Compute source checksum
+        id: source
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+
+          if [[ -n "${PROVIDED_SHA256:-}" ]]; then
+            sha256="${PROVIDED_SHA256}"
+          else
+            curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz" -o source.tar.gz
+            sha256="$(sha256sum source.tar.gz | awk '{print $1}')"
+          fi
+
+          if [[ ! "${sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Computed or provided SHA256 is invalid: ${sha256}"
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure dispatch token exists
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAP_TOKEN:-}" ]]; then
+            echo "::error::Missing secret HOMEBREW_TAP_DISPATCH_TOKEN."
+            echo "::error::Create a classic/fine-grained PAT with access to shpoont/homebrew-tap and store it in this repo."
+            exit 1
+          fi
+
+      - name: Dispatch bottle workflow in homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.source.outputs.version }}
+          SHA256: ${{ steps.source.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          gh api repos/shpoont/homebrew-tap/dispatches \
+            --method POST \
+            --input - <<JSON
+          {
+            "event_type": "dotfiles-manager-release",
+            "client_payload": {
+              "tag": "${RELEASE_TAG}",
+              "version": "${VERSION}",
+              "source_sha256": "${SHA256}"
+            }
+          }
+          JSON
