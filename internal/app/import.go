@@ -79,7 +79,7 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	if err != nil {
 		return nil, importCounts{}, err
 	}
-	targetEntries, err := scanSyncEntries(selection.TargetRoot, selection.ScopePrefix)
+	targetEntries, err := scanTargetEntries(selection.TargetRoot, selection.ScopePrefix, sourceEntries, importNeedsTargetWalk(syncCfg))
 	if err != nil {
 		return nil, importCounts{}, err
 	}
@@ -220,6 +220,10 @@ func evaluateImportSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 		removedMissing:  len(removedMissingPayload),
 	}
 	return payload, counts, nil
+}
+
+func importNeedsTargetWalk(syncCfg config.Sync) bool {
+	return len(syncCfg.On.Import.AddUnmanaged.Include) > 0
 }
 
 func applyImportCopy(op importCopyOperation) error {
