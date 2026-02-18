@@ -78,7 +78,7 @@ func evaluateDeploySync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	if err != nil {
 		return nil, deployCounts{}, err
 	}
-	targetEntries, err := scanTargetEntries(selection.TargetRoot, selection.ScopePrefix, sourceEntries, deployNeedsTargetWalk(syncCfg))
+	targetEntries, err := scanTargetEntries(selection.TargetRoot, selection.ScopePrefix, sourceEntries, deployTargetScanPatterns(syncCfg))
 	if err != nil {
 		return nil, deployCounts{}, err
 	}
@@ -197,8 +197,8 @@ func evaluateDeploySync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	return payload, counts, nil
 }
 
-func deployNeedsTargetWalk(syncCfg config.Sync) bool {
-	return len(syncCfg.On.Deploy.RemoveUnmanaged) > 0
+func deployTargetScanPatterns(syncCfg config.Sync) []string {
+	return syncCfg.On.Deploy.RemoveUnmanaged
 }
 
 func applyDeployCopy(op deployCopyOperation) error {

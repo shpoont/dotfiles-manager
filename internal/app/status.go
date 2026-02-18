@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -66,7 +67,7 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	if err != nil {
 		return nil, statusCounts{}, err
 	}
-	targetEntries, err := scanTargetEntries(selection.TargetRoot, selection.ScopePrefix, sourceEntries, statusNeedsTargetWalk(syncCfg))
+	targetEntries, err := scanTargetEntries(selection.TargetRoot, selection.ScopePrefix, sourceEntries, statusTargetScanPatterns(syncCfg))
 	if err != nil {
 		return nil, statusCounts{}, err
 	}
@@ -188,8 +189,11 @@ func evaluateStatusSync(syncIndex int, syncCfg config.Sync, selection syncSelect
 	return payload, counts, nil
 }
 
-func statusNeedsTargetWalk(syncCfg config.Sync) bool {
-	return len(syncCfg.On.Deploy.RemoveUnmanaged) > 0 || len(syncCfg.On.Import.AddUnmanaged.Include) > 0
+func statusTargetScanPatterns(syncCfg config.Sync) []string {
+	patterns := make([]string, 0, len(syncCfg.On.Deploy.RemoveUnmanaged)+len(syncCfg.On.Import.AddUnmanaged.Include))
+	patterns = append(patterns, syncCfg.On.Deploy.RemoveUnmanaged...)
+	patterns = append(patterns, syncCfg.On.Import.AddUnmanaged.Include...)
+	return patterns
 }
 
 func buildStatusManagedOperation(phase, path, action, sourceType, targetType string) map[string]any {
@@ -230,7 +234,7 @@ func statusActionLabel(action string) string {
 	}
 }
 
-func scanTargetEntries(root, scopePrefix string, sourceEntries map[string]statusEntry, includeUnmanaged bool) (map[string]statusEntry, error) {
+func scanTargetEntries(root, scopePrefix string, sourceEntries map[string]statusEntry, unmanagedScanPatterns []string) (map[string]statusEntry, error) {
 	entries := make(map[string]statusEntry, len(sourceEntries))
 
 	for relPath := range sourceEntries {
@@ -243,18 +247,179 @@ func scanTargetEntries(root, scopePrefix string, sourceEntries map[string]status
 		}
 	}
 
-	if !includeUnmanaged {
+	if len(unmanagedScanPatterns) == 0 {
 		return entries, nil
 	}
 
-	scannedEntries, err := scanSyncEntries(root, scopePrefix)
+	for _, prefix := range scanPrefixesForPatterns(unmanagedScanPatterns) {
+		scannedEntries, err := scanSyncEntriesForPrefix(root, scopePrefix, prefix)
+		if err != nil {
+			return nil, err
+		}
+		for relPath, entry := range scannedEntries {
+			entries[relPath] = entry
+		}
+	}
+
+	return entries, nil
+}
+
+func scanSyncEntriesForPrefix(root, scopePrefix, prefix string) (map[string]statusEntry, error) {
+	if prefix == "" {
+		return scanSyncEntries(root, scopePrefix)
+	}
+
+	absPrefix := filepath.Join(root, filepath.FromSlash(prefix))
+	if !isWithinTarget(filepath.Clean(absPrefix), filepath.Clean(root)) {
+		return map[string]statusEntry{}, nil
+	}
+
+	info, err := os.Lstat(absPrefix)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]statusEntry{}, nil
+		}
+		return nil, dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", absPrefix), map[string]any{"path": absPrefix}, err)
+	}
+
+	if !pathScopesOverlap(prefix, scopePrefix) {
+		return map[string]statusEntry{}, nil
+	}
+
+	if !info.IsDir() {
+		if !isPathInScope(prefix, scopePrefix) {
+			return map[string]statusEntry{}, nil
+		}
+		return map[string]statusEntry{
+			prefix: {
+				path:    prefix,
+				absPath: absPrefix,
+				typeID:  entryTypeFromInfo(info),
+			},
+		}, nil
+	}
+
+	entries := map[string]statusEntry{}
+	if isPathInScope(prefix, scopePrefix) {
+		entries[prefix] = statusEntry{
+			path:    prefix,
+			absPath: absPrefix,
+			typeID:  "dir",
+		}
+	}
+
+	subScope := scopedPrefix(scopePrefix, prefix)
+	scannedEntries, err := scanSyncEntries(absPrefix, subScope)
 	if err != nil {
 		return nil, err
 	}
 	for relPath, entry := range scannedEntries {
-		entries[relPath] = entry
+		joinedPath := joinSlashPath(prefix, relPath)
+		entry.path = joinedPath
+		entry.absPath = filepath.Join(root, filepath.FromSlash(joinedPath))
+		entries[joinedPath] = entry
 	}
 	return entries, nil
+}
+
+func scanPrefixesForPatterns(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	unique := map[string]struct{}{}
+	for _, pattern := range patterns {
+		prefix := literalPatternPrefix(pattern)
+		if prefix == "" {
+			return []string{""}
+		}
+		unique[prefix] = struct{}{}
+	}
+
+	ordered := make([]string, 0, len(unique))
+	for prefix := range unique {
+		ordered = append(ordered, prefix)
+	}
+	sort.Strings(ordered)
+
+	pruned := make([]string, 0, len(ordered))
+	for _, prefix := range ordered {
+		covered := false
+		for _, keep := range pruned {
+			if prefix == keep || strings.HasPrefix(prefix, keep+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			pruned = append(pruned, prefix)
+		}
+	}
+	return pruned
+}
+
+func literalPatternPrefix(pattern string) string {
+	normalized := strings.TrimSpace(filepath.ToSlash(pattern))
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.TrimPrefix(normalized, "/")
+
+	if normalized == "" || normalized == "." {
+		return ""
+	}
+
+	segments := strings.Split(normalized, "/")
+	prefixSegments := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if segment == "" || segment == "." {
+			continue
+		}
+		if strings.ContainsAny(segment, "*?[{") {
+			break
+		}
+		prefixSegments = append(prefixSegments, segment)
+	}
+
+	if len(prefixSegments) == 0 {
+		return ""
+	}
+	return strings.Join(prefixSegments, "/")
+}
+
+func scopedPrefix(scopePrefix, prefix string) string {
+	if scopePrefix == "" {
+		return ""
+	}
+	if scopePrefix == prefix || strings.HasPrefix(prefix, scopePrefix+"/") {
+		return ""
+	}
+	if strings.HasPrefix(scopePrefix, prefix+"/") {
+		return strings.TrimPrefix(scopePrefix, prefix+"/")
+	}
+	return ""
+}
+
+func pathScopesOverlap(first, second string) bool {
+	if first == "" || second == "" {
+		return true
+	}
+	if first == second {
+		return true
+	}
+	return strings.HasPrefix(first, second+"/") || strings.HasPrefix(second, first+"/")
+}
+
+func joinSlashPath(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	return path.Join(filtered...)
 }
 
 func scanSyncEntries(root, scopePrefix string) (map[string]statusEntry, error) {
