@@ -72,12 +72,12 @@ func TestScanTargetEntriesManifestOnlySkipsUnmanaged(t *testing.T) {
 		"managed.txt": {path: "managed.txt"},
 	}
 
-	targetEntries, err := scanTargetEntries(targetRoot, "", sourceEntries, false)
+	targetEntries, err := scanTargetEntries(targetRoot, "", sourceEntries, nil)
 	require.NoError(t, err)
 	require.Contains(t, targetEntries, "managed.txt")
 	require.NotContains(t, targetEntries, "unmanaged.txt")
 
-	targetEntries, err = scanTargetEntries(targetRoot, "", sourceEntries, true)
+	targetEntries, err = scanTargetEntries(targetRoot, "", sourceEntries, []string{"**"})
 	require.NoError(t, err)
 	require.Contains(t, targetEntries, "managed.txt")
 	require.Contains(t, targetEntries, "unmanaged.txt")
@@ -94,11 +94,69 @@ func TestScanTargetEntriesTreatsNotDirectoryAsMissing(t *testing.T) {
 		"lua/init.lua": {path: "lua/init.lua"},
 	}
 
-	targetEntries, err := scanTargetEntries(targetRoot, "", sourceEntries, false)
+	targetEntries, err := scanTargetEntries(targetRoot, "", sourceEntries, nil)
 	require.NoError(t, err)
 	require.Contains(t, targetEntries, "lua")
 	require.Equal(t, "file", targetEntries["lua"].typeID)
 	require.NotContains(t, targetEntries, "lua/init.lua")
+}
+
+func TestScanTargetEntriesPatternPrefixSkipsUnreadableSiblings(t *testing.T) {
+	t.Parallel()
+
+	targetRoot := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(targetRoot, "allowed"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(targetRoot, "allowed", "keep.txt"), []byte("x"), 0o644))
+
+	blocked := filepath.Join(targetRoot, "blocked")
+	require.NoError(t, os.MkdirAll(filepath.Join(blocked, "nested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(blocked, "nested", "deny.txt"), []byte("x"), 0o644))
+
+	require.NoError(t, os.Chmod(blocked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o755) })
+
+	targetEntries, err := scanTargetEntries(targetRoot, "", map[string]statusEntry{}, []string{"allowed/**"})
+	require.NoError(t, err)
+	require.Contains(t, targetEntries, "allowed")
+	require.Contains(t, targetEntries, "allowed/keep.txt")
+	require.NotContains(t, targetEntries, "blocked")
+}
+
+func TestScanPrefixesForPatterns(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, []string{""}, scanPrefixesForPatterns([]string{"**/*.tmp", ".codex/skills/**"}))
+
+	prefixes := scanPrefixesForPatterns([]string{
+		".codex/skills/**",
+		".codex/skills/custom/**",
+		".codex/prompts/**",
+		"foo/*/bar/**",
+		"./local/file.txt",
+	})
+
+	require.Equal(t, []string{".codex/prompts", ".codex/skills", "foo", "local/file.txt"}, prefixes)
+}
+
+func TestScopedPrefixAndOverlap(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, pathScopesOverlap(".codex", ".codex/skills"))
+	require.True(t, pathScopesOverlap(".codex/skills", ".codex"))
+	require.False(t, pathScopesOverlap(".codex", ".config"))
+
+	require.Equal(t, "skills", scopedPrefix(".codex/skills", ".codex"))
+	require.Equal(t, "", scopedPrefix(".codex", ".codex/skills"))
+	require.Equal(t, "", scopedPrefix("", ".codex"))
+}
+
+func TestScanSyncEntriesForPrefixSkipsOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	entries, err := scanSyncEntriesForPrefix(root, "", "../outside")
+	require.NoError(t, err)
+	require.Empty(t, entries)
 }
 
 func TestEntryTypeFromDirEntryFallbackAndError(t *testing.T) {

@@ -64,7 +64,8 @@ Reports:
 Candidate-set scanning is opt-in:
 - unmanaged/removal candidate discovery runs only when related pattern lists are configured
 - with default empty pattern lists, `status` compares manifest paths only
-- even with a broad sync like `target: ./`, it does not scan unrelated target paths unless those pattern rules are enabled
+- when enabled, discovery starts from literal pattern roots (for example `.codex/skills/**` starts at `.codex/skills`)
+- wildcard-first patterns (for example `**/*.tmp`) can still require broad scans
 
 Example text output shape:
 
@@ -87,6 +88,7 @@ Behavior:
 - then remove unmanaged target paths matching `on.deploy.remove-unmanaged`
 - if remove patterns are empty/missing, no unmanaged paths are removed
 - with empty remove patterns, deploy does not perform unmanaged target-tree scanning
+- with remove patterns present, scanning starts from literal pattern roots when available
 
 `--dry-run` plans and reports operations without writing.
 
@@ -111,6 +113,7 @@ Behavior:
 - replace type mismatches (file/dir/symlink)
 - unmanaged add/remove-missing candidate discovery is include-gated
 - with default empty include lists, import evaluates manifest paths only (no unmanaged target-tree scan)
+- with add-unmanaged includes present, scanning starts from literal include roots when available
 
 `--dry-run` plans and reports operations without writing.
 

@@ -46,7 +46,8 @@ Yes. Configure `on.deploy.remove-unmanaged` patterns.
 No.
 
 By default, unmanaged/missing candidate lists are disabled (`include: []`), so commands evaluate manifest paths only.
-Broad target scans only happen when you explicitly enable unmanaged/missing pattern rules.
+When pattern rules are enabled, discovery starts from literal pattern roots when possible (for example `.codex/skills/**` starts from `.codex/skills`).
+Wildcard-first patterns (for example `**/*.tmp`) can still require broad scans.
 
 ## Can import add files that are not in source yet?
 
