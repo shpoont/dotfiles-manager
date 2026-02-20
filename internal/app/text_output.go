@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -13,6 +14,10 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 	lines := make([]string, 0)
 	syncs := syncPayloadMaps(result["syncs"])
 
+	if command == "status" && len(syncs) > 0 {
+		lines = append(lines, "reminder: deploy applies source -> target; import applies target -> source")
+	}
+
 	for idx, sync := range syncs {
 		if idx > 0 {
 			lines = append(lines, "")
@@ -21,8 +26,11 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 
 		switch command {
 		case "status":
-			lines = appendPhaseBlock(lines, "deploy", operationPayloadMapsByPhase(sync, "deploy"))
-			lines = appendPhaseBlock(lines, "import", operationPayloadMapsByPhase(sync, "import"))
+			deployOps := operationPayloadMapsByPhase(sync, "deploy")
+			importOps := operationPayloadMapsByPhase(sync, "import")
+			lines = appendPhaseBlockWithContext(lines, "deploy", "(source -> target)", deployOps)
+			lines = appendPhaseBlockWithContext(lines, "import", "(target -> source)", importOps)
+			lines = appendStatusDirectionHint(lines, deployOps, importOps)
 			lines = appendPhaseBlock(lines, "incoming-unmanaged", operationPayloadMapsByPhase(sync, "incoming_unmanaged"))
 			lines = appendPhaseBlock(lines, "remove-unmanaged", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
 			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
@@ -54,11 +62,19 @@ func buildSyncHeader(sync map[string]any) string {
 }
 
 func appendPhaseBlock(lines []string, label string, operations []map[string]any) []string {
+	return appendPhaseBlockWithContext(lines, label, "", operations)
+}
+
+func appendPhaseBlockWithContext(lines []string, label string, context string, operations []map[string]any) []string {
 	if len(operations) == 0 {
 		return lines
 	}
 
-	lines = append(lines, fmt.Sprintf("%s[%d]", label, len(operations)))
+	header := fmt.Sprintf("%s[%d]", label, len(operations))
+	if context != "" {
+		header = fmt.Sprintf("%s %s", header, context)
+	}
+	lines = append(lines, header)
 	for _, op := range operations {
 		action := stringValue(op["action"])
 		path := stringValue(op["path"])
@@ -75,6 +91,65 @@ func appendPhaseBlock(lines []string, label string, operations []map[string]any)
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func appendStatusDirectionHint(lines []string, deployOps []map[string]any, importOps []map[string]any) []string {
+	overlapPaths := overlappingOperationPaths(deployOps, importOps)
+	if len(overlapPaths) == 0 {
+		return lines
+	}
+
+	const maxHintPaths = 3
+	preview := overlapPaths
+	extra := 0
+	if len(preview) > maxHintPaths {
+		extra = len(preview) - maxHintPaths
+		preview = preview[:maxHintPaths]
+	}
+
+	hint := fmt.Sprintf("hint: same path in deploy/import: %s", strings.Join(preview, ", "))
+	if extra > 0 {
+		hint = fmt.Sprintf("%s (+%d more)", hint, extra)
+	}
+	return append(lines, hint)
+}
+
+func overlappingOperationPaths(leftOps []map[string]any, rightOps []map[string]any) []string {
+	if len(leftOps) == 0 || len(rightOps) == 0 {
+		return nil
+	}
+
+	leftPaths := make(map[string]struct{}, len(leftOps))
+	for _, op := range leftOps {
+		path := stringValue(op["path"])
+		if path != "" {
+			leftPaths[path] = struct{}{}
+		}
+	}
+	if len(leftPaths) == 0 {
+		return nil
+	}
+
+	overlapSet := make(map[string]struct{})
+	for _, op := range rightOps {
+		path := stringValue(op["path"])
+		if path == "" {
+			continue
+		}
+		if _, ok := leftPaths[path]; ok {
+			overlapSet[path] = struct{}{}
+		}
+	}
+	if len(overlapSet) == 0 {
+		return nil
+	}
+
+	overlapPaths := make([]string, 0, len(overlapSet))
+	for path := range overlapSet {
+		overlapPaths = append(overlapPaths, path)
+	}
+	sort.Strings(overlapPaths)
+	return overlapPaths
 }
 
 func operationDetails(op map[string]any) string {

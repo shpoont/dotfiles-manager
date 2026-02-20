@@ -33,7 +33,10 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 	})
 
 	require.Contains(t, statusOutput, "sync[0] target=~/.config/nvim source=./source/nvim scope=lua")
-	require.Contains(t, statusOutput, "deploy[1]")
+	require.Contains(t, statusOutput, "reminder: deploy applies source -> target; import applies target -> source")
+	require.Contains(t, statusOutput, "deploy[1] (source -> target)")
+	require.Contains(t, statusOutput, "import[1] (target -> source)")
+	require.Contains(t, statusOutput, "hint: same path in deploy/import: lua/init.lua")
 	require.Contains(t, statusOutput, "can create   lua/init.lua (file->missing)")
 	require.Contains(t, statusOutput, "incoming-unmanaged[1]")
 	require.Contains(t, statusOutput, "summary deploy=1 import=1 incoming-unmanaged=1")
@@ -81,4 +84,29 @@ func TestBuildTextOutputFallbackAndHelpers(t *testing.T) {
 	require.Equal(t, "sync[2] target=~/.config/nvim source=./source/nvim", display.Label)
 	require.Equal(t, "~/.config/nvim", display.Target)
 	require.Equal(t, "./source/nvim", display.Source)
+}
+
+func TestBuildTextOutputStatusHintAppearsOnlyForOverlaps(t *testing.T) {
+	t.Parallel()
+
+	noOverlapOutput := buildTextOutput("status", false, map[string]any{
+		"syncs": []any{
+			map[string]any{
+				"sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+				"operations": []any{
+					map[string]any{"phase": "deploy", "action": "can update", "path": "lua/init.lua", "source_type": "file", "target_type": "file"},
+					map[string]any{"phase": "import", "action": "can update", "path": "lua/plugins.lua", "source_type": "file", "target_type": "file"},
+				},
+			},
+		},
+		"summary": map[string]any{
+			"deploy_count":    1,
+			"import_count":    1,
+			"operation_count": 2,
+		},
+	})
+
+	require.Contains(t, noOverlapOutput, "deploy[1] (source -> target)")
+	require.Contains(t, noOverlapOutput, "import[1] (target -> source)")
+	require.NotContains(t, noOverlapOutput, "hint: same path in deploy/import:")
 }

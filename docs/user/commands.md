@@ -69,11 +69,13 @@ Candidate-set scanning is opt-in:
 Example text output shape:
 
 ```text
+reminder: deploy applies source -> target; import applies target -> source
 sync[0] target=~/.config/nvim source=./source/nvim
-deploy[2]
+deploy[2] (source -> target)
   can create   lua/init.lua (file->missing)
-import[1]
-  can update   lua/plugins.lua (file->file)
+import[1] (target -> source)
+  can update   lua/init.lua (file->file)
+hint: same path in deploy/import: lua/init.lua
 remove-missing[1]
   can remove   lua/legacy.lua (file)
 summary deploy=2 import=1 remove-missing=1
@@ -144,12 +146,17 @@ If `[path]` matches no syncs, command fails.
 - `version`/`--version` output one line: `dotfiles-manager version <value>`.
 - `version`/`--version` exit `0` and do not require config.
 - text mode prints per-sync sections with exact file operations.
+- status text includes one concise direction reminder line once per run.
 - every sync header uses:
   - `sync[idx] target=~/<target> source=./<source>`
 - sync headers show configured path text (placeholders stay visible if present in config)
 - when `[path]` scopes into a subpath, header appends:
   - `scope=<sync-relative-prefix>`
 - text mode only prints non-empty phase blocks.
+- status phase headers include direction:
+  - `deploy[n] (source -> target)`
+  - `import[n] (target -> source)`
+- status prints `hint: same path in deploy/import: ...` when a path appears in both direction blocks.
 - text summary line only includes non-zero categories.
 - status actions are potential, human-readable phrases (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
 - deploy/import actions remain actual execution verbs (`create`, `update`, `replace_type`, `add`, `remove`).
