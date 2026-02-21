@@ -129,9 +129,7 @@ func appendDiffPhaseBlock(lines []string, label string, context string, operatio
 		patch := stringValue(op["patch"])
 		if patch != "" {
 			patchLines := strings.Split(strings.TrimSuffix(patch, "\n"), "\n")
-			for _, patchLine := range patchLines {
-				lines = append(lines, patchLine)
-			}
+			lines = append(lines, patchLines...)
 		} else {
 			note := diffNote(op)
 			if note == "" {
