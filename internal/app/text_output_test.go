@@ -153,3 +153,66 @@ func TestBuildTextOutputDiff(t *testing.T) {
 	require.Contains(t, diffOutput, "note: binary differs")
 	require.Contains(t, diffOutput, "summary deploy-diff=1 remove-unmanaged=1 unified=1 binary=1")
 }
+
+func TestDiffNoteFallbacks(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "explicit reason", diffNote(map[string]any{"reason": "explicit reason", "diff_kind": "binary"}))
+	require.Equal(t, "binary differs", diffNote(map[string]any{"diff_kind": "binary"}))
+	require.Equal(t, "type differs", diffNote(map[string]any{"diff_kind": "type_change"}))
+	require.Equal(t, "patch omitted", diffNote(map[string]any{"diff_kind": "omitted"}))
+	require.Equal(t, "", diffNote(map[string]any{"diff_kind": "unified"}))
+}
+
+func TestAppendStatusDirectionHintTruncates(t *testing.T) {
+	t.Parallel()
+
+	deployOps := []map[string]any{
+		{"path": "lua/a.lua"},
+		{"path": "lua/b.lua"},
+		{"path": "lua/c.lua"},
+		{"path": "lua/d.lua"},
+	}
+	importOps := []map[string]any{
+		{"path": "lua/d.lua"},
+		{"path": "lua/a.lua"},
+		{"path": "lua/c.lua"},
+		{"path": "lua/b.lua"},
+	}
+
+	lines := appendStatusDirectionHint(nil, deployOps, importOps)
+	require.Len(t, lines, 1)
+	require.Equal(t, "hint: same path in deploy/import: lua/a.lua, lua/b.lua, lua/c.lua (+1 more)", lines[0])
+}
+
+func TestOperationPayloadMapsByPhaseSkipsInvalidEntries(t *testing.T) {
+	t.Parallel()
+
+	sync := map[string]any{
+		"operations": []any{
+			map[string]any{"phase": "deploy", "path": "lua/init.lua"},
+			"not a map",
+			map[string]any{"phase": "import", "path": "lua/plugin.lua"},
+			map[string]any{"path": "lua/missing-phase.lua"},
+		},
+	}
+
+	deploy := operationPayloadMapsByPhase(sync, "deploy")
+	require.Len(t, deploy, 1)
+	require.Equal(t, "lua/init.lua", deploy[0]["path"])
+}
+
+func TestAppendDiffPhaseBlockDefaultNote(t *testing.T) {
+	t.Parallel()
+
+	lines := appendDiffPhaseBlock(nil, "deploy-diff", "(source -> target)", []map[string]any{
+		{
+			"path":        "lua/init.lua",
+			"action":      "can update",
+			"source_type": "file",
+			"target_type": "file",
+		},
+	})
+
+	require.Contains(t, lines, "  note: patch unavailable")
+}
