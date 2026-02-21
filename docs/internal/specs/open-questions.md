@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/specs/open-questions.md
 ---
 
@@ -41,8 +41,8 @@ Most previously open items are now resolved in:
 - Overlapping syncs execute in config order; later sync result wins on same final path.
 - Commands are fail-fast on runtime errors.
 - Symlinks are treated as symlink entries.
-- `status`, `deploy`, and `import` support `--json`.
-- `deploy` and `import` support `--dry-run`; `status --dry-run` is invalid.
+- `status`, `diff`, `deploy`, and `import` support `--json`.
+- `deploy` and `import` support `--dry-run`; `status --dry-run` and `diff --dry-run` are invalid.
 - JSON output contract is defined in `../contracts/json-contract.md`.
 - Logging contract is defined in `../contracts/logging-contract.md`.
 - Metadata contract is defined in `../contracts/metadata-contract.md`.

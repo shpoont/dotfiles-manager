@@ -16,6 +16,16 @@ If none of these is available, the command fails.
 
 Use `status` first to preview both sides.
 
+## What does `diff` do?
+
+`diff` is a preview-only command that shows unified patch-style output for candidate operations.
+
+Default view includes both directions:
+- deploy-style view (target -> source comparison)
+- import-style view (source -> target comparison)
+
+Use `--direction deploy` or `--direction import` to focus one side.
+
 ## What is “source of truth” here?
 
 `source` is the manifest/source of truth. Command direction (`deploy` vs `import`) determines which side updates the other.
@@ -65,9 +75,15 @@ Yes: `--dry-run` on `deploy` and `import`.
 
 No. `status` is already preview-only.
 
+## Does `diff` support `--dry-run`?
+
+No. `diff` is already preview-only.
+
 ## Is JSON output available?
 
-Yes, use `--json` with `status`, `deploy`, or `import`.
+Yes, use `--json` with `status`, `diff`, `deploy`, or `import`.
+
+With `diff --json`, patch bodies are omitted by default; add `--patch` to include them.
 
 ## Where are logs written?
 

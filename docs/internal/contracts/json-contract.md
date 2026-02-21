@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
-status: Contract v3
-last-updated: 2026-02-17
+status: Contract v4
+last-updated: 2026-02-21
 canonical-source: docs/internal/contracts/json-contract.md
 ---
 
@@ -9,10 +9,11 @@ canonical-source: docs/internal/contracts/json-contract.md
 
 This document defines machine-readable output for:
 - `status --json`
+- `diff --json`
 - `deploy [--dry-run] --json`
 - `import [--dry-run] --json`
 
-Current schema version is **`3.0`**.
+Current schema version is **`4.0`**.
 
 ## 1) Common envelope
 
@@ -20,7 +21,7 @@ All `--json` outputs are a single JSON object:
 
 ```json
 {
-  "schema_version": "3.0",
+  "schema_version": "4.0",
   "ok": true,
   "dry_run": false,
   "command": "status",
@@ -37,9 +38,9 @@ All `--json` outputs are a single JSON object:
 ```
 
 Rules:
-- `schema_version` is currently `"3.0"`.
-- `command`: `status` | `deploy` | `import`.
-- `dry_run` is valid only for `deploy`/`import`; `status --dry-run` errors with `DFM_FLAG_UNSUPPORTED`.
+- `schema_version` is currently `"4.0"`.
+- `command`: `status` | `diff` | `deploy` | `import`.
+- `dry_run` is valid only for `deploy`/`import`; `status --dry-run` and `diff --dry-run` error with `DFM_FLAG_UNSUPPORTED`.
 - `config_path` is the resolved loaded config path (absolute).
 - with `--json`, stdout must contain JSON only.
 - runtime logs are written to the log file defined in `logging-contract.md`.
@@ -69,13 +70,19 @@ Common fields:
 - `phase`: command-specific phase key.
 - `action`:
   - `status`: potential-action phrase (`can create`, `can update`, `can replace type`, `can add`, `can remove`)
+  - `diff`: potential-action phrase (`can create`, `can update`, `can replace type`, `can add`, `can remove`)
   - `deploy`/`import`: execution verb (`create`, `update`, `replace_type`, `add`, `remove`)
-- `state`: `candidate` (status), `planned` (dry-run), or `applied` (non-dry-run successful execution).
+- `state`: `candidate` (status/diff), `planned` (dry-run), or `applied` (non-dry-run successful execution).
 - `path`: sync-relative path using `/`.
 
 Optional fields:
 - `type`: `file` | `dir` | `symlink`
 - `source_type` / `target_type`: `file` | `dir` | `symlink` | `missing` (for status drift entries)
+- `diff_kind` (diff only): `unified` | `binary` | `type_change` | `omitted`
+- `old_label` / `new_label` (diff only): sync-relative labels or `/dev/null`
+- `patch_available` / `patch_included` (diff only): bool indicators
+- `reason` (diff only): explanatory text for non-unified entries
+- `patch` (diff only): unified patch body, present only when `diff --json --patch` is used and entry is patchable
 
 Ordering guarantees:
 - `syncs` are in execution order (config order after `[path]` filtering).
@@ -103,6 +110,28 @@ Summary keys:
 - `incoming_unmanaged_count`
 - `remove_unmanaged_count`
 - `remove_missing_count`
+- `operation_count`
+
+### `diff --json`
+
+Phases:
+- `deploy`
+- `import`
+- `incoming_unmanaged`
+- `remove_unmanaged`
+- `remove_missing`
+
+Summary keys:
+- `sync_count`
+- `deploy_count`
+- `import_count`
+- `incoming_unmanaged_count`
+- `remove_unmanaged_count`
+- `remove_missing_count`
+- `unified_patch_count`
+- `binary_count`
+- `type_change_count`
+- `omitted_count`
 - `operation_count`
 
 ### `deploy --json`
@@ -153,6 +182,6 @@ If work was partially completed before failure:
 
 ## 5) Compatibility policy
 
-- Contract is currently `3.x`.
-- Additive fields are allowed in `3.x`.
-- Breaking changes require a major schema bump (`4.0`, etc.).
+- Contract is currently `4.x`.
+- Additive fields are allowed in `4.x`.
+- Breaking changes require a major schema bump (`5.0`, etc.).

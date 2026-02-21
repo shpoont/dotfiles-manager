@@ -1,7 +1,7 @@
 ---
 owner: QA / Testing Lead (TBD)
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/engineering/acceptance-checklist.md
 ---
 
@@ -38,6 +38,17 @@ Use this checklist before calling implementation complete.
 - [ ] reports removable unmanaged candidates.
 - [ ] reports removable missing-manifest candidates.
 - [ ] drift still exits `0`.
+
+## C2) Diff behavior
+
+- [ ] reports unified patch-style candidates for patchable text entries.
+- [ ] reports non-patchable entries with stable reason metadata (`binary`, `type_change`, `omitted`).
+- [ ] `--direction deploy` limits to deploy + remove-unmanaged phases.
+- [ ] `--direction import` limits to import + incoming-unmanaged + remove-missing phases.
+- [ ] `--context <N>` changes unified hunk context width.
+- [ ] `--patch` is rejected without `--json`.
+- [ ] `diff --dry-run` fails with `DFM_FLAG_UNSUPPORTED`.
+- [ ] `diff` exits `0` on drift/candidates.
 
 ### C1) Matrix rows from `../specs/decision-matrix.md`
 
@@ -78,7 +89,7 @@ Use this checklist before calling implementation complete.
 
 ## G) JSON contract
 
-- [ ] `status --json`, `deploy [--dry-run] --json`, `import [--dry-run] --json` conform to `../contracts/json-contract.md`.
+- [ ] `status --json`, `diff --json`, `deploy [--dry-run] --json`, `import [--dry-run] --json` conform to `../contracts/json-contract.md`.
 - [ ] output includes common envelope fields.
 - [ ] per-sync `operations[]` entries are deterministic and path-sorted within emitted phase order.
 - [ ] on error, JSON includes `ok=false` + stable `error.code`.
@@ -91,6 +102,7 @@ Use this checklist before calling implementation complete.
 - [ ] any validation/runtime error exits `1`.
 - [ ] runtime failures are fail-fast.
 - [ ] `status --dry-run` fails with `DFM_FLAG_UNSUPPORTED`.
+- [ ] `diff --dry-run` fails with `DFM_FLAG_UNSUPPORTED`.
 - [ ] `dotfiles-manager version` prints `dotfiles-manager version <value>` and exits `0`.
 - [ ] `dotfiles-manager --version` prints `dotfiles-manager version <value>` and exits `0`.
 - [ ] `version`/`--version` work without config present.
@@ -116,13 +128,14 @@ Use this checklist before calling implementation complete.
 - [ ] fixture suite includes a dotfiles-sized tree (~1,000 files).
 - [ ] thresholds are enforced as fixed hard pass/fail limits (no tolerance window).
 - [ ] `status` completes under 2s on baseline CI runner profile.
+- [ ] `diff` completes under 2s on baseline CI runner profile.
 - [ ] `deploy --dry-run` and `import --dry-run` complete under 3s.
 - [ ] `deploy` and `import` complete under 5s (best-effort, disk-dependent).
 
 ## K) Fixture and test harness conventions
 
 - [ ] repository uses `testdata/fixtures/<scenario>/{source,target,.dotfiles-manager.yaml}` convention.
-- [ ] expected outputs are organized under `testdata/expected/{status,deploy,import,errors}`.
+- [ ] expected outputs are organized under `testdata/expected/{status,diff,deploy,import,errors}`.
 - [ ] logging/redaction fixtures are organized under `testdata/logs/redaction`.
 - [ ] test helper modules follow `internal/testkit/{sandbox,fixtures,cli,asserts}` convention.
 

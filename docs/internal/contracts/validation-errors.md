@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Contract v1
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/contracts/validation-errors.md
 ---
 
@@ -24,7 +24,7 @@ When `--json` is set, errors are emitted via JSON envelope (`ok=false`, `error.c
 
 | Code | Trigger | Message template |
 |---|---|---|
-| `DFM_CONFIG_REQUIRED` | no config source resolved for config-dependent commands (`status`/`deploy`/`import`) from `--config`, `DOTFILES_MANAGER_CONFIG`, or `./.dotfiles-manager.yaml` in cwd | `Config not found: pass --config, set DOTFILES_MANAGER_CONFIG, or create ./.dotfiles-manager.yaml` |
+| `DFM_CONFIG_REQUIRED` | no config source resolved for config-dependent commands (`status`/`diff`/`deploy`/`import`) from `--config`, `DOTFILES_MANAGER_CONFIG`, or `./.dotfiles-manager.yaml` in cwd | `Config not found: pass --config, set DOTFILES_MANAGER_CONFIG, or create ./.dotfiles-manager.yaml` |
 | `DFM_CONFIG_NOT_FOUND` | config path does not exist | `Config file not found: {config_path}` |
 | `DFM_CONFIG_NOT_FILE` | config path exists but is not a regular file | `Config path is not a file: {config_path}` |
 | `DFM_CONFIG_PARSE` | YAML parse failure | `Failed to parse YAML config: {config_path}` |
@@ -46,8 +46,8 @@ Paths that include `$VAR`/`${VAR}` placeholders are expanded using the runtime e
 
 | Code | Trigger | Message template |
 |---|---|---|
-| `DFM_FLAG_UNSUPPORTED` | unsupported flag used for command (e.g. `status --dry-run`) | `Flag not supported for command: {flag}` |
-| `DFM_FLAG_INVALID_VALUE` | invalid value provided for a supported flag (e.g. `--log-level verbose`) | `Invalid value for {flag}: {value} (expected: {expected})` |
+| `DFM_FLAG_UNSUPPORTED` | unsupported flag used for command (e.g. `status --dry-run`, `diff --dry-run`, `diff --patch` without `--json`) | `Flag not supported for command: {flag}` |
+| `DFM_FLAG_INVALID_VALUE` | invalid value provided for a supported flag (e.g. `--log-level verbose`, `--direction sideways`, `--context -1`) | `Invalid value for {flag}: {value} (expected: {expected})` |
 | `DFM_SCOPE_NO_MATCH` | provided `[path]` matches no sync targets | `No sync matched provided path` |
 | `DFM_SCOPE_INVALID_PATH` | `[path]` cannot be normalized/resolved | `Invalid path argument: {input_path}` |
 

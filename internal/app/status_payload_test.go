@@ -51,7 +51,7 @@ func TestStatusJSONReportsDriftAndCandidates(t *testing.T) {
 	payload := runJSONCommand(t, []string{"status", "--json"})
 	require.Equal(t, true, payload["ok"])
 	require.Equal(t, "status", payload["command"])
-	require.Equal(t, "3.0", payload["schema_version"])
+	require.Equal(t, "4.0", payload["schema_version"])
 
 	pathScope := payload["path_scope"].(map[string]any)
 	require.Nil(t, pathScope["input"])

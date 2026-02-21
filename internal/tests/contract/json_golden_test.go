@@ -102,6 +102,39 @@ func TestContractImportJSONGolden(t *testing.T) {
 	assertGolden(t, "import-dry-run.json", payload)
 }
 
+func TestContractDiffJSONGolden(t *testing.T) {
+	projectDir, homeDir := setupSandbox(t)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim", "lua"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim", "lua"), 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "init.lua"), []byte("source-init\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "only-source.lua"), []byte("source-only\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "lua", "init.lua"), []byte("target-init\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "lua", "new.lua"), []byte("new\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "lua", "old.bak"), []byte("bak\n"), 0o644))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+    on:
+      deploy:
+        remove-unmanaged:
+          - '**/*.bak'
+      import:
+        add-unmanaged:
+          include:
+            - '**'
+        remove-missing:
+          include:
+            - 'lua/**'
+`))
+
+	payload := runJSONCommand(t, []string{"diff", "--json"})
+	canonicalizePayload(payload)
+	assertGolden(t, "diff.json", payload)
+}
+
 func setupSandbox(t *testing.T) (string, string) {
 	t.Helper()
 	projectDir := t.TempDir()

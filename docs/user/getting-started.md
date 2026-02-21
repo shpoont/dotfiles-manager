@@ -60,6 +60,15 @@ dotfiles-manager status
 
 This previews what `deploy` and `import` would do.
 
+## 4.1) Inspect unified patch preview (optional)
+
+```bash
+dotfiles-manager diff ~/.config/nvim
+dotfiles-manager diff --json --direction deploy ~/.config/nvim
+```
+
+`diff` is preview-only and does not write files.
+
 ## 5) Dry-run deploy/import
 
 ```bash

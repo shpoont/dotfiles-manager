@@ -6,6 +6,7 @@
 dotfiles-manager --version
 dotfiles-manager version
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
 ```
@@ -82,6 +83,38 @@ remove-missing[1]
 summary deploy=2 import=1 remove-missing=1
 ```
 
+## `diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]`
+
+Behavior:
+- preview-only command (no filesystem writes)
+- shows unified patch-style diffs for candidate operations
+- default direction is `both`
+- `--direction deploy` limits phases to deploy + remove-unmanaged
+- `--direction import` limits phases to import + incoming-unmanaged + remove-missing
+- `--context <N>` controls unified hunk context lines (default `3`, must be `>= 0`)
+- binary/type-change/oversize entries are reported with reason text (no patch body)
+- per-file patch body is omitted when it exceeds 1 MiB
+
+Flag notes:
+- `--dry-run` is not supported on `diff` (it is already preview-only)
+- in JSON mode, patch text is included only with `--patch`
+- `--patch` is not supported without `--json`
+
+Example text output shape:
+
+```text
+reminder: deploy diff compares target -> source; import diff compares source -> target
+sync[0] target=~/.config/nvim source=./source/nvim
+deploy-diff[1] (source -> target)
+  path: lua/init.lua (file->file)
+--- target/lua/init.lua
++++ source/lua/init.lua
+@@ -1 +1 @@
+-target
++source
+summary deploy-diff=1 unified=1
+```
+
 ## `deploy [--dry-run] [--json] [path]`
 
 Behavior:
@@ -150,6 +183,7 @@ If `[path]` matches no syncs, command fails.
 - `version`/`--version` exit `0` and do not require config.
 - text mode prints per-sync sections with exact file operations.
 - status text includes one concise direction reminder line once per run.
+- diff text includes one concise direction reminder line once per run.
 - every sync header uses:
   - `sync[idx] target=~/<target> source=./<source>`
 - sync headers show configured path text (placeholders stay visible if present in config)
@@ -159,13 +193,15 @@ If `[path]` matches no syncs, command fails.
 - status phase headers include direction:
   - `deploy[n] (source -> target)`
   - `import[n] (target -> source)`
+- diff phase headers include direction context per phase block.
 - status prints `hint: same path in deploy/import: ...` when a path appears in both direction blocks.
 - text summary line only includes non-zero categories.
 - status actions are potential, human-readable phrases (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
 - deploy/import actions remain actual execution verbs (`create`, `update`, `replace_type`, `add`, `remove`).
-- `--json` returns machine-readable output (`schema_version: "3.0"`), with:
+- diff actions remain potential candidate wording and include diff metadata fields (`diff_kind`, labels, patch availability).
+- `--json` returns machine-readable output (`schema_version: "4.0"`), with:
   - `syncs[].operations[]` for exact per-file operations
   - command-specific summary counts (fixed key set; zero values retained)
-- Exit `0` on success (including `status` with drift).
+- Exit `0` on success (including `status`/`diff` with drift).
 - Non-zero on validation/runtime errors.
 - Commands are fail-fast on runtime errors.

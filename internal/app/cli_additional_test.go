@@ -177,7 +177,7 @@ func TestEmitErrorTextAndJSONBranches(t *testing.T) {
 	stderr.Reset()
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, errors.New("plain error"))
 	require.Contains(t, stdout.String(), "\"ok\":false")
-	require.Contains(t, stdout.String(), "\"schema_version\":\"3.0\"")
+	require.Contains(t, stdout.String(), "\"schema_version\":\"4.0\"")
 	require.Contains(t, stderr.String(), "plain error")
 
 	stdout.Reset()

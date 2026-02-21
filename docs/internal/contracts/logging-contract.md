@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Contract v2
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/contracts/logging-contract.md
 ---
 
@@ -13,6 +13,7 @@ This document defines logging requirements for v2.
 
 This contract covers internal runtime logging behavior for:
 - `status`
+- `diff`
 - `deploy`
 - `import`
 

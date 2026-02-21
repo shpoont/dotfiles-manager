@@ -34,7 +34,7 @@ func TestStatusJSONErrorEnvelopeWhenConfigMissing(t *testing.T) {
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
 	require.Equal(t, false, payload["ok"])
-	require.Equal(t, "3.0", payload["schema_version"])
+	require.Equal(t, "4.0", payload["schema_version"])
 	require.Equal(t, "status", payload["command"])
 	require.Contains(t, payload, "path_scope")
 	require.Contains(t, payload, "syncs")
@@ -72,7 +72,7 @@ func TestDeployDryRunWithDefaultConfig(t *testing.T) {
 	require.Equal(t, true, payload["ok"])
 	require.Equal(t, "deploy", payload["command"])
 	require.Equal(t, true, payload["dry_run"])
-	require.Equal(t, "3.0", payload["schema_version"])
+	require.Equal(t, "4.0", payload["schema_version"])
 	require.Contains(t, payload, "syncs")
 	require.Contains(t, payload, "summary")
 }

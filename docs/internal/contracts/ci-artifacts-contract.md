@@ -1,7 +1,7 @@
 ---
 owner: Engineering Operations + Core Engineering
-status: Contract v1
-last-updated: 2026-02-16
+status: Contract v2
+last-updated: 2026-02-21
 canonical-source: docs/internal/contracts/ci-artifacts-contract.md
 ---
 
@@ -48,6 +48,7 @@ Required JSON shape:
 ```json
 {
   "status_seconds": 1.25,
+  "diff_seconds": 1.40,
   "deploy_dry_run_seconds": 2.10,
   "import_dry_run_seconds": 2.35,
   "deploy_seconds": 3.40,
@@ -59,6 +60,7 @@ Rules:
 - values are numeric durations in seconds
 - thresholds (hard pass/fail):
   - `status_seconds <= 2.0`
+  - `diff_seconds <= 2.0`
   - `deploy_dry_run_seconds <= 3.0`
   - `import_dry_run_seconds <= 3.0`
   - `deploy_seconds <= 5.0`

@@ -1,7 +1,7 @@
 ---
 owner: QA / Testing Lead
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/engineering/testing-strategy.md
 ---
 
@@ -19,8 +19,8 @@ This document defines the test structure that validates the specification.
   - operation planning and ordering
 
 2. **Integration tests**
-   - CLI behavior for version/status/deploy/import
-   - real filesystem scenarios for deploy/import/status
+   - CLI behavior for version/status/diff/deploy/import
+   - real filesystem scenarios for deploy/import/status/diff
    - overlapping sync behavior (config order; later sync wins)
    - metadata behavior by contract
 
@@ -67,6 +67,7 @@ testdata/
       .dotfiles-manager.yaml
   expected/
     status/
+    diff/
     deploy/
     import/
     errors/
@@ -106,7 +107,7 @@ internal/testkit/
 
 - redaction/masking paths: full branch coverage
 - error logging branches (including `DFM_*` codes): full branch coverage
-- per-command integration assertions (`status`/`deploy`/`import`):
+- per-command integration assertions (`status`/`diff`/`deploy`/`import`):
   - `version`/`--version` return expected format, do not require config, and do not perform sync filesystem operations
   - logs are written to platform-default log file path
   - `--log-file` overrides destination path
@@ -138,7 +139,7 @@ CI sharding is required for PR and `main` pipelines.
   - include/exclude pattern logic
   - operation planning logic
 - `linux-integration`
-  - filesystem integration scenarios across deploy/import/status
+  - filesystem integration scenarios across deploy/import/status/diff
   - overlap behavior and ordering
   - dry-run no-write guarantees
 - `linux-contract`
@@ -151,6 +152,7 @@ CI sharding is required for PR and `main` pipelines.
   - emits `artifacts/perf-metrics.json` and enforces hard thresholds:
   - fixed hard thresholds:
     - `status < 2s`
+    - `diff < 2s`
     - `deploy --dry-run`, `import --dry-run < 3s`
     - `deploy`, `import < 5s` (best-effort; disk-dependent)
 - `macos-integration`

@@ -20,6 +20,9 @@ func TestBuildSummaryBranches(t *testing.T) {
 	importSummary := buildSummary("import", 3)
 	require.Contains(t, importSummary, "update_managed_count")
 
+	diffSummary := buildSummary("diff", 2)
+	require.Contains(t, diffSummary, "unified_patch_count")
+
 	fallback := buildSummary("unknown", 4)
 	require.Equal(t, 4, fallback["sync_count"])
 	require.Len(t, fallback, 1)
@@ -46,6 +49,10 @@ func TestBuildSyncPayloadBranches(t *testing.T) {
 	importPayload := buildSyncPayloads("import", selections)
 	require.Len(t, importPayload, 1)
 	require.Contains(t, importPayload[0].(map[string]any), "operations")
+
+	diffPayload := buildSyncPayloads("diff", selections)
+	require.Len(t, diffPayload, 1)
+	require.Contains(t, diffPayload[0].(map[string]any), "operations")
 
 	fallback := buildSyncPayloads("unknown", selections)
 	require.Len(t, fallback, 1)
@@ -199,6 +206,7 @@ func TestBuildTextSummaryLineAndSummaryInt(t *testing.T) {
 
 	require.Equal(t, "summary", buildTextSummaryLine("status", false, map[string]any{}))
 	require.Equal(t, "summary dry-run=false", buildTextSummaryLine("deploy", false, map[string]any{}))
+	require.Equal(t, "summary", buildTextSummaryLine("diff", false, map[string]any{}))
 
 	unknown := buildTextSummaryLine("unknown", false, map[string]any{"sync_count": 9})
 	require.Equal(t, "summary syncs=9", unknown)

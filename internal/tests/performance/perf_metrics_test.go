@@ -21,6 +21,7 @@ const (
 	perfFixtureFileCount     = 1000
 	perfManagedFileCount     = 80
 	statusThresholdSeconds   = 2.0
+	diffThresholdSeconds     = 2.0
 	deployDryRunThresholdSec = 3.0
 	importDryRunThresholdSec = 3.0
 	deployThresholdSec       = 5.0
@@ -31,6 +32,7 @@ type scenario string
 
 const (
 	scenarioStatus    scenario = "status"
+	scenarioDiff      scenario = "diff"
 	scenarioDeployDry scenario = "deploy-dry-run"
 	scenarioImportDry scenario = "import-dry-run"
 	scenarioDeploy    scenario = "deploy"
@@ -39,6 +41,7 @@ const (
 
 type perfMetrics struct {
 	StatusSeconds       float64 `json:"status_seconds"`
+	DiffSeconds         float64 `json:"diff_seconds"`
 	DeployDryRunSeconds float64 `json:"deploy_dry_run_seconds"`
 	ImportDryRunSeconds float64 `json:"import_dry_run_seconds"`
 	DeploySeconds       float64 `json:"deploy_seconds"`
@@ -50,12 +53,14 @@ func TestPerformanceMetricsArtifact(t *testing.T) {
 
 	metrics := perfMetrics{
 		StatusSeconds:       runScenario(t, repo, scenarioStatus),
+		DiffSeconds:         runScenario(t, repo, scenarioDiff),
 		DeployDryRunSeconds: runScenario(t, repo, scenarioDeployDry),
 		ImportDryRunSeconds: runScenario(t, repo, scenarioImportDry),
 		DeploySeconds:       runScenario(t, repo, scenarioDeploy),
 		ImportSeconds:       runScenario(t, repo, scenarioImport),
 	}
 	require.LessOrEqual(t, metrics.StatusSeconds, statusThresholdSeconds, "status exceeded threshold")
+	require.LessOrEqual(t, metrics.DiffSeconds, diffThresholdSeconds, "diff exceeded threshold")
 	require.LessOrEqual(t, metrics.DeployDryRunSeconds, deployDryRunThresholdSec, "deploy --dry-run exceeded threshold")
 	require.LessOrEqual(t, metrics.ImportDryRunSeconds, importDryRunThresholdSec, "import --dry-run exceeded threshold")
 	require.LessOrEqual(t, metrics.DeploySeconds, deployThresholdSec, "deploy exceeded threshold")
@@ -81,6 +86,8 @@ func scenarioArgs(mode scenario) []string {
 	switch mode {
 	case scenarioStatus:
 		return []string{"status"}
+	case scenarioDiff:
+		return []string{"diff"}
 	case scenarioDeployDry:
 		return []string{"deploy", "--dry-run"}
 	case scenarioImportDry:
@@ -115,7 +122,7 @@ func newPerfSandbox(t *testing.T, repo string, mode scenario) perfSandbox {
 	populateBaselineTree(t, sourceRoot, targetRoot, sourceSyncRoot, targetSyncRoot)
 
 	switch mode {
-	case scenarioStatus, scenarioDeployDry, scenarioDeploy:
+	case scenarioStatus, scenarioDiff, scenarioDeployDry, scenarioDeploy:
 		applyDeployDrift(t, targetSyncRoot)
 	case scenarioImportDry, scenarioImport:
 		applyImportDrift(t, targetSyncRoot)

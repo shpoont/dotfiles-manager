@@ -16,13 +16,14 @@ If you are new, start here:
 
 Main commands:
 - `status` (preview)
+- `diff` (preview unified patch view)
 - `deploy` (source → target)
 - `import` (target → source)
 - `version` / `--version` (print version and exit)
 
 ## Important baseline
 
-- Config is required for `status`/`deploy`/`import`, resolved in this order:
+- Config is required for `status`/`diff`/`deploy`/`import`, resolved in this order:
   1. `--config <path>`
   2. `DOTFILES_MANAGER_CONFIG`
   3. `./.dotfiles-manager.yaml` in the current working directory

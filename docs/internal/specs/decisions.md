@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Canonical
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/specs/decisions.md
 ---
 
@@ -94,6 +94,21 @@ Output semantics:
 
 JSON format is defined in `../contracts/json-contract.md`.
 
+### `diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]`
+
+Reports:
+- unified patch-style candidate diffs for status-equivalent operations
+- diff metadata for non-text entries (`binary`, `type_change`, `omitted`)
+- default direction is `both`; `deploy` and `import` directions can be filtered
+
+Output semantics:
+- text output uses unified diff (`---`, `+++`, `@@`) for patchable entries
+- labels are sync-relative (`source/<path>`, `target/<path>`, `/dev/null`)
+- patch body for JSON is opt-in via `--patch`
+- `--patch` is invalid without `--json`
+- `--context` controls hunk context lines (default `3`, must be `>= 0`)
+- `--dry-run` is invalid (`diff` is preview-only)
+
 ### `deploy [--dry-run] [--json] [path]`
 
 - Copy/update only when content differs.
@@ -130,14 +145,15 @@ Metadata guarantees and best-effort behavior are defined in `../contracts/metada
 | Decision | Why |
 |---|---|
 | Commands are fail-fast on runtime errors | Prevents partial hidden failures. |
-| Exit `0` on success (including `status` with drift), non-zero on errors | Conventional CLI semantics. |
+| Exit `0` on success (including `status`/`diff` with drift), non-zero on errors | Conventional CLI semantics. |
 | `version` and `--version` print version and exit without loading config | Keeps version checks lightweight and robust. |
-| `--json` supported on `status`, `deploy`, and `import` | Machine-readable automation support. |
+| `--json` supported on `status`, `diff`, `deploy`, and `import` | Machine-readable automation support. |
 | `--dry-run` supported on `deploy` and `import`, not `status` | Keeps preview explicit for mutating commands; `status` is already preview-only. |
+| `--dry-run` not supported on `diff` | `diff` is already preview-only. |
 | Text output suppresses empty phase blocks | Reduces noise and surfaces only actionable work. |
 | Text summary includes only non-zero categories | Keeps human output concise. |
 | JSON `summary` keeps fixed command-specific keys (including zero values) | Preserves stable machine-readable structure. |
-| JSON schema version bumped to `3.0` for status action wording change | Captures breaking contract update explicitly. |
+| JSON schema version bumped to `4.0` for `diff` command addition | Captures breaking contract update explicitly. |
 | Runtime logs are written to a platform-default log file | Keeps command output channels clean while preserving diagnostics history. |
 | `--log-file <path>` overrides the log file destination | Allows explicit per-run log routing. |
 | Logs are human-readable text only (no log format option) | Keeps operator-facing diagnostics simple and consistent. |

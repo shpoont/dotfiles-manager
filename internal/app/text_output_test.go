@@ -110,3 +110,46 @@ func TestBuildTextOutputStatusHintAppearsOnlyForOverlaps(t *testing.T) {
 	require.Contains(t, noOverlapOutput, "import[1] (target -> source)")
 	require.NotContains(t, noOverlapOutput, "hint: same path in deploy/import:")
 }
+
+func TestBuildTextOutputDiff(t *testing.T) {
+	t.Parallel()
+
+	diffOutput := buildTextOutput("diff", false, map[string]any{
+		"syncs": []any{
+			map[string]any{
+				"sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+				"operations": []any{
+					map[string]any{
+						"phase":       "deploy",
+						"action":      "can update",
+						"path":        "lua/init.lua",
+						"source_type": "file",
+						"target_type": "file",
+						"diff_kind":   "unified",
+						"patch":       "--- target/lua/init.lua\n+++ source/lua/init.lua\n@@ -1 +1 @@\n-old\n+new\n",
+					},
+					map[string]any{
+						"phase":  "remove_unmanaged",
+						"action": "can remove",
+						"path":   "lua/cache.bin",
+						"type":   "file",
+						"reason": "binary differs",
+					},
+				},
+			},
+		},
+		"summary": map[string]any{
+			"deploy_count":           1,
+			"remove_unmanaged_count": 1,
+			"unified_patch_count":    1,
+			"binary_count":           1,
+		},
+	})
+
+	require.Contains(t, diffOutput, "reminder: deploy diff compares target -> source; import diff compares source -> target")
+	require.Contains(t, diffOutput, "deploy-diff[1] (source -> target)")
+	require.Contains(t, diffOutput, "--- target/lua/init.lua")
+	require.Contains(t, diffOutput, "remove-unmanaged[1] (source -> target)")
+	require.Contains(t, diffOutput, "note: binary differs")
+	require.Contains(t, diffOutput, "summary deploy-diff=1 remove-unmanaged=1 unified=1 binary=1")
+}

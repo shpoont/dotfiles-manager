@@ -1,0 +1,140 @@
+{
+  "schema_version": "4.0",
+  "ok": true,
+  "dry_run": false,
+  "command": "diff",
+  "config_path": "<CONFIG_PATH>",
+  "path_scope": {
+    "input": null,
+    "normalized": null,
+    "matched_sync_indexes": [
+      0
+    ]
+  },
+  "syncs": [
+    {
+      "sync_index": 0,
+      "sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+      "target": "~/.config/nvim",
+      "source": "./source/nvim",
+      "source_root": "<SOURCE_ROOT_0>",
+      "target_root": "<TARGET_ROOT_0>",
+      "scope_prefix": "",
+      "operations": [
+        {
+          "phase": "deploy",
+          "action": "can update",
+          "state": "candidate",
+          "path": "lua/init.lua",
+          "source_type": "file",
+          "target_type": "file",
+          "diff_kind": "unified",
+          "old_label": "target/lua/init.lua",
+          "new_label": "source/lua/init.lua",
+          "patch_available": true,
+          "patch_included": false
+        },
+        {
+          "phase": "import",
+          "action": "can update",
+          "state": "candidate",
+          "path": "lua/init.lua",
+          "source_type": "file",
+          "target_type": "file",
+          "diff_kind": "unified",
+          "old_label": "source/lua/init.lua",
+          "new_label": "target/lua/init.lua",
+          "patch_available": true,
+          "patch_included": false
+        },
+        {
+          "phase": "incoming_unmanaged",
+          "action": "can add",
+          "state": "candidate",
+          "path": "lua/new.lua",
+          "type": "file",
+          "diff_kind": "unified",
+          "old_label": "/dev/null",
+          "new_label": "target/lua/new.lua",
+          "patch_available": true,
+          "patch_included": false
+        },
+        {
+          "phase": "incoming_unmanaged",
+          "action": "can add",
+          "state": "candidate",
+          "path": "lua/old.bak",
+          "type": "file",
+          "diff_kind": "unified",
+          "old_label": "/dev/null",
+          "new_label": "target/lua/old.bak",
+          "patch_available": true,
+          "patch_included": false
+        },
+        {
+          "phase": "remove_unmanaged",
+          "action": "can remove",
+          "state": "candidate",
+          "path": "lua/old.bak",
+          "type": "file",
+          "diff_kind": "unified",
+          "old_label": "target/lua/old.bak",
+          "new_label": "/dev/null",
+          "patch_available": true,
+          "patch_included": false
+        },
+        {
+          "phase": "deploy",
+          "action": "can create",
+          "state": "candidate",
+          "path": "lua/only-source.lua",
+          "source_type": "file",
+          "target_type": "missing",
+          "diff_kind": "unified",
+          "old_label": "/dev/null",
+          "new_label": "source/lua/only-source.lua",
+          "patch_available": true,
+          "patch_included": false
+        },
+        {
+          "phase": "remove_missing",
+          "action": "can remove",
+          "state": "candidate",
+          "path": "lua/only-source.lua",
+          "type": "file",
+          "diff_kind": "unified",
+          "old_label": "source/lua/only-source.lua",
+          "new_label": "/dev/null",
+          "patch_available": true,
+          "patch_included": false
+        }
+      ],
+      "counts": {
+        "deploy": 2,
+        "import": 1,
+        "incoming_unmanaged": 2,
+        "remove_unmanaged": 1,
+        "remove_missing": 1,
+        "unified_patch": 7,
+        "binary": 0,
+        "type_change": 0,
+        "omitted": 0,
+        "operation_count": 7
+      }
+    }
+  ],
+  "summary": {
+    "sync_count": 1,
+    "deploy_count": 2,
+    "import_count": 1,
+    "incoming_unmanaged_count": 2,
+    "remove_unmanaged_count": 1,
+    "remove_missing_count": 1,
+    "unified_patch_count": 7,
+    "binary_count": 0,
+    "type_change_count": 0,
+    "omitted_count": 0,
+    "operation_count": 7
+  },
+  "error": null
+}

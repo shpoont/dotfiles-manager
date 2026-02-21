@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/scope/architecture.md
 ---
 
@@ -21,7 +21,7 @@ This document defines the runtime architecture that implements the approved spec
 
 1. **CLI / command layer**
    - parses global flags (`--version`, `--config`, `--log-file`, `--log-level`) and command flags
-   - dispatches `version`, `status`, `deploy`, `import`
+   - dispatches `version`, `status`, `diff`, `deploy`, `import`
    - handles global `--version` short-circuit
    - maps unsupported/invalid flags to stable error codes
 
@@ -44,6 +44,7 @@ This document defines the runtime architecture that implements the approved spec
    - compares source vs target trees per matched sync
    - produces deterministic plan objects for:
      - status drift/candidate sets
+     - diff patch candidates + diff metadata (`unified`/`binary`/`type_change`/`omitted`)
      - deploy copy/update + remove-unmanaged
      - import managed updates + add-unmanaged + remove-missing
    - applies include/exclude pattern rules (exclude wins)
@@ -86,6 +87,14 @@ This document defines the runtime architecture that implements the approved spec
 
 - no config resolver, scope resolver, planner, or executor path
 - outputs `dotfiles-manager version <value>` and exits
+
+### diff
+
+`CLI -> config resolver -> scope resolver -> planner -> reporter`
+
+- no executor write phase
+- output uses unified patch format for patchable candidates
+- command remains preview-only (`--dry-run` unsupported)
 
 ### deploy
 

@@ -1,7 +1,7 @@
 ---
 owner: Engineering Operations
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/engineering/ci-cd.md
 ---
 
@@ -140,6 +140,7 @@ Manual procedure:
    - `dotfiles-manager --help`
    - `dotfiles-manager --version`
    - `dotfiles-manager status`
+   - `dotfiles-manager diff`
    - `dotfiles-manager deploy --dry-run`
    - `dotfiles-manager import --dry-run`
 
@@ -153,6 +154,7 @@ Manual procedure:
   - `dotfiles-manager_0.1.1_checksums.txt`
 - Command smoke-test results:
   - `status` output included sync header (`sync[0] target=... source=...`), only non-empty phase blocks, and summary with only non-zero categories
+  - `diff` output included unified patch headers (`---`/`+++`), phase blocks, and summary with non-zero categories only
   - for scoped runs, sync header includes `scope=<prefix>`
   - `deploy --dry-run` output included only non-empty phase blocks (`copy[...]`, `remove-unmanaged[...]`) and concise summary
   - `import --dry-run` output included only non-empty phase blocks (`update-managed[...]`, `add-unmanaged[...]`, `remove-missing[...]`) and concise summary

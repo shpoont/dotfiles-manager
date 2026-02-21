@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Reference
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/specs/cli-and-config-spec.md
 ---
 
@@ -18,6 +18,7 @@ Contract-level details are in `../contracts/*`.
 dotfiles-manager --version
 dotfiles-manager version
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
+dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
 ```
@@ -32,7 +33,10 @@ Rules:
 - no log format flag is supported; logs are human-readable text only
 - log level defaults to `info`; supported levels: `debug`, `info`, `warn`, `error`
 - warnings/errors are emitted as human-readable stderr diagnostics
-- `--dry-run` is valid for `deploy`/`import` only
+- `--dry-run` is valid for `deploy`/`import` only (`status`/`diff` reject it)
+- `diff` defaults to `--direction both`
+- `diff --context` defaults to `3` and requires integer `>= 0`
+- `diff --patch` is valid only with `--json`
 - `[path]` narrows execution to matching target subpaths (against post-expansion target roots)
 
 ## Config surface
@@ -74,6 +78,7 @@ Machine-readable schema:
 
 - `version`/`--version`: print `dotfiles-manager version <value>` and exit (`dev` for non-release local builds)
 - `status`: report drift and candidate sets; unmanaged/missing candidates are pattern-gated
+- `diff`: report candidate-set unified patches and diff metadata (binary/type-change/omitted handling)
 - `deploy`: source -> target; optional unmanaged removal by patterns
 - `import`: target -> source; optional unmanaged adds + optional missing deletes by patterns
 - with default empty pattern lists, commands evaluate manifest paths only (no broad unmanaged target scan)
@@ -91,10 +96,11 @@ Text mode:
 - no color output by default
 
 JSON mode (`--json`):
-- schema version is `3.0`
+- schema version is `4.0`
 - each sync has `operations[]` (exact files + phase/action/state)
 - summary fields are command-specific aggregate counts with fixed keys (zero values retained)
 - status `action` values use the same potential-action wording as text mode
+- diff entries include `diff_kind`, labels, patch availability, optional patch body
 - see full details in `../contracts/json-contract.md`
 
 Cross-cutting:

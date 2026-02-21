@@ -12,7 +12,7 @@ go test -tags=performance ./... -count=1 -run '^TestPerformance|TestPerf|TestBen
 if [[ ! -f artifacts/perf-metrics.json ]]; then
   echo "Missing artifacts/perf-metrics.json." >&2
   echo "Performance shard requires metrics JSON with keys:" >&2
-  echo "  status_seconds, deploy_dry_run_seconds, import_dry_run_seconds, deploy_seconds, import_seconds" >&2
+  echo "  status_seconds, diff_seconds, deploy_dry_run_seconds, import_dry_run_seconds, deploy_seconds, import_seconds" >&2
   exit 1
 fi
 
@@ -31,6 +31,7 @@ data = json.loads(path.read_text())
 
 required = {
     "status_seconds": 2.0,
+    "diff_seconds": 2.0,
     "deploy_dry_run_seconds": 3.0,
     "import_dry_run_seconds": 3.0,
     "deploy_seconds": 5.0,

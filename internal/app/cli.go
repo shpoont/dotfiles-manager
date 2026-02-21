@@ -44,6 +44,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newStatusCmd(opts))
 	rootCmd.AddCommand(newDeployCmd(opts))
 	rootCmd.AddCommand(newImportCmd(opts))
+	rootCmd.AddCommand(newDiffCmd(opts))
 
 	return rootCmd
 }
@@ -132,11 +133,48 @@ func newImportCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
+func newDiffCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+	var direction string
+	var contextLines int
+	var includePatch bool
+
+	cmd := &cobra.Command{
+		Use:   "diff [path]",
+		Short: "Show unified patch previews for candidate changes",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCommand(cmd, opts, commandOptions{
+				Name:         "diff",
+				PathArg:      firstArg(args),
+				JSONOutput:   jsonOutput,
+				DryRun:       dryRun,
+				Direction:    direction,
+				ContextLines: contextLines,
+				IncludePatch: includePatch,
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().StringVar(&direction, "direction", diffDirectionBoth, "Diff direction: both|deploy|import")
+	cmd.Flags().IntVar(&contextLines, "context", diffDefaultContextLines, "Unified diff context lines (>= 0)")
+	cmd.Flags().BoolVar(&includePatch, "patch", false, "Include patch body in JSON output")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for diff (validation error)")
+	_ = cmd.Flags().MarkHidden("dry-run")
+
+	return cmd
+}
+
 type commandOptions struct {
-	Name       string
-	PathArg    string
-	JSONOutput bool
-	DryRun     bool
+	Name         string
+	PathArg      string
+	JSONOutput   bool
+	DryRun       bool
+	Direction    string
+	ContextLines int
+	IncludePatch bool
 }
 
 func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
@@ -160,6 +198,51 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			PathNormalized: pathNormalized,
 		}, err)
 		return err
+	}
+	if commandOpts.Name == "diff" && commandOpts.DryRun {
+		err := dfmerr.New(dfmerr.CodeFlagUnsupported, "Flag not supported for command: --dry-run", map[string]any{"flag": "--dry-run"})
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:        commandOpts.Name,
+			DryRun:         commandOpts.DryRun,
+			PathInput:      pathInput,
+			PathNormalized: pathNormalized,
+		}, err)
+		return err
+	}
+	if commandOpts.Name == "diff" {
+		if !isValidDiffDirection(commandOpts.Direction) {
+			err := dfmerr.InvalidFlagValue("--direction", commandOpts.Direction, "both|deploy|import")
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, err)
+			return err
+		}
+		if commandOpts.ContextLines < 0 {
+			err := dfmerr.InvalidFlagValue("--context", fmt.Sprintf("%d", commandOpts.ContextLines), "integer >= 0")
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, err)
+			return err
+		}
+		if commandOpts.IncludePatch && !commandOpts.JSONOutput {
+			err := dfmerr.New(dfmerr.CodeFlagUnsupported, "Flag not supported for command: --patch", map[string]any{
+				"flag":     "--patch",
+				"requires": "--json",
+			})
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, err)
+			return err
+		}
 	}
 
 	logPath, err := logging.ResolvePath(opts.logFile)
@@ -397,6 +480,12 @@ func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, config
 		if err != nil {
 			return nil, err
 		}
+	} else if commandOpts.Name == "diff" {
+		includePatch := !commandOpts.JSONOutput || commandOpts.IncludePatch
+		syncPayloads, summary, err = buildDiffSyncPayloads(cfg, selections, commandOpts.Direction, commandOpts.ContextLines, includePatch)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		syncPayloads = buildSyncPayloads(commandOpts.Name, selections)
 		summary = buildSummary(commandOpts.Name, len(syncPayloads))
@@ -465,6 +554,21 @@ func buildSyncPayloads(command string, selections []syncSelection) []any {
 				"add_unmanaged":   0,
 				"remove_missing":  0,
 				"operation_count": 0,
+			}
+			out = append(out, basePayload)
+		case "diff":
+			basePayload["operations"] = []any{}
+			basePayload["counts"] = map[string]any{
+				"deploy":             0,
+				"import":             0,
+				"incoming_unmanaged": 0,
+				"remove_unmanaged":   0,
+				"remove_missing":     0,
+				"unified_patch":      0,
+				"binary":             0,
+				"type_change":        0,
+				"omitted":            0,
+				"operation_count":    0,
 			}
 			out = append(out, basePayload)
 		default:
@@ -574,6 +678,20 @@ func buildSummary(command string, syncCount int) map[string]any {
 			"remove_missing_count":     0,
 			"operation_count":          0,
 		}
+	case "diff":
+		return map[string]any{
+			"sync_count":               syncCount,
+			"deploy_count":             0,
+			"import_count":             0,
+			"incoming_unmanaged_count": 0,
+			"remove_unmanaged_count":   0,
+			"remove_missing_count":     0,
+			"unified_patch_count":      0,
+			"binary_count":             0,
+			"type_change_count":        0,
+			"omitted_count":            0,
+			"operation_count":          0,
+		}
 	default:
 		return map[string]any{
 			"sync_count": syncCount,
@@ -671,6 +789,18 @@ func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string 
 		parts = appendSummaryCount(parts, "updated-managed", summaryInt(summary, "update_managed_count"))
 		parts = appendSummaryCount(parts, "added-unmanaged", summaryInt(summary, "add_unmanaged_count"))
 		parts = appendSummaryCount(parts, "removed-missing", summaryInt(summary, "remove_missing_count"))
+		return strings.Join(parts, " ")
+	case "diff":
+		parts := []string{"summary"}
+		parts = appendSummaryCount(parts, "deploy-diff", summaryInt(summary, "deploy_count"))
+		parts = appendSummaryCount(parts, "import-diff", summaryInt(summary, "import_count"))
+		parts = appendSummaryCount(parts, "incoming-unmanaged", summaryInt(summary, "incoming_unmanaged_count"))
+		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
+		parts = appendSummaryCount(parts, "remove-missing", summaryInt(summary, "remove_missing_count"))
+		parts = appendSummaryCount(parts, "unified", summaryInt(summary, "unified_patch_count"))
+		parts = appendSummaryCount(parts, "binary", summaryInt(summary, "binary_count"))
+		parts = appendSummaryCount(parts, "type-change", summaryInt(summary, "type_change_count"))
+		parts = appendSummaryCount(parts, "omitted", summaryInt(summary, "omitted_count"))
 		return strings.Join(parts, " ")
 	default:
 		return fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))

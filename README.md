@@ -16,6 +16,7 @@ This repository contains the CLI implementation plus internal/user docs for beha
 
 Core workflows:
 - `status` — preview drift and candidate operations
+- `diff` — preview unified patches for candidate changes
 - `deploy` — apply source -> target
 - `import` — apply target -> source (managed updates + optional unmanaged/missing rules)
 - `version` / `--version` — print CLI version and exit
@@ -77,6 +78,7 @@ GitHub Releases publish:
 
 5. **Preview and safety**
    - `status` is preview
+   - `diff` is preview
    - `deploy`/`import` support `--dry-run`
 
 6. **Config resolution order**
@@ -136,6 +138,7 @@ syncs:
 ```bash
 dotfiles-manager --version
 dotfiles-manager status
+dotfiles-manager diff ~/.config/nvim
 dotfiles-manager deploy --dry-run ~/.config/nvim
 dotfiles-manager deploy ~/.config/nvim
 dotfiles-manager import --dry-run ~/.config/nvim
@@ -165,6 +168,7 @@ Use JSON for automation:
 
 ```bash
 dotfiles-manager status --json ~/.config/nvim
+dotfiles-manager diff --json --direction deploy ~/.config/nvim
 ```
 
 ---

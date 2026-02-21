@@ -11,7 +11,7 @@
     ],
     "normalized": null
   },
-  "schema_version": "3.0",
+  "schema_version": "4.0",
   "summary": {
     "deploy_count": 2,
     "import_count": 1,

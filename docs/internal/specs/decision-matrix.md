@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 status: Reference
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/specs/decision-matrix.md
 ---
 
@@ -25,6 +25,7 @@ Canonical rules and rationale live in **`decisions.md`**.
 |---|---|---|---|---|
 | `version` / `--version` | info | n/a | none | Reports CLI version and exits. |
 | `status [--json] [path]` | compare | Manifest paths by default; candidate expansion when pattern-gated | add-unmanaged include/exclude, remove-unmanaged, remove-missing include/exclude | Reports drift + candidate sets. |
+| `diff [--json] [--direction <both\|deploy\|import>] [--context <N>] [--patch] [path]` | compare | Same candidate scope as status (with direction filter) | add-unmanaged include/exclude, remove-unmanaged, remove-missing include/exclude | Reports unified patch candidates + diff metadata. |
 | `deploy [--dry-run] [--json] [path]` | S → T | Manifest paths; unmanaged removals only for matching patterns | remove-unmanaged | Applies copy/remove behavior (or plans only with `--dry-run`). |
 | `import [--dry-run] [--json] [path]` | T → S | Manifest paths by default; unmanaged/missing expansion when include-gated | add-unmanaged include/exclude, remove-missing include/exclude | Applies import behavior (or plans only with `--dry-run`). |
 
@@ -70,7 +71,9 @@ Examples:
 - `source` is authoritative; there is no separate conflict state.
 - Deploy removal order is copy/update first, remove second.
 - Status should include candidate visibility (incoming unmanaged, removable unmanaged, removable missing).
+- Diff should include candidate visibility aligned with selected direction and classify each entry as unified/binary/type-change/omitted.
 - Empty default pattern lists imply no broad unmanaged target scan.
 - Status text/json actions use potential wording (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
+- Diff text uses unified patch for patchable entries (`---`, `+++`, `@@`) and reason lines for non-patchable entries.
 - Text output suppresses empty phase blocks; text summary omits zero-count categories.
 - `--dry-run` for deploy/import uses the same scope and outcome planning, but performs no writes.

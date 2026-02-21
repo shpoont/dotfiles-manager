@@ -1,7 +1,7 @@
 ---
 owner: Engineering Leadership
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/engineering/technical-requirements.md
 ---
 
@@ -31,7 +31,7 @@ This document captures implementation constraints and required engineering stand
   - config parsing/validation
   - path matching/scoping
   - pattern filtering
-  - planning logic for status/deploy/import
+  - planning logic for status/diff/deploy/import
 - Integration tests required for:
   - end-to-end filesystem behavior
   - dry-run behavior (no writes)
@@ -93,6 +93,7 @@ Reference: `ci-cd.md`
 - v1 performance regression baseline (dotfiles-sized trees):
   - fixture scale: ~1,000 files
   - `status`: < 2s
+  - `diff`: < 2s
   - `deploy --dry-run` / `import --dry-run`: < 3s
   - `deploy` / `import`: < 5s (best-effort; disk-dependent)
 - These targets are CI regression guards, not end-user SLA guarantees.

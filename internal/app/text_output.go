@@ -17,6 +17,9 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 	if command == "status" && len(syncs) > 0 {
 		lines = append(lines, "reminder: deploy applies source -> target; import applies target -> source")
 	}
+	if command == "diff" && len(syncs) > 0 {
+		lines = append(lines, "reminder: deploy diff compares target -> source; import diff compares source -> target")
+	}
 
 	for idx, sync := range syncs {
 		if idx > 0 {
@@ -41,6 +44,12 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 			lines = appendPhaseBlock(lines, "update-managed", operationPayloadMapsByPhase(sync, "update_managed"))
 			lines = appendPhaseBlock(lines, "add-unmanaged", operationPayloadMapsByPhase(sync, "add_unmanaged"))
 			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
+		case "diff":
+			lines = appendDiffPhaseBlock(lines, "deploy-diff", "(source -> target)", operationPayloadMapsByPhase(sync, "deploy"))
+			lines = appendDiffPhaseBlock(lines, "import-diff", "(target -> source)", operationPayloadMapsByPhase(sync, "import"))
+			lines = appendDiffPhaseBlock(lines, "incoming-unmanaged", "(target -> source)", operationPayloadMapsByPhase(sync, "incoming_unmanaged"))
+			lines = appendDiffPhaseBlock(lines, "remove-unmanaged", "(source -> target)", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
+			lines = appendDiffPhaseBlock(lines, "remove-missing", "(target -> source)", operationPayloadMapsByPhase(sync, "remove_missing"))
 		}
 	}
 
@@ -90,6 +99,52 @@ func appendPhaseBlockWithContext(lines []string, label string, context string, o
 		}
 		lines = append(lines, line)
 	}
+	return lines
+}
+
+func appendDiffPhaseBlock(lines []string, label string, context string, operations []map[string]any) []string {
+	if len(operations) == 0 {
+		return lines
+	}
+
+	header := fmt.Sprintf("%s[%d]", label, len(operations))
+	if context != "" {
+		header = fmt.Sprintf("%s %s", header, context)
+	}
+	lines = append(lines, header)
+
+	for idx, op := range operations {
+		path := stringValue(op["path"])
+		if path == "" {
+			path = "<unknown>"
+		}
+
+		details := operationDetails(op)
+		if details != "" {
+			lines = append(lines, fmt.Sprintf("  path: %s (%s)", path, details))
+		} else {
+			lines = append(lines, fmt.Sprintf("  path: %s", path))
+		}
+
+		patch := stringValue(op["patch"])
+		if patch != "" {
+			patchLines := strings.Split(strings.TrimSuffix(patch, "\n"), "\n")
+			for _, patchLine := range patchLines {
+				lines = append(lines, patchLine)
+			}
+		} else {
+			note := diffNote(op)
+			if note == "" {
+				note = "patch unavailable"
+			}
+			lines = append(lines, "  note: "+note)
+		}
+
+		if idx < len(operations)-1 {
+			lines = append(lines, "")
+		}
+	}
+
 	return lines
 }
 
@@ -160,6 +215,24 @@ func operationDetails(op map[string]any) string {
 	}
 	entryType := stringValue(op["type"])
 	return entryType
+}
+
+func diffNote(op map[string]any) string {
+	reason := stringValue(op["reason"])
+	kind := stringValue(op["diff_kind"])
+	if reason != "" {
+		return reason
+	}
+	switch kind {
+	case "binary":
+		return "binary differs"
+	case "type_change":
+		return "type differs"
+	case "omitted":
+		return "patch omitted"
+	default:
+		return ""
+	}
 }
 
 func syncPayloadMaps(raw any) []map[string]any {

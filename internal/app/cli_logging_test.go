@@ -50,6 +50,39 @@ func TestStatusLogsWrittenToFileAndRedactConfigPath(t *testing.T) {
 	require.NotContains(t, logBody, "secret-token")
 }
 
+func TestDiffLogsWrittenToFile(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "init.lua"), []byte("source\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".config", "nvim", "init.lua"), []byte("target\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".dotfiles-manager.yaml"), []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`), 0o644))
+
+	logPath := filepath.Join(projectDir, "logs", "diff.log")
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"diff", "--log-file", logPath, "--log-level", "debug"})
+
+	require.NoError(t, cmd.Execute(), stderr.String())
+	require.Contains(t, stdout.String(), "deploy-diff")
+	require.Empty(t, stderr.String())
+
+	logBody := readLogFile(t, logPath)
+	require.Contains(t, logBody, "msg=command.start")
+	require.Contains(t, logBody, "command=diff")
+	require.Contains(t, logBody, "msg=command.complete")
+}
+
 func TestStatusJSONErrorLogsIncludeCode(t *testing.T) {
 	projectDir := t.TempDir()
 	setTempHome(t)

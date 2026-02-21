@@ -1,7 +1,7 @@
 ---
 owner: Product + Core Engineering
 status: Implementation-ready
-last-updated: 2026-02-17
+last-updated: 2026-02-21
 canonical-source: docs/internal/scope/product-scope.md
 ---
 
@@ -17,6 +17,7 @@ canonical-source: docs/internal/scope/product-scope.md
 
 - `version` / `--version` — report CLI version
 - `status` — preview drift and candidate operations
+- `diff` — preview unified patch candidates and diff metadata
 - `deploy` — apply source -> target
 - `import` — apply target -> source within configured rules
 
