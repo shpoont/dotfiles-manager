@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,7 +36,9 @@ func TestDiffTextOutputShowsUnifiedPatchByDefault(t *testing.T) {
 
 	require.NoError(t, cmd.Execute(), stderr.String())
 	body := stdout.String()
-	require.Contains(t, body, "deploy-diff[1] (source -> target)")
+	require.Contains(t, body, "legend intent: deploy applies source -> target; import applies target -> source")
+	require.Contains(t, body, "legend patch-orientation: deploy-diff compares target -> source; import-diff compares source -> target")
+	require.Contains(t, body, "deploy-diff[1] (target -> source)")
 	require.Contains(t, body, "--- target/lua/init.lua")
 	require.Contains(t, body, "+++ source/lua/init.lua")
 	require.Contains(t, body, "@@")
@@ -184,6 +187,31 @@ func TestDiffJSONReportsBinaryEntries(t *testing.T) {
 	require.Equal(t, "binary differs", op["reason"])
 }
 
+func TestDiffJSONDirectoryOmittedIncludesEntryCountAndHint(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim", "lua", "plugins"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "plugins", "a.lua"), []byte("a\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "plugins", "b.lua"), []byte("b\n"), 0o644))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`))
+
+	payload := runJSONCommand(t, []string{"diff", "--json"})
+	sync := payload["syncs"].([]any)[0].(map[string]any)
+	op := findOperation(sync, "deploy", "lua/plugins")
+	require.NotNil(t, op)
+	require.Equal(t, "omitted", op["diff_kind"])
+	require.Equal(t, "directory diff omitted", op["reason"])
+	require.Equal(t, float64(2), op["omitted_entry_count"])
+	require.Equal(t, "scope diff to this directory path for file-level changes", op["inspect_hint"])
+}
+
 func TestDiffPatchFlagRequiresJSON(t *testing.T) {
 	projectDir := t.TempDir()
 	setTempHome(t)
@@ -213,7 +241,19 @@ func TestDiffPatchFlagRequiresJSON(t *testing.T) {
 	cmd.SetArgs([]string{"diff", "--patch", "~/.config/nvim"})
 	err = cmd.Execute()
 	require.Error(t, err)
-	require.Contains(t, stderr.String(), "Flag not supported for command: --patch")
+	require.Contains(t, stderr.String(), "--patch requires --json")
+}
+
+func TestPatchRequiresJSONErrorProvidesPrescriptiveDetails(t *testing.T) {
+	err := patchRequiresJSONError()
+	require.Equal(t, "--patch requires --json", err.Error())
+
+	dfmError, ok := dfmerr.As(err)
+	require.True(t, ok)
+	require.Equal(t, dfmerr.CodeFlagUnsupported, dfmError.Code)
+	require.Equal(t, "--patch", dfmError.Details["flag"])
+	require.Equal(t, []string{"--json"}, dfmError.Details["required_flags"])
+	require.Equal(t, "dotfiles-manager diff --json --patch", dfmError.Details["example"])
 }
 
 func TestDiffFlagValidationErrors(t *testing.T) {

@@ -14,6 +14,7 @@
   "schema_version": "4.0",
   "summary": {
     "copy_count": 2,
+    "excluded_sync_count": 0,
     "operation_count": 3,
     "remove_unmanaged_count": 1,
     "sync_count": 1
@@ -30,6 +31,7 @@
           "action": "update",
           "path": "lua/init.lua",
           "phase": "copy",
+          "phase_alias": "deploy",
           "state": "planned",
           "type": "file"
         },
@@ -37,6 +39,7 @@
           "action": "create",
           "path": "lua/only-source.lua",
           "phase": "copy",
+          "phase_alias": "deploy",
           "state": "planned",
           "type": "file"
         },
@@ -44,6 +47,7 @@
           "action": "remove",
           "path": "lua/old.bak",
           "phase": "remove_unmanaged",
+          "phase_alias": "remove_unmanaged",
           "state": "planned",
           "type": "file"
         }

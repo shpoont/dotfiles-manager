@@ -54,13 +54,42 @@ func TestInvalidLogLevelWithJSONEnvelope(t *testing.T) {
 
 	err = cmd.Execute()
 	require.Error(t, err)
-	require.Contains(t, stderr.String(), "Invalid value for --log-level")
+	require.Empty(t, stderr.String())
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
 	require.Equal(t, false, payload["ok"])
 	errorObj := payload["error"].(map[string]any)
 	require.Equal(t, "DFM_FLAG_INVALID_VALUE", errorObj["code"])
+}
+
+func TestValidationErrorJSONIncludesExplicitConfigPath(t *testing.T) {
+	tempDir := t.TempDir()
+	setTempHome(t)
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	require.NoError(t, os.Chdir(tempDir))
+
+	customConfig := filepath.Join(tempDir, "custom.yaml")
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"status", "--json", "--dry-run", "--config", customConfig})
+
+	err = cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, false, payload["ok"])
+	require.Equal(t, customConfig, payload["config_path"])
+	errorObj := payload["error"].(map[string]any)
+	require.Equal(t, "DFM_FLAG_UNSUPPORTED", errorObj["code"])
 }
 
 func TestDeployWithPathScopeValue(t *testing.T) {
@@ -178,13 +207,13 @@ func TestEmitErrorTextAndJSONBranches(t *testing.T) {
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, errors.New("plain error"))
 	require.Contains(t, stdout.String(), "\"ok\":false")
 	require.Contains(t, stdout.String(), "\"schema_version\":\"4.0\"")
-	require.Contains(t, stderr.String(), "plain error")
+	require.Empty(t, stderr.String())
 
 	stdout.Reset()
 	stderr.Reset()
 	emitError(&stdout, &stderr, true, jsonContext{Command: "status"}, dfmerr.New(dfmerr.CodeScopeNoMatch, "No sync matched provided path", map[string]any{"path": "~/.config"}))
 	require.Contains(t, stdout.String(), "DFM_SCOPE_NO_MATCH")
-	require.Contains(t, stderr.String(), "No sync matched provided path")
+	require.Empty(t, stderr.String())
 }
 
 func TestEmitErrorJSONIncludesPartialSummary(t *testing.T) {

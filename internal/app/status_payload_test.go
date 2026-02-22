@@ -67,12 +67,15 @@ func TestStatusJSONReportsDriftAndCandidates(t *testing.T) {
 
 	require.Equal(t, []string{"alpha", "alpha/a.lua", "alpha/z.lua", "lua/init.lua", "lua/only-source.lua"}, operationPaths(sync, "deploy"))
 	require.Equal(t, "can create", findOperation(sync, "deploy", "alpha")["action"])
+	require.Equal(t, "deploy", findOperation(sync, "deploy", "alpha")["phase_alias"])
 	require.Equal(t, "can update", findOperation(sync, "deploy", "lua/init.lua")["action"])
 
 	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "import"))
 	require.Equal(t, "can update", findOperation(sync, "import", "lua/init.lua")["action"])
+	require.Equal(t, "import", findOperation(sync, "import", "lua/init.lua")["phase_alias"])
 
 	require.Equal(t, []string{"lua/new.lua", "lua/old.bak"}, operationPaths(sync, "incoming_unmanaged"))
+	require.Equal(t, "incoming_unmanaged", findOperation(sync, "incoming_unmanaged", "lua/new.lua")["phase_alias"])
 
 	require.Equal(t, []string{"lua/old.bak"}, operationPaths(sync, "remove_unmanaged"))
 

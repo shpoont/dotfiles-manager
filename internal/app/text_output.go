@@ -14,11 +14,15 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 	lines := make([]string, 0)
 	syncs := syncPayloadMaps(result["syncs"])
 
+	if (command == "deploy" || command == "import") && len(syncs) > 0 {
+		lines = append(lines, modeBannerLine(dryRun))
+	}
+
 	if command == "status" && len(syncs) > 0 {
 		lines = append(lines, "reminder: deploy applies source -> target; import applies target -> source")
 	}
 	if command == "diff" && len(syncs) > 0 {
-		lines = append(lines, "reminder: deploy diff compares target -> source; import diff compares source -> target")
+		lines = append(lines, diffLegendLines()...)
 	}
 
 	for idx, sync := range syncs {
@@ -38,24 +42,38 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 			lines = appendPhaseBlock(lines, "remove-unmanaged", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
 			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
 		case "deploy":
-			lines = appendPhaseBlock(lines, "copy", operationPayloadMapsByPhase(sync, "copy"))
-			lines = appendPhaseBlock(lines, "remove-unmanaged", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
+			lines = appendPhaseBlockWithState(lines, "copy", "", operationPayloadMapsByPhase(sync, "copy"), true)
+			lines = appendPhaseBlockWithState(lines, "remove-unmanaged", "", operationPayloadMapsByPhase(sync, "remove_unmanaged"), true)
 		case "import":
-			lines = appendPhaseBlock(lines, "update-managed", operationPayloadMapsByPhase(sync, "update_managed"))
-			lines = appendPhaseBlock(lines, "add-unmanaged", operationPayloadMapsByPhase(sync, "add_unmanaged"))
-			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
+			lines = appendPhaseBlockWithState(lines, "update-managed", "", operationPayloadMapsByPhase(sync, "update_managed"), true)
+			lines = appendPhaseBlockWithState(lines, "add-unmanaged", "", operationPayloadMapsByPhase(sync, "add_unmanaged"), true)
+			lines = appendPhaseBlockWithState(lines, "remove-missing", "", operationPayloadMapsByPhase(sync, "remove_missing"), true)
 		case "diff":
-			lines = appendDiffPhaseBlock(lines, "deploy-diff", "(source -> target)", operationPayloadMapsByPhase(sync, "deploy"))
-			lines = appendDiffPhaseBlock(lines, "import-diff", "(target -> source)", operationPayloadMapsByPhase(sync, "import"))
+			lines = appendDiffPhaseBlock(lines, "deploy-diff", "(target -> source)", operationPayloadMapsByPhase(sync, "deploy"))
+			lines = appendDiffPhaseBlock(lines, "import-diff", "(source -> target)", operationPayloadMapsByPhase(sync, "import"))
 			lines = appendDiffPhaseBlock(lines, "incoming-unmanaged", "(target -> source)", operationPayloadMapsByPhase(sync, "incoming_unmanaged"))
-			lines = appendDiffPhaseBlock(lines, "remove-unmanaged", "(source -> target)", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
-			lines = appendDiffPhaseBlock(lines, "remove-missing", "(target -> source)", operationPayloadMapsByPhase(sync, "remove_missing"))
+			lines = appendDiffPhaseBlock(lines, "remove-unmanaged", "(target -> /dev/null)", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
+			lines = appendDiffPhaseBlock(lines, "remove-missing", "(source -> /dev/null)", operationPayloadMapsByPhase(sync, "remove_missing"))
 		}
 	}
 
 	lines = append(lines, buildTextSummaryLine(command, dryRun, result["summary"]))
 
 	return strings.Join(lines, "\n")
+}
+
+func diffLegendLines() []string {
+	return []string{
+		"legend intent: deploy applies source -> target; import applies target -> source",
+		"legend patch-orientation: deploy-diff compares target -> source; import-diff compares source -> target",
+	}
+}
+
+func modeBannerLine(dryRun bool) string {
+	if dryRun {
+		return "MODE: DRY RUN (no writes)"
+	}
+	return "MODE: APPLY (writes enabled)"
 }
 
 func buildSyncHeader(sync map[string]any) string {
@@ -71,15 +89,22 @@ func buildSyncHeader(sync map[string]any) string {
 }
 
 func appendPhaseBlock(lines []string, label string, operations []map[string]any) []string {
-	return appendPhaseBlockWithContext(lines, label, "", operations)
+	return appendPhaseBlockWithState(lines, label, "", operations, false)
 }
 
 func appendPhaseBlockWithContext(lines []string, label string, context string, operations []map[string]any) []string {
+	return appendPhaseBlockWithState(lines, label, context, operations, false)
+}
+
+func appendPhaseBlockWithState(lines []string, label string, context string, operations []map[string]any, includeState bool) []string {
 	if len(operations) == 0 {
 		return lines
 	}
 
 	header := fmt.Sprintf("%s[%d]", label, len(operations))
+	if alias := phaseHeaderAlias(label); alias != "" {
+		header = fmt.Sprintf("%s [%s]", header, alias)
+	}
 	if context != "" {
 		header = fmt.Sprintf("%s %s", header, context)
 	}
@@ -94,12 +119,28 @@ func appendPhaseBlockWithContext(lines []string, label string, context string, o
 			path = "<unknown>"
 		}
 		line := fmt.Sprintf("  %-12s %s", action, path)
+		if includeState {
+			if marker := stateMarker(op); marker != "" {
+				line = fmt.Sprintf("  [%s] %-12s %s", marker, action, path)
+			}
+		}
 		if details := operationDetails(op); details != "" {
 			line += " (" + details + ")"
 		}
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func stateMarker(op map[string]any) string {
+	switch stringValue(op["state"]) {
+	case "planned":
+		return "planned"
+	case "applied":
+		return "applied"
+	default:
+		return ""
+	}
 }
 
 func appendDiffPhaseBlock(lines []string, label string, context string, operations []map[string]any) []string {
@@ -218,6 +259,16 @@ func operationDetails(op map[string]any) string {
 func diffNote(op map[string]any) string {
 	reason := stringValue(op["reason"])
 	kind := stringValue(op["diff_kind"])
+	if kind == "omitted" && reason == "directory diff omitted" {
+		note := reason
+		if count := summaryInt(op, "omitted_entry_count"); count > 0 {
+			note = fmt.Sprintf("%s (%d entries)", note, count)
+		}
+		if hint := stringValue(op["inspect_hint"]); hint != "" {
+			note = note + "; " + hint
+		}
+		return note
+	}
 	if reason != "" {
 		return reason
 	}

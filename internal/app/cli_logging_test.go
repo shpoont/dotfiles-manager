@@ -99,7 +99,7 @@ func TestStatusJSONErrorLogsIncludeCode(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	require.Contains(t, stderr.String(), "Config not found")
+	require.Empty(t, stderr.String())
 
 	logBody := readLogFile(t, logPath)
 	require.Contains(t, logBody, "msg=command.error")

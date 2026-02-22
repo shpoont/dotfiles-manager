@@ -44,3 +44,9 @@ func TestWithDetailsNonDFMError(t *testing.T) {
 	base := errors.New("plain")
 	require.Equal(t, base, WithDetails(base, map[string]any{"x": 1}))
 }
+
+func TestParserErrorCodes(t *testing.T) {
+	require.Equal(t, Code("DFM_PARSER_UNKNOWN_FLAG"), CodeParserUnknownFlag)
+	require.Equal(t, Code("DFM_PARSER_UNKNOWN_COMMAND"), CodeParserUnknownCommand)
+	require.Equal(t, Code("DFM_PARSER_ARG_FAILURE"), CodeParserArgFailure)
+}

@@ -48,8 +48,8 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 			map[string]any{
 				"sync": "sync[0] target=~/.config/nvim source=./source/nvim",
 				"operations": []any{
-					map[string]any{"phase": "copy", "action": "update", "path": "lua/init.lua", "type": "file"},
-					map[string]any{"phase": "remove_unmanaged", "action": "remove", "path": "lua/old.bak", "type": "file"},
+					map[string]any{"phase": "copy", "action": "update", "state": "planned", "path": "lua/init.lua", "type": "file"},
+					map[string]any{"phase": "remove_unmanaged", "action": "remove", "state": "planned", "path": "lua/old.bak", "type": "file"},
 				},
 			},
 		},
@@ -59,9 +59,29 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 		},
 	})
 
-	require.Contains(t, deployOutput, "copy[1]")
+	require.Contains(t, deployOutput, "MODE: DRY RUN (no writes)")
+	require.Contains(t, deployOutput, "copy[1] [deploy]")
 	require.Contains(t, deployOutput, "remove-unmanaged[1]")
+	require.Contains(t, deployOutput, "[planned] update")
+	require.Contains(t, deployOutput, "[planned] remove")
 	require.Contains(t, deployOutput, "summary dry-run=true copied=1 remove-unmanaged=1")
+
+	importOutput := buildTextOutput("import", false, map[string]any{
+		"syncs": []any{
+			map[string]any{
+				"sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+				"operations": []any{
+					map[string]any{"phase": "update_managed", "action": "update", "state": "applied", "path": "lua/init.lua", "type": "file"},
+				},
+			},
+		},
+		"summary": map[string]any{
+			"update_managed_count": 1,
+		},
+	})
+	require.Contains(t, importOutput, "MODE: APPLY (writes enabled)")
+	require.Contains(t, importOutput, "update-managed[1] [import]")
+	require.Contains(t, importOutput, "[applied] update")
 }
 
 func TestBuildTextOutputFallbackAndHelpers(t *testing.T) {
@@ -146,10 +166,11 @@ func TestBuildTextOutputDiff(t *testing.T) {
 		},
 	})
 
-	require.Contains(t, diffOutput, "reminder: deploy diff compares target -> source; import diff compares source -> target")
-	require.Contains(t, diffOutput, "deploy-diff[1] (source -> target)")
+	require.Contains(t, diffOutput, "legend intent: deploy applies source -> target; import applies target -> source")
+	require.Contains(t, diffOutput, "legend patch-orientation: deploy-diff compares target -> source; import-diff compares source -> target")
+	require.Contains(t, diffOutput, "deploy-diff[1] (target -> source)")
 	require.Contains(t, diffOutput, "--- target/lua/init.lua")
-	require.Contains(t, diffOutput, "remove-unmanaged[1] (source -> target)")
+	require.Contains(t, diffOutput, "remove-unmanaged[1] (target -> /dev/null)")
 	require.Contains(t, diffOutput, "note: binary differs")
 	require.Contains(t, diffOutput, "summary deploy-diff=1 remove-unmanaged=1 unified=1 binary=1")
 }
@@ -158,6 +179,12 @@ func TestDiffNoteFallbacks(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, "explicit reason", diffNote(map[string]any{"reason": "explicit reason", "diff_kind": "binary"}))
+	require.Equal(t, "directory diff omitted (3 entries); scope diff to this directory path for file-level changes", diffNote(map[string]any{
+		"reason":              "directory diff omitted",
+		"diff_kind":           "omitted",
+		"omitted_entry_count": 3,
+		"inspect_hint":        "scope diff to this directory path for file-level changes",
+	}))
 	require.Equal(t, "binary differs", diffNote(map[string]any{"diff_kind": "binary"}))
 	require.Equal(t, "type differs", diffNote(map[string]any{"diff_kind": "type_change"}))
 	require.Equal(t, "patch omitted", diffNote(map[string]any{"diff_kind": "omitted"}))

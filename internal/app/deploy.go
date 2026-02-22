@@ -352,11 +352,12 @@ func buildDeployOperations(copiedPayload []any, removedPayload []any, state stri
 			continue
 		}
 		operations = append(operations, map[string]any{
-			"phase":  "copy",
-			"action": entry["change"],
-			"state":  state,
-			"path":   entry["path"],
-			"type":   entry["type"],
+			"phase":       "copy",
+			"phase_alias": operationPhaseAlias("copy"),
+			"action":      entry["change"],
+			"state":       state,
+			"path":        entry["path"],
+			"type":        entry["type"],
 		})
 	}
 
@@ -366,11 +367,12 @@ func buildDeployOperations(copiedPayload []any, removedPayload []any, state stri
 			continue
 		}
 		operations = append(operations, map[string]any{
-			"phase":  "remove_unmanaged",
-			"action": "remove",
-			"state":  state,
-			"path":   entry["path"],
-			"type":   entry["type"],
+			"phase":       "remove_unmanaged",
+			"phase_alias": operationPhaseAlias("remove_unmanaged"),
+			"action":      "remove",
+			"state":       state,
+			"path":        entry["path"],
+			"type":        entry["type"],
 		})
 	}
 

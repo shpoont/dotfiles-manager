@@ -199,6 +199,7 @@ func statusTargetScanPatterns(syncCfg config.Sync) []string {
 func buildStatusManagedOperation(phase, path, action, sourceType, targetType string) map[string]any {
 	return map[string]any{
 		"phase":       phase,
+		"phase_alias": operationPhaseAlias(phase),
 		"action":      statusActionLabel(action),
 		"state":       "candidate",
 		"path":        path,
@@ -209,11 +210,12 @@ func buildStatusManagedOperation(phase, path, action, sourceType, targetType str
 
 func buildStatusTypedOperation(phase, action, path, entryType string) map[string]any {
 	return map[string]any{
-		"phase":  phase,
-		"action": statusActionLabel(action),
-		"state":  "candidate",
-		"path":   path,
-		"type":   entryType,
+		"phase":       phase,
+		"phase_alias": operationPhaseAlias(phase),
+		"action":      statusActionLabel(action),
+		"state":       "candidate",
+		"path":        path,
+		"type":        entryType,
 	}
 }
 

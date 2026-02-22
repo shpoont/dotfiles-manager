@@ -277,11 +277,12 @@ func buildImportOperations(updatedManifestPayload []any, addedUnmanagedPayload [
 			continue
 		}
 		operations = append(operations, map[string]any{
-			"phase":  "update_managed",
-			"action": entry["change"],
-			"state":  state,
-			"path":   entry["path"],
-			"type":   entry["type"],
+			"phase":       "update_managed",
+			"phase_alias": operationPhaseAlias("update_managed"),
+			"action":      entry["change"],
+			"state":       state,
+			"path":        entry["path"],
+			"type":        entry["type"],
 		})
 	}
 
@@ -291,11 +292,12 @@ func buildImportOperations(updatedManifestPayload []any, addedUnmanagedPayload [
 			continue
 		}
 		operations = append(operations, map[string]any{
-			"phase":  "add_unmanaged",
-			"action": "add",
-			"state":  state,
-			"path":   entry["path"],
-			"type":   entry["type"],
+			"phase":       "add_unmanaged",
+			"phase_alias": operationPhaseAlias("add_unmanaged"),
+			"action":      "add",
+			"state":       state,
+			"path":        entry["path"],
+			"type":        entry["type"],
 		})
 	}
 
@@ -305,11 +307,12 @@ func buildImportOperations(updatedManifestPayload []any, addedUnmanagedPayload [
 			continue
 		}
 		operations = append(operations, map[string]any{
-			"phase":  "remove_missing",
-			"action": "remove",
-			"state":  state,
-			"path":   entry["path"],
-			"type":   entry["type"],
+			"phase":       "remove_missing",
+			"phase_alias": operationPhaseAlias("remove_missing"),
+			"action":      "remove",
+			"state":       state,
+			"path":        entry["path"],
+			"type":        entry["type"],
 		})
 	}
 

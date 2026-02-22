@@ -16,8 +16,22 @@ func TestVersionCommandAndFlagPrintVersionWithoutConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(projectDir))
 
 	oldVersion := buildVersion
+	oldCommit := buildCommit
+	oldDate := buildDate
+	oldChannel := buildChannel
+	oldProvenance := buildProvenance
 	buildVersion = "1.2.3"
-	t.Cleanup(func() { buildVersion = oldVersion })
+	buildCommit = "abc1234"
+	buildDate = "2026-02-22T10:00:00Z"
+	buildChannel = "stable"
+	buildProvenance = "goreleaser"
+	t.Cleanup(func() {
+		buildVersion = oldVersion
+		buildCommit = oldCommit
+		buildDate = oldDate
+		buildChannel = oldChannel
+		buildProvenance = oldProvenance
+	})
 
 	testCases := [][]string{
 		{"version"},
@@ -33,7 +47,7 @@ func TestVersionCommandAndFlagPrintVersionWithoutConfig(t *testing.T) {
 		cmd.SetArgs(args)
 
 		require.NoError(t, cmd.Execute())
-		require.Equal(t, "dotfiles-manager version 1.2.3\n", stdout.String())
+		require.Equal(t, "dotfiles-manager version=1.2.3 commit=abc1234 date=2026-02-22T10:00:00Z channel=stable provenance=goreleaser\n", stdout.String())
 		require.Empty(t, stderr.String())
 	}
 }
@@ -46,8 +60,22 @@ func TestVersionCommandFallsBackToDevWhenUnset(t *testing.T) {
 	require.NoError(t, os.Chdir(projectDir))
 
 	oldVersion := buildVersion
+	oldCommit := buildCommit
+	oldDate := buildDate
+	oldChannel := buildChannel
+	oldProvenance := buildProvenance
 	buildVersion = ""
-	t.Cleanup(func() { buildVersion = oldVersion })
+	buildCommit = ""
+	buildDate = ""
+	buildChannel = ""
+	buildProvenance = ""
+	t.Cleanup(func() {
+		buildVersion = oldVersion
+		buildCommit = oldCommit
+		buildDate = oldDate
+		buildChannel = oldChannel
+		buildProvenance = oldProvenance
+	})
 
 	cmd := NewRootCmd()
 	var stdout bytes.Buffer
@@ -56,7 +84,7 @@ func TestVersionCommandFallsBackToDevWhenUnset(t *testing.T) {
 	cmd.SetArgs([]string{"version"})
 
 	require.NoError(t, cmd.Execute())
-	require.Equal(t, "dotfiles-manager version dev\n", stdout.String())
+	require.Equal(t, "dotfiles-manager version=dev commit=unknown date=unknown channel=dev provenance=unspecified\n", stdout.String())
 }
 
 func TestVersionCommandRejectsUnsupportedInputs(t *testing.T) {

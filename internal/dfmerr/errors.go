@@ -19,10 +19,13 @@ const (
 	CodeConfigPathEscape       Code = "DFM_CONFIG_PATH_ESCAPE"
 	CodeConfigPathEnvUndefined Code = "DFM_CONFIG_PATH_ENV_VAR_UNDEFINED"
 
-	CodeFlagUnsupported  Code = "DFM_FLAG_UNSUPPORTED"
-	CodeFlagInvalidValue Code = "DFM_FLAG_INVALID_VALUE"
-	CodeScopeNoMatch     Code = "DFM_SCOPE_NO_MATCH"
-	CodeScopeInvalidPath Code = "DFM_SCOPE_INVALID_PATH"
+	CodeFlagUnsupported      Code = "DFM_FLAG_UNSUPPORTED"
+	CodeFlagInvalidValue     Code = "DFM_FLAG_INVALID_VALUE"
+	CodeParserUnknownFlag    Code = "DFM_PARSER_UNKNOWN_FLAG"
+	CodeParserUnknownCommand Code = "DFM_PARSER_UNKNOWN_COMMAND"
+	CodeParserArgFailure     Code = "DFM_PARSER_ARG_FAILURE"
+	CodeScopeNoMatch         Code = "DFM_SCOPE_NO_MATCH"
+	CodeScopeInvalidPath     Code = "DFM_SCOPE_INVALID_PATH"
 
 	CodeIORead        Code = "DFM_IO_READ"
 	CodeIOWrite       Code = "DFM_IO_WRITE"

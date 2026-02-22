@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/shpoont/dotfiles-manager/internal/config"
@@ -23,6 +25,16 @@ type rootOptions struct {
 
 var osExit = os.Exit
 
+var (
+	executeStdout = io.Writer(os.Stdout)
+	executeStderr = io.Writer(os.Stderr)
+)
+
+var (
+	unknownCommandPattern       = regexp.MustCompile(`^unknown command "([^"]+)"`)
+	unknownShorthandFlagPattern = regexp.MustCompile(`^unknown shorthand flag: '([^']+)' in (.+)$`)
+)
+
 func NewRootCmd() *cobra.Command {
 	opts := &rootOptions{}
 
@@ -33,7 +45,7 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 	}
 	rootCmd.Version = currentVersion()
-	rootCmd.SetVersionTemplate("dotfiles-manager version {{.Version}}\n")
+	rootCmd.SetVersionTemplate(versionLine() + "\n")
 	rootCmd.Flags().Bool("version", false, "Print version and exit")
 
 	rootCmd.PersistentFlags().StringVar(&opts.configPath, "config", "", "Path to config file")
@@ -179,10 +191,12 @@ type commandOptions struct {
 
 func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
 	pathInput, pathNormalized, pathErr := normalizeScopePath(commandOpts.PathArg)
+	configPathForErrors := explicitConfigPath(opts.configPath)
 	if pathErr != nil {
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, pathErr)
@@ -194,6 +208,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -204,6 +219,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -215,6 +231,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 				Command:        commandOpts.Name,
 				DryRun:         commandOpts.DryRun,
+				ConfigPath:     configPathForErrors,
 				PathInput:      pathInput,
 				PathNormalized: pathNormalized,
 			}, err)
@@ -225,19 +242,18 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 				Command:        commandOpts.Name,
 				DryRun:         commandOpts.DryRun,
+				ConfigPath:     configPathForErrors,
 				PathInput:      pathInput,
 				PathNormalized: pathNormalized,
 			}, err)
 			return err
 		}
 		if commandOpts.IncludePatch && !commandOpts.JSONOutput {
-			err := dfmerr.New(dfmerr.CodeFlagUnsupported, "Flag not supported for command: --patch", map[string]any{
-				"flag":     "--patch",
-				"requires": "--json",
-			})
+			err := patchRequiresJSONError()
 			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 				Command:        commandOpts.Name,
 				DryRun:         commandOpts.DryRun,
+				ConfigPath:     configPathForErrors,
 				PathInput:      pathInput,
 				PathNormalized: pathNormalized,
 			}, err)
@@ -250,6 +266,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -261,6 +278,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -275,6 +293,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -295,6 +314,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -308,6 +328,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     resolvedConfigPath,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, cfgErr)
@@ -345,7 +366,12 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		matchedIndexes = append(matchedIndexes, selection.Index)
 	}
 
-	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections)
+	excludedSyncCount := 0
+	if len(cfg.Syncs) > len(selections) {
+		excludedSyncCount = len(cfg.Syncs) - len(selections)
+	}
+
+	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections, excludedSyncCount)
 	if err != nil {
 		logCommandError(commandLogger, err)
 		partialSyncs, partialSummary := extractPartialResult(err)
@@ -404,9 +430,8 @@ type jsonContext struct {
 }
 
 func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonContext, err error) {
-	_, _ = fmt.Fprintln(stderr, err.Error())
-
 	if !jsonOutput {
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return
 	}
 
@@ -452,13 +477,29 @@ func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonCont
 	_ = emitJSON(stdout, payload)
 }
 
+func explicitConfigPath(configPath string) any {
+	trimmed := strings.TrimSpace(configPath)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
+
+func patchRequiresJSONError() error {
+	return dfmerr.New(dfmerr.CodeFlagUnsupported, "--patch requires --json", map[string]any{
+		"flag":           "--patch",
+		"required_flags": []string{"--json"},
+		"example":        "dotfiles-manager diff --json --patch",
+	})
+}
+
 func emitJSON(w io.Writer, value any) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(false)
 	return encoder.Encode(value)
 }
 
-func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, configPath string, pathInput any, pathNormalized any, matchedIndexes []int, selections []syncSelection) (map[string]any, error) {
+func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, configPath string, pathInput any, pathNormalized any, matchedIndexes []int, selections []syncSelection, excludedSyncCount int) (map[string]any, error) {
 	var (
 		syncPayloads []any
 		summary      map[string]any
@@ -490,6 +531,11 @@ func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, config
 		syncPayloads = buildSyncPayloads(commandOpts.Name, selections)
 		summary = buildSummary(commandOpts.Name, len(syncPayloads))
 	}
+
+	if summary == nil {
+		summary = map[string]any{}
+	}
+	summary["excluded_sync_count"] = excludedSyncCount
 
 	return map[string]any{
 		"schema_version": jsonSchemaVersion,
@@ -778,17 +824,20 @@ func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string 
 		parts = appendSummaryCount(parts, "incoming-unmanaged", summaryInt(summary, "incoming_unmanaged_count"))
 		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
 		parts = appendSummaryCount(parts, "remove-missing", summaryInt(summary, "remove_missing_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	case "deploy":
 		parts := []string{fmt.Sprintf("summary dry-run=%t", dryRun)}
 		parts = appendSummaryCount(parts, "copied", summaryInt(summary, "copy_count"))
 		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	case "import":
 		parts := []string{fmt.Sprintf("summary dry-run=%t", dryRun)}
 		parts = appendSummaryCount(parts, "updated-managed", summaryInt(summary, "update_managed_count"))
 		parts = appendSummaryCount(parts, "added-unmanaged", summaryInt(summary, "add_unmanaged_count"))
 		parts = appendSummaryCount(parts, "removed-missing", summaryInt(summary, "remove_missing_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	case "diff":
 		parts := []string{"summary"}
@@ -801,10 +850,23 @@ func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string 
 		parts = appendSummaryCount(parts, "binary", summaryInt(summary, "binary_count"))
 		parts = appendSummaryCount(parts, "type-change", summaryInt(summary, "type_change_count"))
 		parts = appendSummaryCount(parts, "omitted", summaryInt(summary, "omitted_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	default:
-		return fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))
+		parts := []string{fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))}
+		parts = appendExcludedSyncSummary(parts, summary)
+		return strings.Join(parts, " ")
 	}
+}
+
+func appendExcludedSyncSummary(parts []string, summary map[string]any) []string {
+	if summary == nil {
+		return parts
+	}
+	if _, exists := summary["excluded_sync_count"]; !exists {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("excluded-syncs=%d", summaryInt(summary, "excluded_sync_count")))
 }
 
 func appendSummaryCount(parts []string, label string, count int) []string {
@@ -831,10 +893,243 @@ func summaryInt(summary map[string]any, key string) int {
 }
 
 func Execute() int {
-	if err := NewRootCmd().Execute(); err != nil {
+	cmd := NewRootCmd()
+	cmd.SetOut(executeStdout)
+	cmd.SetErr(executeStderr)
+
+	if err := cmd.Execute(); err != nil {
+		if parserErr, ok := classifyParserError(err); ok {
+			parserCtx := parserErrorContextFromArgs(os.Args[1:])
+			emitParserError(cmd.OutOrStdout(), cmd.ErrOrStderr(), parserCtx, parserErr)
+		}
 		return 1
 	}
 	return 0
+}
+
+type parserErrorContext struct {
+	JSONOutput bool
+	DryRun     bool
+	Command    any
+	ConfigPath any
+}
+
+func emitParserError(stdout io.Writer, stderr io.Writer, ctx parserErrorContext, parserErr *dfmerr.Error) {
+	if parserErr == nil {
+		return
+	}
+
+	if !ctx.JSONOutput {
+		_, _ = fmt.Fprintln(stderr, parserErr.Message)
+		return
+	}
+
+	payload := map[string]any{
+		"schema_version": jsonSchemaVersion,
+		"ok":             false,
+		"dry_run":        ctx.DryRun,
+		"command":        ctx.Command,
+		"config_path":    ctx.ConfigPath,
+		"path_scope": map[string]any{
+			"input":                nil,
+			"normalized":           nil,
+			"matched_sync_indexes": []int{},
+		},
+		"syncs":   []any{},
+		"summary": map[string]any{},
+		"error": map[string]any{
+			"code":    parserErr.Code,
+			"message": parserErr.Message,
+		},
+	}
+	if len(parserErr.Details) > 0 {
+		payload["error"].(map[string]any)["details"] = parserErr.Details
+	}
+
+	_ = emitJSON(stdout, payload)
+}
+
+func classifyParserError(err error) (*dfmerr.Error, bool) {
+	if err == nil {
+		return nil, false
+	}
+
+	if dfmError, ok := dfmerr.As(err); ok {
+		switch dfmError.Code {
+		case dfmerr.CodeParserUnknownFlag, dfmerr.CodeParserUnknownCommand, dfmerr.CodeParserArgFailure:
+			return dfmError, true
+		default:
+			return nil, false
+		}
+	}
+
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return nil, false
+	}
+
+	if flag, ok := parserUnknownFlag(message); ok {
+		details := map[string]any{}
+		if flag != "" {
+			details["flag"] = flag
+		}
+		if len(details) == 0 {
+			details = nil
+		}
+		return dfmerr.New(dfmerr.CodeParserUnknownFlag, message, details), true
+	}
+
+	if command, ok := parserUnknownCommand(message); ok {
+		details := map[string]any{}
+		if command != "" {
+			details["command"] = command
+		}
+		if len(details) == 0 {
+			details = nil
+		}
+		return dfmerr.New(dfmerr.CodeParserUnknownCommand, message, details), true
+	}
+
+	if isParserArgFailure(message) {
+		return dfmerr.New(dfmerr.CodeParserArgFailure, message, nil), true
+	}
+
+	return nil, false
+}
+
+func parserUnknownFlag(message string) (string, bool) {
+	const unknownFlagPrefix = "unknown flag: "
+	if strings.HasPrefix(message, unknownFlagPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(message, unknownFlagPrefix)), true
+	}
+
+	matches := unknownShorthandFlagPattern.FindStringSubmatch(message)
+	if len(matches) == 3 {
+		flag := strings.TrimSpace(matches[2])
+		if flag == "" {
+			flag = "-" + matches[1]
+		}
+		return flag, true
+	}
+
+	return "", false
+}
+
+func parserUnknownCommand(message string) (string, bool) {
+	matches := unknownCommandPattern.FindStringSubmatch(message)
+	if len(matches) != 2 {
+		return "", false
+	}
+	return matches[1], true
+}
+
+func isParserArgFailure(message string) bool {
+	if strings.HasPrefix(message, "flag needs an argument: ") {
+		return true
+	}
+
+	if strings.HasPrefix(message, "invalid argument ") && strings.Contains(message, " flag") {
+		return true
+	}
+
+	if strings.Contains(message, "arg(s)") && (strings.Contains(message, "accepts ") || strings.Contains(message, "requires ")) {
+		return true
+	}
+
+	return false
+}
+
+func parserErrorContextFromArgs(args []string) parserErrorContext {
+	ctx := parserErrorContext{
+		JSONOutput: false,
+		DryRun:     false,
+		Command:    nil,
+		ConfigPath: nil,
+	}
+
+	waitingFlagValue := ""
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+
+		if waitingFlagValue != "" {
+			if waitingFlagValue == "--config" {
+				ctx.ConfigPath = arg
+			}
+			waitingFlagValue = ""
+			continue
+		}
+
+		if value, ok := parseLongFlag(arg, "--config"); ok {
+			if value == nil {
+				waitingFlagValue = "--config"
+			} else {
+				ctx.ConfigPath = *value
+			}
+			continue
+		}
+
+		if value, ok := parseLongFlag(arg, "--json"); ok {
+			ctx.JSONOutput = parseBoolFlagValue(value, true)
+			continue
+		}
+
+		if value, ok := parseLongFlag(arg, "--dry-run"); ok {
+			ctx.DryRun = parseBoolFlagValue(value, true)
+			continue
+		}
+
+		if argRequiresValue(arg) {
+			waitingFlagValue = arg
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		if ctx.Command == nil {
+			ctx.Command = arg
+		}
+	}
+
+	return ctx
+}
+
+func parseLongFlag(arg string, name string) (*string, bool) {
+	if arg == name {
+		return nil, true
+	}
+
+	prefix := name + "="
+	if strings.HasPrefix(arg, prefix) {
+		value := strings.TrimPrefix(arg, prefix)
+		return &value, true
+	}
+
+	return nil, false
+}
+
+func parseBoolFlagValue(value *string, defaultValue bool) bool {
+	if value == nil {
+		return defaultValue
+	}
+
+	parsedValue, err := strconv.ParseBool(strings.TrimSpace(*value))
+	if err != nil {
+		return defaultValue
+	}
+	return parsedValue
+}
+
+func argRequiresValue(arg string) bool {
+	switch arg {
+	case "--config", "--log-file", "--log-level", "--direction", "--context":
+		return true
+	default:
+		return false
+	}
 }
 
 func Main() {

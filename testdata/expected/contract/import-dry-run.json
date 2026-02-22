@@ -14,6 +14,7 @@
   "schema_version": "4.0",
   "summary": {
     "add_unmanaged_count": 1,
+    "excluded_sync_count": 0,
     "operation_count": 3,
     "remove_missing_count": 1,
     "sync_count": 1,
@@ -32,6 +33,7 @@
           "action": "update",
           "path": "lua/init.lua",
           "phase": "update_managed",
+          "phase_alias": "import",
           "state": "planned",
           "type": "file"
         },
@@ -39,6 +41,7 @@
           "action": "add",
           "path": "lua/new.lua",
           "phase": "add_unmanaged",
+          "phase_alias": "incoming_unmanaged",
           "state": "planned",
           "type": "file"
         },
@@ -46,6 +49,7 @@
           "action": "remove",
           "path": "lua/missing.lua",
           "phase": "remove_missing",
+          "phase_alias": "remove_missing",
           "state": "planned",
           "type": "file"
         }
