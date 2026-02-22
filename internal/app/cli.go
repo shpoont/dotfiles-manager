@@ -191,10 +191,12 @@ type commandOptions struct {
 
 func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
 	pathInput, pathNormalized, pathErr := normalizeScopePath(commandOpts.PathArg)
+	configPathForErrors := explicitConfigPath(opts.configPath)
 	if pathErr != nil {
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, pathErr)
@@ -206,6 +208,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -216,6 +219,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -224,37 +228,40 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 	if commandOpts.Name == "diff" {
 		if !isValidDiffDirection(commandOpts.Direction) {
 			err := dfmerr.InvalidFlagValue("--direction", commandOpts.Direction, "both|deploy|import")
-			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-				Command:        commandOpts.Name,
-				DryRun:         commandOpts.DryRun,
-				PathInput:      pathInput,
-				PathNormalized: pathNormalized,
-			}, err)
-			return err
-		}
+				emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+					Command:        commandOpts.Name,
+					DryRun:         commandOpts.DryRun,
+					ConfigPath:     configPathForErrors,
+					PathInput:      pathInput,
+					PathNormalized: pathNormalized,
+				}, err)
+				return err
+			}
 		if commandOpts.ContextLines < 0 {
 			err := dfmerr.InvalidFlagValue("--context", fmt.Sprintf("%d", commandOpts.ContextLines), "integer >= 0")
-			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-				Command:        commandOpts.Name,
-				DryRun:         commandOpts.DryRun,
-				PathInput:      pathInput,
-				PathNormalized: pathNormalized,
-			}, err)
-			return err
-		}
+				emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+					Command:        commandOpts.Name,
+					DryRun:         commandOpts.DryRun,
+					ConfigPath:     configPathForErrors,
+					PathInput:      pathInput,
+					PathNormalized: pathNormalized,
+				}, err)
+				return err
+			}
 		if commandOpts.IncludePatch && !commandOpts.JSONOutput {
 			err := dfmerr.New(dfmerr.CodeFlagUnsupported, "Flag not supported for command: --patch", map[string]any{
 				"flag":     "--patch",
 				"requires": "--json",
 			})
-			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-				Command:        commandOpts.Name,
-				DryRun:         commandOpts.DryRun,
-				PathInput:      pathInput,
-				PathNormalized: pathNormalized,
-			}, err)
-			return err
-		}
+				emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+					Command:        commandOpts.Name,
+					DryRun:         commandOpts.DryRun,
+					ConfigPath:     configPathForErrors,
+					PathInput:      pathInput,
+					PathNormalized: pathNormalized,
+				}, err)
+				return err
+			}
 	}
 
 	logPath, err := logging.ResolvePath(opts.logFile)
@@ -262,6 +269,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -273,6 +281,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -287,6 +296,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -307,6 +317,7 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 			Command:        commandOpts.Name,
 			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
 			PathInput:      pathInput,
 			PathNormalized: pathNormalized,
 		}, err)
@@ -317,14 +328,15 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 	if err != nil {
 		cfgErr := dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", resolvedConfigPath), map[string]any{"path": resolvedConfigPath}, err)
 		logCommandError(commandLogger, cfgErr)
-		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-			Command:        commandOpts.Name,
-			DryRun:         commandOpts.DryRun,
-			PathInput:      pathInput,
-			PathNormalized: pathNormalized,
-		}, cfgErr)
-		return cfgErr
-	}
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				ConfigPath:     resolvedConfigPath,
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, cfgErr)
+			return cfgErr
+		}
 	commandLogger.Debug("config.resolved", slog.String("config_path", logging.RedactString(absConfigPath)))
 
 	cfg, err := config.Load(resolvedConfigPath)
@@ -416,9 +428,8 @@ type jsonContext struct {
 }
 
 func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonContext, err error) {
-	_, _ = fmt.Fprintln(stderr, err.Error())
-
 	if !jsonOutput {
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return
 	}
 
@@ -462,6 +473,14 @@ func emitError(stdout io.Writer, stderr io.Writer, jsonOutput bool, ctx jsonCont
 	}
 
 	_ = emitJSON(stdout, payload)
+}
+
+func explicitConfigPath(configPath string) any {
+	trimmed := strings.TrimSpace(configPath)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
 }
 
 func emitJSON(w io.Writer, value any) error {

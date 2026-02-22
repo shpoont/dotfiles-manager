@@ -89,11 +89,11 @@ func TestExecuteParserJSONEnvelopePropagatesConfigFlag(t *testing.T) {
 	require.Equal(t, "DFM_PARSER_UNKNOWN_FLAG", errorObj["code"])
 }
 
-func TestExecuteRuntimeValidationBehaviorIsUnchanged(t *testing.T) {
+func TestExecuteRuntimeValidationJSONUsesStdoutOnly(t *testing.T) {
 	exitCode, stdout, stderr := runExecuteWithArgs(t, []string{"status", "--json", "--log-level", "verbose"})
 
 	require.Equal(t, 1, exitCode)
-	require.Contains(t, stderr, "Invalid value for --log-level")
+	require.Empty(t, stderr)
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
