@@ -13,14 +13,16 @@ import (
 func TestBuildDiffMetadataKinds(t *testing.T) {
 	t.Parallel()
 
-	metadata, err := buildDiffMetadata("deploy", "lua", &statusEntry{typeID: "dir"}, nil, 3, false)
+	metadata, err := buildDiffMetadata("deploy", "lua", &statusEntry{typeID: "dir"}, nil, 3, false, 4)
 	require.NoError(t, err)
 	require.Equal(t, "omitted", metadata["diff_kind"])
 	require.Equal(t, "directory diff omitted", metadata["reason"])
+	require.Equal(t, 4, metadata["omitted_entry_count"])
+	require.Equal(t, "scope diff to this directory path for file-level changes", metadata["inspect_hint"])
 	require.Equal(t, false, metadata["patch_available"])
 	require.Equal(t, false, metadata["patch_included"])
 
-	metadata, err = buildDiffMetadata("deploy", "lua/init.lua", &statusEntry{typeID: "file"}, &statusEntry{typeID: "symlink"}, 3, false)
+	metadata, err = buildDiffMetadata("deploy", "lua/init.lua", &statusEntry{typeID: "file"}, &statusEntry{typeID: "symlink"}, 3, false, 0)
 	require.NoError(t, err)
 	require.Equal(t, "type_change", metadata["diff_kind"])
 	require.Equal(t, "type differs", metadata["reason"])
@@ -40,6 +42,7 @@ func TestBuildDiffMetadataKinds(t *testing.T) {
 		&statusEntry{typeID: "file", absPath: targetBinary},
 		3,
 		false,
+		0,
 	)
 	require.NoError(t, err)
 	require.Equal(t, "binary", metadata["diff_kind"])
@@ -60,7 +63,7 @@ func TestBuildDiffMetadataPatchModes(t *testing.T) {
 	sourceEntry := &statusEntry{typeID: "file", absPath: sourcePath}
 	targetEntry := &statusEntry{typeID: "file", absPath: targetPath}
 
-	metadataNoPatch, err := buildDiffMetadata("deploy", "notes.txt", sourceEntry, targetEntry, 3, false)
+	metadataNoPatch, err := buildDiffMetadata("deploy", "notes.txt", sourceEntry, targetEntry, 3, false, 0)
 	require.NoError(t, err)
 	require.Equal(t, "unified", metadataNoPatch["diff_kind"])
 	require.Equal(t, true, metadataNoPatch["patch_available"])
@@ -68,7 +71,7 @@ func TestBuildDiffMetadataPatchModes(t *testing.T) {
 	_, hasPatch := metadataNoPatch["patch"]
 	require.False(t, hasPatch)
 
-	metadataWithPatch, err := buildDiffMetadata("deploy", "notes.txt", sourceEntry, targetEntry, 3, true)
+	metadataWithPatch, err := buildDiffMetadata("deploy", "notes.txt", sourceEntry, targetEntry, 3, true, 0)
 	require.NoError(t, err)
 	require.Equal(t, "unified", metadataWithPatch["diff_kind"])
 	require.Equal(t, true, metadataWithPatch["patch_available"])
@@ -95,6 +98,7 @@ func TestBuildDiffMetadataOmittedWhenPatchTooLarge(t *testing.T) {
 		&statusEntry{typeID: "file", absPath: targetPath},
 		0,
 		true,
+		0,
 	)
 	require.NoError(t, err)
 	require.Equal(t, "omitted", metadata["diff_kind"])
@@ -201,4 +205,24 @@ func TestDiffPerspectivePatchAndCounters(t *testing.T) {
 	require.Equal(t, 1, counts.binary)
 	require.Equal(t, 1, counts.typeChange)
 	require.Equal(t, 1, counts.omitted)
+}
+
+func TestOmittedEntryCountForPathUsesExistingScannedMaps(t *testing.T) {
+	t.Parallel()
+
+	sourceEntries := map[string]statusEntry{
+		"lua":               {path: "lua", typeID: "dir"},
+		"lua/init.lua":      {path: "lua/init.lua", typeID: "file"},
+		"lua/plugins":       {path: "lua/plugins", typeID: "dir"},
+		"lua/plugins/a.lua": {path: "lua/plugins/a.lua", typeID: "file"},
+	}
+	targetEntries := map[string]statusEntry{
+		"lua":               {path: "lua", typeID: "dir"},
+		"lua/plugins":       {path: "lua/plugins", typeID: "dir"},
+		"lua/plugins/b.lua": {path: "lua/plugins/b.lua", typeID: "file"},
+	}
+
+	require.Equal(t, 4, omittedEntryCountForPath("lua", sourceEntries, targetEntries))
+	require.Equal(t, 2, omittedEntryCountForPath("lua/plugins", sourceEntries, targetEntries))
+	require.Equal(t, 0, omittedEntryCountForPath("missing", sourceEntries, targetEntries))
 }

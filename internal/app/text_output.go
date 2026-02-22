@@ -259,6 +259,16 @@ func operationDetails(op map[string]any) string {
 func diffNote(op map[string]any) string {
 	reason := stringValue(op["reason"])
 	kind := stringValue(op["diff_kind"])
+	if kind == "omitted" && reason == "directory diff omitted" {
+		note := reason
+		if count := summaryInt(op, "omitted_entry_count"); count > 0 {
+			note = fmt.Sprintf("%s (%d entries)", note, count)
+		}
+		if hint := stringValue(op["inspect_hint"]); hint != "" {
+			note = note + "; " + hint
+		}
+		return note
+	}
 	if reason != "" {
 		return reason
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/pmezard/go-difflib/difflib"
@@ -120,7 +121,7 @@ func evaluateDiffSync(syncIndex int, syncCfg config.Sync, selection syncSelectio
 			targetCopy := targetEntry
 
 			if phaseAllowedByDirection("deploy", direction) {
-				op, opErr := buildDiffOperation("deploy", change, relPath, &sourceCopy, &targetCopy, contextLines, includePatch)
+				op, opErr := buildDiffOperation("deploy", change, relPath, &sourceCopy, &targetCopy, contextLines, includePatch, omittedEntryCountForPath(relPath, sourceEntries, targetEntries))
 				if opErr != nil {
 					return nil, diffCounts{}, opErr
 				}
@@ -129,7 +130,7 @@ func evaluateDiffSync(syncIndex int, syncCfg config.Sync, selection syncSelectio
 				incrementDiffKindCount(&counts, stringValue(op["diff_kind"]))
 			}
 			if phaseAllowedByDirection("import", direction) {
-				op, opErr := buildDiffOperation("import", change, relPath, &sourceCopy, &targetCopy, contextLines, includePatch)
+				op, opErr := buildDiffOperation("import", change, relPath, &sourceCopy, &targetCopy, contextLines, includePatch, omittedEntryCountForPath(relPath, sourceEntries, targetEntries))
 				if opErr != nil {
 					return nil, diffCounts{}, opErr
 				}
@@ -141,7 +142,7 @@ func evaluateDiffSync(syncIndex int, syncCfg config.Sync, selection syncSelectio
 		case hasSource && !hasTarget:
 			sourceCopy := sourceEntry
 			if phaseAllowedByDirection("deploy", direction) {
-				op, opErr := buildDiffOperation("deploy", "create", relPath, &sourceCopy, nil, contextLines, includePatch)
+				op, opErr := buildDiffOperation("deploy", "create", relPath, &sourceCopy, nil, contextLines, includePatch, omittedEntryCountForPath(relPath, sourceEntries, targetEntries))
 				if opErr != nil {
 					return nil, diffCounts{}, opErr
 				}
@@ -161,7 +162,7 @@ func evaluateDiffSync(syncIndex int, syncCfg config.Sync, selection syncSelectio
 				return nil, diffCounts{}, matchErr
 			}
 			if matchMissing && phaseAllowedByDirection("remove_missing", direction) {
-				op, opErr := buildDiffOperation("remove_missing", "remove", relPath, &sourceCopy, nil, contextLines, includePatch)
+				op, opErr := buildDiffOperation("remove_missing", "remove", relPath, &sourceCopy, nil, contextLines, includePatch, omittedEntryCountForPath(relPath, sourceEntries, targetEntries))
 				if opErr != nil {
 					return nil, diffCounts{}, opErr
 				}
@@ -183,7 +184,7 @@ func evaluateDiffSync(syncIndex int, syncCfg config.Sync, selection syncSelectio
 				return nil, diffCounts{}, incomingErr
 			}
 			if matchIncoming && phaseAllowedByDirection("incoming_unmanaged", direction) {
-				op, opErr := buildDiffOperation("incoming_unmanaged", "add", relPath, nil, &targetCopy, contextLines, includePatch)
+				op, opErr := buildDiffOperation("incoming_unmanaged", "add", relPath, nil, &targetCopy, contextLines, includePatch, omittedEntryCountForPath(relPath, sourceEntries, targetEntries))
 				if opErr != nil {
 					return nil, diffCounts{}, opErr
 				}
@@ -201,7 +202,7 @@ func evaluateDiffSync(syncIndex int, syncCfg config.Sync, selection syncSelectio
 				return nil, diffCounts{}, removableErr
 			}
 			if matchRemovable && phaseAllowedByDirection("remove_unmanaged", direction) {
-				op, opErr := buildDiffOperation("remove_unmanaged", "remove", relPath, nil, &targetCopy, contextLines, includePatch)
+				op, opErr := buildDiffOperation("remove_unmanaged", "remove", relPath, nil, &targetCopy, contextLines, includePatch, omittedEntryCountForPath(relPath, sourceEntries, targetEntries))
 				if opErr != nil {
 					return nil, diffCounts{}, opErr
 				}
@@ -278,7 +279,7 @@ func incrementDiffKindCount(counts *diffCounts, kind string) {
 	}
 }
 
-func buildDiffOperation(phase, action, relPath string, sourceEntry, targetEntry *statusEntry, contextLines int, includePatch bool) (map[string]any, error) {
+func buildDiffOperation(phase, action, relPath string, sourceEntry, targetEntry *statusEntry, contextLines int, includePatch bool, omittedEntryCount int) (map[string]any, error) {
 	op := map[string]any{
 		"phase":       phase,
 		"phase_alias": operationPhaseAlias(phase),
@@ -308,7 +309,7 @@ func buildDiffOperation(phase, action, relPath string, sourceEntry, targetEntry 
 		op["type"] = entryType
 	}
 
-	diffMeta, err := buildDiffMetadata(phase, relPath, sourceEntry, targetEntry, contextLines, includePatch)
+	diffMeta, err := buildDiffMetadata(phase, relPath, sourceEntry, targetEntry, contextLines, includePatch, omittedEntryCount)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +320,7 @@ func buildDiffOperation(phase, action, relPath string, sourceEntry, targetEntry 
 	return op, nil
 }
 
-func buildDiffMetadata(phase, relPath string, sourceEntry, targetEntry *statusEntry, contextLines int, includePatch bool) (map[string]any, error) {
+func buildDiffMetadata(phase, relPath string, sourceEntry, targetEntry *statusEntry, contextLines int, includePatch bool, omittedEntryCount int) (map[string]any, error) {
 	oldEntry, newEntry, oldLabel, newLabel := diffPerspective(phase, relPath, sourceEntry, targetEntry)
 
 	result := map[string]any{
@@ -330,6 +331,8 @@ func buildDiffMetadata(phase, relPath string, sourceEntry, targetEntry *statusEn
 	if (oldEntry != nil && oldEntry.typeID == "dir") || (newEntry != nil && newEntry.typeID == "dir") {
 		result["diff_kind"] = "omitted"
 		result["reason"] = "directory diff omitted"
+		result["omitted_entry_count"] = omittedEntryCount
+		result["inspect_hint"] = "scope diff to this directory path for file-level changes"
 		result["patch_available"] = false
 		result["patch_included"] = false
 		return result, nil
@@ -379,6 +382,26 @@ func buildDiffMetadata(phase, relPath string, sourceEntry, targetEntry *statusEn
 		result["patch"] = patch
 	}
 	return result, nil
+}
+
+func omittedEntryCountForPath(relPath string, sourceEntries map[string]statusEntry, targetEntries map[string]statusEntry) int {
+	if relPath == "" {
+		return 0
+	}
+
+	prefix := relPath + "/"
+	unique := map[string]struct{}{}
+	for path := range sourceEntries {
+		if strings.HasPrefix(path, prefix) {
+			unique[path] = struct{}{}
+		}
+	}
+	for path := range targetEntries {
+		if strings.HasPrefix(path, prefix) {
+			unique[path] = struct{}{}
+		}
+	}
+	return len(unique)
 }
 
 func diffPerspective(phase, relPath string, sourceEntry, targetEntry *statusEntry) (oldEntry *statusEntry, newEntry *statusEntry, oldLabel string, newLabel string) {

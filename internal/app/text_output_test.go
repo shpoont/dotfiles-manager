@@ -179,6 +179,12 @@ func TestDiffNoteFallbacks(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, "explicit reason", diffNote(map[string]any{"reason": "explicit reason", "diff_kind": "binary"}))
+	require.Equal(t, "directory diff omitted (3 entries); scope diff to this directory path for file-level changes", diffNote(map[string]any{
+		"reason":              "directory diff omitted",
+		"diff_kind":           "omitted",
+		"omitted_entry_count": 3,
+		"inspect_hint":        "scope diff to this directory path for file-level changes",
+	}))
 	require.Equal(t, "binary differs", diffNote(map[string]any{"diff_kind": "binary"}))
 	require.Equal(t, "type differs", diffNote(map[string]any{"diff_kind": "type_change"}))
 	require.Equal(t, "patch omitted", diffNote(map[string]any{"diff_kind": "omitted"}))

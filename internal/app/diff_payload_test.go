@@ -187,6 +187,31 @@ func TestDiffJSONReportsBinaryEntries(t *testing.T) {
 	require.Equal(t, "binary differs", op["reason"])
 }
 
+func TestDiffJSONDirectoryOmittedIncludesEntryCountAndHint(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := setTempHome(t)
+	setCWD(t, projectDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "source", "nvim", "lua", "plugins"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "plugins", "a.lua"), []byte("a\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "source", "nvim", "lua", "plugins", "b.lua"), []byte("b\n"), 0o644))
+
+	writeConfig(t, projectDir, []byte(`syncs:
+  - target: .config/nvim
+    source: source/nvim
+`))
+
+	payload := runJSONCommand(t, []string{"diff", "--json"})
+	sync := payload["syncs"].([]any)[0].(map[string]any)
+	op := findOperation(sync, "deploy", "lua/plugins")
+	require.NotNil(t, op)
+	require.Equal(t, "omitted", op["diff_kind"])
+	require.Equal(t, "directory diff omitted", op["reason"])
+	require.Equal(t, float64(2), op["omitted_entry_count"])
+	require.Equal(t, "scope diff to this directory path for file-level changes", op["inspect_hint"])
+}
+
 func TestDiffPatchFlagRequiresJSON(t *testing.T) {
 	projectDir := t.TempDir()
 	setTempHome(t)
