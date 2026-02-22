@@ -44,6 +44,8 @@ func TestDeployDryRunPlansWithoutMutating(t *testing.T) {
 	sync := payload["syncs"].([]any)[0].(map[string]any)
 	require.Equal(t, []string{"lua/init.lua", "lua/new.lua"}, operationPaths(sync, "copy"))
 	require.Equal(t, []string{"lua/old.bak"}, operationPaths(sync, "remove_unmanaged"))
+	require.Equal(t, "deploy", findOperation(sync, "copy", "lua/init.lua")["phase_alias"])
+	require.Equal(t, "remove_unmanaged", findOperation(sync, "remove_unmanaged", "lua/old.bak")["phase_alias"])
 
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, float64(2), summary["copy_count"])

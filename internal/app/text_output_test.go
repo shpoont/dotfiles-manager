@@ -60,7 +60,7 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 	})
 
 	require.Contains(t, deployOutput, "MODE: DRY RUN (no writes)")
-	require.Contains(t, deployOutput, "copy[1]")
+	require.Contains(t, deployOutput, "copy[1] [deploy]")
 	require.Contains(t, deployOutput, "remove-unmanaged[1]")
 	require.Contains(t, deployOutput, "[planned] update")
 	require.Contains(t, deployOutput, "[planned] remove")
@@ -80,6 +80,7 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 		},
 	})
 	require.Contains(t, importOutput, "MODE: APPLY (writes enabled)")
+	require.Contains(t, importOutput, "update-managed[1] [import]")
 	require.Contains(t, importOutput, "[applied] update")
 }
 

@@ -280,10 +280,11 @@ func incrementDiffKindCount(counts *diffCounts, kind string) {
 
 func buildDiffOperation(phase, action, relPath string, sourceEntry, targetEntry *statusEntry, contextLines int, includePatch bool) (map[string]any, error) {
 	op := map[string]any{
-		"phase":  phase,
-		"action": statusActionLabel(action),
-		"state":  "candidate",
-		"path":   relPath,
+		"phase":       phase,
+		"phase_alias": operationPhaseAlias(phase),
+		"action":      statusActionLabel(action),
+		"state":       "candidate",
+		"path":        relPath,
 	}
 
 	sourceType := "missing"

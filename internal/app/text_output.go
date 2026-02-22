@@ -102,6 +102,9 @@ func appendPhaseBlockWithState(lines []string, label string, context string, ope
 	}
 
 	header := fmt.Sprintf("%s[%d]", label, len(operations))
+	if alias := phaseHeaderAlias(label); alias != "" {
+		header = fmt.Sprintf("%s [%s]", header, alias)
+	}
 	if context != "" {
 		header = fmt.Sprintf("%s %s", header, context)
 	}

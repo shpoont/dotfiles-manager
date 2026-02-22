@@ -56,6 +56,9 @@ func TestImportDryRunPlansWithoutMutating(t *testing.T) {
 	require.Equal(t, []string{"lua/init.lua"}, operationPaths(sync, "update_managed"))
 	require.Equal(t, []string{"lua/new.lua"}, operationPaths(sync, "add_unmanaged"))
 	require.Equal(t, []string{"lua/missing.lua"}, operationPaths(sync, "remove_missing"))
+	require.Equal(t, "import", findOperation(sync, "update_managed", "lua/init.lua")["phase_alias"])
+	require.Equal(t, "incoming_unmanaged", findOperation(sync, "add_unmanaged", "lua/new.lua")["phase_alias"])
+	require.Equal(t, "remove_missing", findOperation(sync, "remove_missing", "lua/missing.lua")["phase_alias"])
 
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, float64(1), summary["update_managed_count"])
