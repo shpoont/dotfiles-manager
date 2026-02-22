@@ -45,7 +45,7 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 	}
 	rootCmd.Version = currentVersion()
-	rootCmd.SetVersionTemplate("dotfiles-manager version {{.Version}}\n")
+	rootCmd.SetVersionTemplate(versionLine() + "\n")
 	rootCmd.Flags().Bool("version", false, "Print version and exit")
 
 	rootCmd.PersistentFlags().StringVar(&opts.configPath, "config", "", "Path to config file")
@@ -228,37 +228,37 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 	if commandOpts.Name == "diff" {
 		if !isValidDiffDirection(commandOpts.Direction) {
 			err := dfmerr.InvalidFlagValue("--direction", commandOpts.Direction, "both|deploy|import")
-				emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-					Command:        commandOpts.Name,
-					DryRun:         commandOpts.DryRun,
-					ConfigPath:     configPathForErrors,
-					PathInput:      pathInput,
-					PathNormalized: pathNormalized,
-				}, err)
-				return err
-			}
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				ConfigPath:     configPathForErrors,
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, err)
+			return err
+		}
 		if commandOpts.ContextLines < 0 {
 			err := dfmerr.InvalidFlagValue("--context", fmt.Sprintf("%d", commandOpts.ContextLines), "integer >= 0")
-				emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-					Command:        commandOpts.Name,
-					DryRun:         commandOpts.DryRun,
-					ConfigPath:     configPathForErrors,
-					PathInput:      pathInput,
-					PathNormalized: pathNormalized,
-				}, err)
-				return err
-			}
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				ConfigPath:     configPathForErrors,
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, err)
+			return err
+		}
 		if commandOpts.IncludePatch && !commandOpts.JSONOutput {
 			err := patchRequiresJSONError()
 			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
 				Command:        commandOpts.Name,
 				DryRun:         commandOpts.DryRun,
 				ConfigPath:     configPathForErrors,
-					PathInput:      pathInput,
-					PathNormalized: pathNormalized,
-				}, err)
-				return err
-			}
+				PathInput:      pathInput,
+				PathNormalized: pathNormalized,
+			}, err)
+			return err
+		}
 	}
 
 	logPath, err := logging.ResolvePath(opts.logFile)
@@ -325,15 +325,15 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 	if err != nil {
 		cfgErr := dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", resolvedConfigPath), map[string]any{"path": resolvedConfigPath}, err)
 		logCommandError(commandLogger, cfgErr)
-			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-				Command:        commandOpts.Name,
-				DryRun:         commandOpts.DryRun,
-				ConfigPath:     resolvedConfigPath,
-				PathInput:      pathInput,
-				PathNormalized: pathNormalized,
-			}, cfgErr)
-			return cfgErr
-		}
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:        commandOpts.Name,
+			DryRun:         commandOpts.DryRun,
+			ConfigPath:     resolvedConfigPath,
+			PathInput:      pathInput,
+			PathNormalized: pathNormalized,
+		}, cfgErr)
+		return cfgErr
+	}
 	commandLogger.Debug("config.resolved", slog.String("config_path", logging.RedactString(absConfigPath)))
 
 	cfg, err := config.Load(resolvedConfigPath)
