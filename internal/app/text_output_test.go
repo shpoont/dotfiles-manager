@@ -48,8 +48,8 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 			map[string]any{
 				"sync": "sync[0] target=~/.config/nvim source=./source/nvim",
 				"operations": []any{
-					map[string]any{"phase": "copy", "action": "update", "path": "lua/init.lua", "type": "file"},
-					map[string]any{"phase": "remove_unmanaged", "action": "remove", "path": "lua/old.bak", "type": "file"},
+					map[string]any{"phase": "copy", "action": "update", "state": "planned", "path": "lua/init.lua", "type": "file"},
+					map[string]any{"phase": "remove_unmanaged", "action": "remove", "state": "planned", "path": "lua/old.bak", "type": "file"},
 				},
 			},
 		},
@@ -59,9 +59,28 @@ func TestBuildTextOutputStatusAndDeploy(t *testing.T) {
 		},
 	})
 
+	require.Contains(t, deployOutput, "MODE: DRY RUN (no writes)")
 	require.Contains(t, deployOutput, "copy[1]")
 	require.Contains(t, deployOutput, "remove-unmanaged[1]")
+	require.Contains(t, deployOutput, "[planned] update")
+	require.Contains(t, deployOutput, "[planned] remove")
 	require.Contains(t, deployOutput, "summary dry-run=true copied=1 remove-unmanaged=1")
+
+	importOutput := buildTextOutput("import", false, map[string]any{
+		"syncs": []any{
+			map[string]any{
+				"sync": "sync[0] target=~/.config/nvim source=./source/nvim",
+				"operations": []any{
+					map[string]any{"phase": "update_managed", "action": "update", "state": "applied", "path": "lua/init.lua", "type": "file"},
+				},
+			},
+		},
+		"summary": map[string]any{
+			"update_managed_count": 1,
+		},
+	})
+	require.Contains(t, importOutput, "MODE: APPLY (writes enabled)")
+	require.Contains(t, importOutput, "[applied] update")
 }
 
 func TestBuildTextOutputFallbackAndHelpers(t *testing.T) {

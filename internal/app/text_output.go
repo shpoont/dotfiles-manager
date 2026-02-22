@@ -14,6 +14,10 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 	lines := make([]string, 0)
 	syncs := syncPayloadMaps(result["syncs"])
 
+	if (command == "deploy" || command == "import") && len(syncs) > 0 {
+		lines = append(lines, modeBannerLine(dryRun))
+	}
+
 	if command == "status" && len(syncs) > 0 {
 		lines = append(lines, "reminder: deploy applies source -> target; import applies target -> source")
 	}
@@ -38,12 +42,12 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 			lines = appendPhaseBlock(lines, "remove-unmanaged", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
 			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
 		case "deploy":
-			lines = appendPhaseBlock(lines, "copy", operationPayloadMapsByPhase(sync, "copy"))
-			lines = appendPhaseBlock(lines, "remove-unmanaged", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
+			lines = appendPhaseBlockWithState(lines, "copy", "", operationPayloadMapsByPhase(sync, "copy"), true)
+			lines = appendPhaseBlockWithState(lines, "remove-unmanaged", "", operationPayloadMapsByPhase(sync, "remove_unmanaged"), true)
 		case "import":
-			lines = appendPhaseBlock(lines, "update-managed", operationPayloadMapsByPhase(sync, "update_managed"))
-			lines = appendPhaseBlock(lines, "add-unmanaged", operationPayloadMapsByPhase(sync, "add_unmanaged"))
-			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
+			lines = appendPhaseBlockWithState(lines, "update-managed", "", operationPayloadMapsByPhase(sync, "update_managed"), true)
+			lines = appendPhaseBlockWithState(lines, "add-unmanaged", "", operationPayloadMapsByPhase(sync, "add_unmanaged"), true)
+			lines = appendPhaseBlockWithState(lines, "remove-missing", "", operationPayloadMapsByPhase(sync, "remove_missing"), true)
 		case "diff":
 			lines = appendDiffPhaseBlock(lines, "deploy-diff", "(target -> source)", operationPayloadMapsByPhase(sync, "deploy"))
 			lines = appendDiffPhaseBlock(lines, "import-diff", "(source -> target)", operationPayloadMapsByPhase(sync, "import"))
@@ -65,6 +69,13 @@ func diffLegendLines() []string {
 	}
 }
 
+func modeBannerLine(dryRun bool) string {
+	if dryRun {
+		return "MODE: DRY RUN (no writes)"
+	}
+	return "MODE: APPLY (writes enabled)"
+}
+
 func buildSyncHeader(sync map[string]any) string {
 	label := stringValue(sync["sync"])
 	if label == "" {
@@ -78,10 +89,14 @@ func buildSyncHeader(sync map[string]any) string {
 }
 
 func appendPhaseBlock(lines []string, label string, operations []map[string]any) []string {
-	return appendPhaseBlockWithContext(lines, label, "", operations)
+	return appendPhaseBlockWithState(lines, label, "", operations, false)
 }
 
 func appendPhaseBlockWithContext(lines []string, label string, context string, operations []map[string]any) []string {
+	return appendPhaseBlockWithState(lines, label, context, operations, false)
+}
+
+func appendPhaseBlockWithState(lines []string, label string, context string, operations []map[string]any, includeState bool) []string {
 	if len(operations) == 0 {
 		return lines
 	}
@@ -101,12 +116,28 @@ func appendPhaseBlockWithContext(lines []string, label string, context string, o
 			path = "<unknown>"
 		}
 		line := fmt.Sprintf("  %-12s %s", action, path)
+		if includeState {
+			if marker := stateMarker(op); marker != "" {
+				line = fmt.Sprintf("  [%s] %-12s %s", marker, action, path)
+			}
+		}
 		if details := operationDetails(op); details != "" {
 			line += " (" + details + ")"
 		}
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func stateMarker(op map[string]any) string {
+	switch stringValue(op["state"]) {
+	case "planned":
+		return "planned"
+	case "applied":
+		return "applied"
+	default:
+		return ""
+	}
 }
 
 func appendDiffPhaseBlock(lines []string, label string, context string, operations []map[string]any) []string {
