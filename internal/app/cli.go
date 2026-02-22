@@ -366,7 +366,12 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 		matchedIndexes = append(matchedIndexes, selection.Index)
 	}
 
-	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections)
+	excludedSyncCount := 0
+	if len(cfg.Syncs) > len(selections) {
+		excludedSyncCount = len(cfg.Syncs) - len(selections)
+	}
+
+	result, err := buildSuccessEnvelope(commandOpts, cfg, absConfigPath, pathInput, pathNormalized, matchedIndexes, selections, excludedSyncCount)
 	if err != nil {
 		logCommandError(commandLogger, err)
 		partialSyncs, partialSummary := extractPartialResult(err)
@@ -494,7 +499,7 @@ func emitJSON(w io.Writer, value any) error {
 	return encoder.Encode(value)
 }
 
-func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, configPath string, pathInput any, pathNormalized any, matchedIndexes []int, selections []syncSelection) (map[string]any, error) {
+func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, configPath string, pathInput any, pathNormalized any, matchedIndexes []int, selections []syncSelection, excludedSyncCount int) (map[string]any, error) {
 	var (
 		syncPayloads []any
 		summary      map[string]any
@@ -526,6 +531,11 @@ func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, config
 		syncPayloads = buildSyncPayloads(commandOpts.Name, selections)
 		summary = buildSummary(commandOpts.Name, len(syncPayloads))
 	}
+
+	if summary == nil {
+		summary = map[string]any{}
+	}
+	summary["excluded_sync_count"] = excludedSyncCount
 
 	return map[string]any{
 		"schema_version": jsonSchemaVersion,
@@ -814,17 +824,20 @@ func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string 
 		parts = appendSummaryCount(parts, "incoming-unmanaged", summaryInt(summary, "incoming_unmanaged_count"))
 		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
 		parts = appendSummaryCount(parts, "remove-missing", summaryInt(summary, "remove_missing_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	case "deploy":
 		parts := []string{fmt.Sprintf("summary dry-run=%t", dryRun)}
 		parts = appendSummaryCount(parts, "copied", summaryInt(summary, "copy_count"))
 		parts = appendSummaryCount(parts, "remove-unmanaged", summaryInt(summary, "remove_unmanaged_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	case "import":
 		parts := []string{fmt.Sprintf("summary dry-run=%t", dryRun)}
 		parts = appendSummaryCount(parts, "updated-managed", summaryInt(summary, "update_managed_count"))
 		parts = appendSummaryCount(parts, "added-unmanaged", summaryInt(summary, "add_unmanaged_count"))
 		parts = appendSummaryCount(parts, "removed-missing", summaryInt(summary, "remove_missing_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	case "diff":
 		parts := []string{"summary"}
@@ -837,10 +850,23 @@ func buildTextSummaryLine(command string, dryRun bool, summaryValue any) string 
 		parts = appendSummaryCount(parts, "binary", summaryInt(summary, "binary_count"))
 		parts = appendSummaryCount(parts, "type-change", summaryInt(summary, "type_change_count"))
 		parts = appendSummaryCount(parts, "omitted", summaryInt(summary, "omitted_count"))
+		parts = appendExcludedSyncSummary(parts, summary)
 		return strings.Join(parts, " ")
 	default:
-		return fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))
+		parts := []string{fmt.Sprintf("summary syncs=%d", summaryInt(summary, "sync_count"))}
+		parts = appendExcludedSyncSummary(parts, summary)
+		return strings.Join(parts, " ")
 	}
+}
+
+func appendExcludedSyncSummary(parts []string, summary map[string]any) []string {
+	if summary == nil {
+		return parts
+	}
+	if _, exists := summary["excluded_sync_count"]; !exists {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("excluded-syncs=%d", summaryInt(summary, "excluded_sync_count")))
 }
 
 func appendSummaryCount(parts []string, label string, count int) []string {
