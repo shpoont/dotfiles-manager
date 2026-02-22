@@ -146,10 +146,11 @@ func TestBuildTextOutputDiff(t *testing.T) {
 		},
 	})
 
-	require.Contains(t, diffOutput, "reminder: deploy diff compares target -> source; import diff compares source -> target")
-	require.Contains(t, diffOutput, "deploy-diff[1] (source -> target)")
+	require.Contains(t, diffOutput, "legend intent: deploy applies source -> target; import applies target -> source")
+	require.Contains(t, diffOutput, "legend patch-orientation: deploy-diff compares target -> source; import-diff compares source -> target")
+	require.Contains(t, diffOutput, "deploy-diff[1] (target -> source)")
 	require.Contains(t, diffOutput, "--- target/lua/init.lua")
-	require.Contains(t, diffOutput, "remove-unmanaged[1] (source -> target)")
+	require.Contains(t, diffOutput, "remove-unmanaged[1] (target -> /dev/null)")
 	require.Contains(t, diffOutput, "note: binary differs")
 	require.Contains(t, diffOutput, "summary deploy-diff=1 remove-unmanaged=1 unified=1 binary=1")
 }

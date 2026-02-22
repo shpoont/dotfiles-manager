@@ -36,7 +36,9 @@ func TestDiffTextOutputShowsUnifiedPatchByDefault(t *testing.T) {
 
 	require.NoError(t, cmd.Execute(), stderr.String())
 	body := stdout.String()
-	require.Contains(t, body, "deploy-diff[1] (source -> target)")
+	require.Contains(t, body, "legend intent: deploy applies source -> target; import applies target -> source")
+	require.Contains(t, body, "legend patch-orientation: deploy-diff compares target -> source; import-diff compares source -> target")
+	require.Contains(t, body, "deploy-diff[1] (target -> source)")
 	require.Contains(t, body, "--- target/lua/init.lua")
 	require.Contains(t, body, "+++ source/lua/init.lua")
 	require.Contains(t, body, "@@")

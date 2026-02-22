@@ -18,7 +18,7 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 		lines = append(lines, "reminder: deploy applies source -> target; import applies target -> source")
 	}
 	if command == "diff" && len(syncs) > 0 {
-		lines = append(lines, "reminder: deploy diff compares target -> source; import diff compares source -> target")
+		lines = append(lines, diffLegendLines()...)
 	}
 
 	for idx, sync := range syncs {
@@ -45,17 +45,24 @@ func buildTextOutput(command string, dryRun bool, result map[string]any) string 
 			lines = appendPhaseBlock(lines, "add-unmanaged", operationPayloadMapsByPhase(sync, "add_unmanaged"))
 			lines = appendPhaseBlock(lines, "remove-missing", operationPayloadMapsByPhase(sync, "remove_missing"))
 		case "diff":
-			lines = appendDiffPhaseBlock(lines, "deploy-diff", "(source -> target)", operationPayloadMapsByPhase(sync, "deploy"))
-			lines = appendDiffPhaseBlock(lines, "import-diff", "(target -> source)", operationPayloadMapsByPhase(sync, "import"))
+			lines = appendDiffPhaseBlock(lines, "deploy-diff", "(target -> source)", operationPayloadMapsByPhase(sync, "deploy"))
+			lines = appendDiffPhaseBlock(lines, "import-diff", "(source -> target)", operationPayloadMapsByPhase(sync, "import"))
 			lines = appendDiffPhaseBlock(lines, "incoming-unmanaged", "(target -> source)", operationPayloadMapsByPhase(sync, "incoming_unmanaged"))
-			lines = appendDiffPhaseBlock(lines, "remove-unmanaged", "(source -> target)", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
-			lines = appendDiffPhaseBlock(lines, "remove-missing", "(target -> source)", operationPayloadMapsByPhase(sync, "remove_missing"))
+			lines = appendDiffPhaseBlock(lines, "remove-unmanaged", "(target -> /dev/null)", operationPayloadMapsByPhase(sync, "remove_unmanaged"))
+			lines = appendDiffPhaseBlock(lines, "remove-missing", "(source -> /dev/null)", operationPayloadMapsByPhase(sync, "remove_missing"))
 		}
 	}
 
 	lines = append(lines, buildTextSummaryLine(command, dryRun, result["summary"]))
 
 	return strings.Join(lines, "\n")
+}
+
+func diffLegendLines() []string {
+	return []string{
+		"legend intent: deploy applies source -> target; import applies target -> source",
+		"legend patch-orientation: deploy-diff compares target -> source; import-diff compares source -> target",
+	}
 }
 
 func buildSyncHeader(sync map[string]any) string {
