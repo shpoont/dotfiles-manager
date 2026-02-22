@@ -23,6 +23,7 @@
       "operations": [
         {
           "phase": "deploy",
+          "phase_alias": "deploy",
           "action": "can update",
           "state": "candidate",
           "path": "lua/init.lua",
@@ -36,6 +37,7 @@
         },
         {
           "phase": "import",
+          "phase_alias": "import",
           "action": "can update",
           "state": "candidate",
           "path": "lua/init.lua",
@@ -49,6 +51,7 @@
         },
         {
           "phase": "incoming_unmanaged",
+          "phase_alias": "incoming_unmanaged",
           "action": "can add",
           "state": "candidate",
           "path": "lua/new.lua",
@@ -61,6 +64,7 @@
         },
         {
           "phase": "incoming_unmanaged",
+          "phase_alias": "incoming_unmanaged",
           "action": "can add",
           "state": "candidate",
           "path": "lua/old.bak",
@@ -73,6 +77,7 @@
         },
         {
           "phase": "remove_unmanaged",
+          "phase_alias": "remove_unmanaged",
           "action": "can remove",
           "state": "candidate",
           "path": "lua/old.bak",
@@ -85,6 +90,7 @@
         },
         {
           "phase": "deploy",
+          "phase_alias": "deploy",
           "action": "can create",
           "state": "candidate",
           "path": "lua/only-source.lua",
@@ -98,6 +104,7 @@
         },
         {
           "phase": "remove_missing",
+          "phase_alias": "remove_missing",
           "action": "can remove",
           "state": "candidate",
           "path": "lua/only-source.lua",
@@ -126,6 +133,7 @@
   "summary": {
     "sync_count": 1,
     "deploy_count": 2,
+    "excluded_sync_count": 0,
     "import_count": 1,
     "incoming_unmanaged_count": 2,
     "remove_unmanaged_count": 1,
