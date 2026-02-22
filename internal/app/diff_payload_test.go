@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -213,7 +214,19 @@ func TestDiffPatchFlagRequiresJSON(t *testing.T) {
 	cmd.SetArgs([]string{"diff", "--patch", "~/.config/nvim"})
 	err = cmd.Execute()
 	require.Error(t, err)
-	require.Contains(t, stderr.String(), "Flag not supported for command: --patch")
+	require.Contains(t, stderr.String(), "--patch requires --json")
+}
+
+func TestPatchRequiresJSONErrorProvidesPrescriptiveDetails(t *testing.T) {
+	err := patchRequiresJSONError()
+	require.Equal(t, "--patch requires --json", err.Error())
+
+	dfmError, ok := dfmerr.As(err)
+	require.True(t, ok)
+	require.Equal(t, dfmerr.CodeFlagUnsupported, dfmError.Code)
+	require.Equal(t, "--patch", dfmError.Details["flag"])
+	require.Equal(t, []string{"--json"}, dfmError.Details["required_flags"])
+	require.Equal(t, "dotfiles-manager diff --json --patch", dfmError.Details["example"])
 }
 
 func TestDiffFlagValidationErrors(t *testing.T) {

@@ -249,14 +249,11 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 				return err
 			}
 		if commandOpts.IncludePatch && !commandOpts.JSONOutput {
-			err := dfmerr.New(dfmerr.CodeFlagUnsupported, "Flag not supported for command: --patch", map[string]any{
-				"flag":     "--patch",
-				"requires": "--json",
-			})
-				emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
-					Command:        commandOpts.Name,
-					DryRun:         commandOpts.DryRun,
-					ConfigPath:     configPathForErrors,
+			err := patchRequiresJSONError()
+			emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+				Command:        commandOpts.Name,
+				DryRun:         commandOpts.DryRun,
+				ConfigPath:     configPathForErrors,
 					PathInput:      pathInput,
 					PathNormalized: pathNormalized,
 				}, err)
@@ -481,6 +478,14 @@ func explicitConfigPath(configPath string) any {
 		return nil
 	}
 	return trimmed
+}
+
+func patchRequiresJSONError() error {
+	return dfmerr.New(dfmerr.CodeFlagUnsupported, "--patch requires --json", map[string]any{
+		"flag":           "--patch",
+		"required_flags": []string{"--json"},
+		"example":        "dotfiles-manager diff --json --patch",
+	})
 }
 
 func emitJSON(w io.Writer, value any) error {
