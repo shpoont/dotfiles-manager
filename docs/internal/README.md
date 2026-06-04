@@ -1,7 +1,7 @@
 ---
 owner: Documentation Maintainer (TBD)
 status: Reference
-last-updated: 2026-02-17
+last-updated: 2026-06-04
 canonical-source: docs/internal/README.md
 ---
 
@@ -13,13 +13,15 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 
 - `scope/product-scope.md` — product scope, goals, non-goals
 - `scope/architecture.md` — architecture overview (current + planned)
+- `scope/product-concept-v2.md` — proposed future product concept and architecture
 
 ## 2) Detailed specs
 
-- `specs/cli-and-config-spec.md` — command/config behavior reference
-- `specs/decisions.md` — canonical decisions and rationale
-- `specs/decision-matrix.md` — scenario outcomes/test oracle
-- `specs/open-questions.md` — remaining non-blocking follow-ups
+- `specs/cli-and-config-spec.md` — current v1 command/config behavior reference
+- `specs/decisions.md` — current v1 canonical decisions and rationale
+- `specs/decision-matrix.md` — current v1 scenario outcomes/test oracle
+- `specs/open-questions.md` — current v1 remaining non-blocking follow-ups
+- `specs/v2/README.md` — draft v2 formal specification package and promotion rules
 
 ## 3) Contracts
 
@@ -49,3 +51,9 @@ If documents disagree, precedence is:
 3. `specs/decision-matrix.md`
 4. `engineering/acceptance-checklist.md`
 5. other summaries/overviews
+
+The draft v2 package under `specs/v2/` is not part of this current
+implementation precedence until explicitly promoted. It is implementation-prep
+material for the future v2 engine. Current v1 behavior remains governed by the
+documents above until a separate v2 migration/promotion decision updates this
+canonicality section.
