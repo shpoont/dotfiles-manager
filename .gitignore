@@ -14,3 +14,37 @@ tmp/
 # Go workspace noise
 bin/
 dist/
+
+# Systems Mapping / Evaluation local state
+.systems-mapping/working-record.json
+.systems-mapping/records/
+.systems-mapping/output/
+.systems-mapping/tmp/
+.systems-mapping/*.local.*
+
+# Harbor local agent-test generated state
+evals/harbor/jobs/
+evals/harbor/all-jobs/
+evals/harbor/results/
+evals/harbor/output/
+evals/harbor/tmp/
+evals/harbor/local-auth/
+evals/harbor/local-build/
+evals/harbor/local-output/
+
+# Harbor local/private auth backstops
+evals/harbor/.env
+evals/harbor/.env.*
+!evals/harbor/.env.example
+evals/harbor/.codex/
+evals/harbor/codex-auth/
+evals/harbor/codex-auth.json
+evals/harbor/**/.codex/
+evals/harbor/**/codex-auth/
+evals/harbor/**/codex-auth.json
+
+# Harbor local Docker/build context backstops
+evals/harbor/**/build-context/
+evals/harbor/**/build-contexts/
+evals/harbor/**/docker-context/
+evals/harbor/**/.docker/

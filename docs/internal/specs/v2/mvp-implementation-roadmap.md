@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-planning-roadmap
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/mvp-implementation-roadmap.md
 authority: Non-authoritative planning roadmap; not part of formal specs 00-11
 ---
@@ -109,13 +109,36 @@ Agent issues should cover:
 6. Decide MVP platform matrix.
 7. Add `recipe.explain` to the CLI/JSON contract as a read-only MVP advanced
    command.
-8. Convert this roadmap into GitHub milestones and agent-sized issues.
+8. Set up Systems Mapping/Evaluation as local process support for design
+   review, issue decomposition, and handoff evaluation. This is not v2 runtime
+   product behavior and must not be read by the CLI.
+9. Set up the local Harbor agent-test harness policy before runtime
+   implementation: define the `evals/harbor/` structure, map selected
+   agent-facing acceptance scenarios to Harbor candidates, preserve
+   deterministic CLI/schema/safety tests as normal automated tests, and
+   document the local-private auth boundary.
+10. Convert this roadmap into GitHub milestones and agent-sized issues.
 
 Exit gate:
 
 - no open concept/spec contradictions;
 - v2 issue backlog can be generated without relying on old deleted issues;
-- every implementation issue references exact specs and acceptance tests.
+- every implementation issue references exact specs and acceptance tests;
+- Systems Mapping and Harbor process policies are documented before runtime
+  implementation issues begin;
+- no live Systems Mapping records, copied Codex auth, generated Harbor jobs,
+  aggregate jobs, local Docker build contexts, local images, or generated Harbor
+  outputs are tracked;
+- v2 implementation issues distinguish deterministic tests from optional
+  agent-facing Harbor evaluations.
+
+Current sequencing note:
+
+- after #40/#53, complete #54 before runtime implementation issues such as the
+  profile/scope/artifact skeleton and the `custom.files` vertical slice;
+- Harbor setup is not a blocker for deterministic test design. It is a separate
+  agent-evaluation layer for judgment-heavy process, UX, documentation, and
+  handoff criteria.
 
 ### Milestone 1: core config, profile, and artifact skeleton
 
@@ -346,7 +369,9 @@ Every future implementation issue should include:
 1. exact title and milestone;
 2. relevant v2 spec files and sections;
 3. expected files/modules to modify;
-4. acceptance tests or fixtures to add first;
+4. deterministic acceptance tests or fixtures to add first, plus any applicable
+   Harbor agent-test case or rubric for judgment-heavy process, UX, spec-handoff,
+   or support-boundary criteria;
 5. out-of-scope boundaries;
 6. safety/trust/redaction constraints;
 7. dry-run and `--json` expectations where relevant;
