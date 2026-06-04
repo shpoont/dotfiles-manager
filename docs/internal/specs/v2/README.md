@@ -1,8 +1,10 @@
 ---
 owner: Core Engineering
+document-type: v2-package-index
 status: Draft
 last-updated: 2026-06-04
 canonical-source: docs/internal/specs/v2/README.md
+authority: Draft package index; promotion rules only, not current implementation behavior
 ---
 
 # v2 formal specification package
@@ -36,12 +38,64 @@ The v2 implementation must prove v1 parity before replacing the existing
 dotfile sync path. Existing `syncs:` configs must remain readable through a
 legacy adapter until explicit migration behavior is implemented and accepted.
 
+## Metadata contract
+
+Formal v2 specs in this package must use this front matter shape:
+
+```yaml
+owner: Core Engineering
+document-type: v2-draft-spec
+status: Draft
+last-updated: YYYY-MM-DD
+canonical-source: docs/internal/specs/v2/<file>.md
+source-concept-sections:
+  - <concept section name>
+authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
+```
+
+Planning artifacts are not formal specs. They must use a distinct
+`document-type`, such as `v2-planning-roadmap`, and must not appear in the
+formal 00-11 spec table.
+
+## Status taxonomy
+
+| Status | Meaning | Implementation authority |
+| --- | --- | --- |
+| `Draft` | Extracted or proposed v2 material under review. | no |
+| `Active` | Reviewed and explicitly promoted for v2 implementation work. | v2 only |
+| `Superseded` | Replaced by another promoted v2 spec or current v1 authority. | no |
+
+There are currently no `Active` v2 specs. All formal specs in this package are
+`Draft`.
+
 ## Promotion rule
 
 A v2 spec becomes implementation-authoritative only after it is written,
 reviewed, and explicitly linked from this package index as an active spec.
 Until then, existing v1 specs and contracts remain authoritative for current
 behavior.
+
+Promotion requires all of the following:
+
+1. the spec's front matter status changes from `Draft` to `Active`;
+2. the spec's authority field states the exact v2 implementation scope it owns;
+3. this package index marks the spec `Active` in the formal spec table;
+4. the promotion change cites the review or issue that approved promotion;
+5. the spec has enough acceptance tests or fixture expectations for agents to
+   implement without using the concept prose as the contract;
+6. the change explicitly states whether current v1 behavior is unaffected,
+   adapted through compatibility, or superseded by a migration gate.
+
+Promotion does not automatically make v2 the current user-facing implementation.
+Current v1 behavior remains authoritative until a separate migration/promotion
+decision updates the root internal canonicality model.
+
+## Agent implementation rule
+
+AI agents may use Draft v2 specs for planning, issue writing, and prototype
+work. They must not claim that a Draft v2 spec defines current production
+behavior. Runtime implementation issues should cite the exact v2 specs they use
+and should also state how v1 behavior is preserved while v2 is built beside it.
 
 ## Planned spec set
 

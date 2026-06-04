@@ -1,5 +1,6 @@
 ---
 owner: Core Engineering
+document-type: v2-draft-spec
 status: Draft
 last-updated: 2026-06-04
 canonical-source: docs/internal/specs/v2/04-status-conflict-state-machine.md
@@ -8,7 +9,7 @@ source-concept-sections:
   - Status and preview output
   - Mutation transaction model
   - MVP acceptance test matrix
-authority: Non-authoritative until promoted
+authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
 ---
 
 # v2 status and conflict state machine

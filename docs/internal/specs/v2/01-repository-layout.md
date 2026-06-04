@@ -1,5 +1,6 @@
 ---
 owner: Core Engineering
+document-type: v2-draft-spec
 status: Draft
 last-updated: 2026-06-04
 canonical-source: docs/internal/specs/v2/01-repository-layout.md
@@ -9,7 +10,7 @@ source-concept-sections:
   - URI schemes
   - Schema boundaries and versioning
   - v1 compatibility and migration contract
-authority: Non-authoritative until promoted
+authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
 ---
 
 # v2 repository layout

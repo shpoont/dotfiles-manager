@@ -1,5 +1,6 @@
 ---
 owner: Core Engineering
+document-type: v2-draft-spec
 status: Draft
 last-updated: 2026-06-04
 canonical-source: docs/internal/specs/v2/06-recipe-schema.md
@@ -10,7 +11,7 @@ source-concept-sections:
   - Native import/export
   - Support levels and capabilities
   - Security/privacy/trust model
-authority: Non-authoritative until promoted
+authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
 ---
 
 # v2 recipe schema

@@ -1,5 +1,6 @@
 ---
 owner: Core Engineering
+document-type: v2-draft-spec
 status: Draft
 last-updated: 2026-06-04
 canonical-source: docs/internal/specs/v2/02-cli-contract.md
@@ -9,7 +10,7 @@ source-concept-sections:
   - Status and preview output
   - Canonical status and conflict state machine
   - v1 compatibility and migration contract
-authority: Non-authoritative until promoted
+authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
 ---
 
 # v2 CLI contract

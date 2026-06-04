@@ -1,5 +1,6 @@
 ---
 owner: Core Engineering
+document-type: v2-planning-roadmap
 status: Draft
 last-updated: 2026-06-04
 canonical-source: docs/internal/specs/v2/mvp-implementation-roadmap.md
