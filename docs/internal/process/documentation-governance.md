@@ -1,7 +1,7 @@
 ---
 owner: Documentation Maintainer (TBD)
 status: Policy
-last-updated: 2026-02-16
+last-updated: 2026-06-05
 canonical-source: docs/internal/process/documentation-governance.md
 ---
 
@@ -39,3 +39,33 @@ If content does not exist yet:
 - create a placeholder file with clear `TBD` sections
 - include intended scope and owning team/person if known
 - keep links in index docs so missing pieces are visible
+
+## Local process and evaluation artifacts
+
+Systems Mapping/Evaluation and Harbor are internal process/evaluation aids.
+They do not define user-facing behavior, v1 behavior, v2 runtime behavior, CLI
+contracts, config schemas, or release authority.
+
+Tracked by default:
+
+- `.systems-mapping/README.md`;
+- future `.systems-mapping/` templates or promoted summaries only after review;
+- `evals/harbor/README.md`;
+- future sanitized Harbor cases, rubrics, or fixtures only after a separate
+  review/design decision.
+
+Local/private by default:
+
+- `.systems-mapping/working-record.json`;
+- raw Systems Mapping records, scratch exports, and generated outputs;
+- generated Harbor jobs and aggregate jobs;
+- Harbor run results, temporary outputs, local Docker/build contexts, local
+  images, and copied auth material.
+
+Promotion rule:
+
+A live local record is not committed directly. If a Systems Mapping or Harbor
+result becomes useful repo knowledge, promote only a reviewed and sanitized
+summary into the appropriate docs location. The promoted summary must remove
+secrets, credentials, local machine paths, private app data, copied auth,
+generated job payloads, and unreduced tool state.

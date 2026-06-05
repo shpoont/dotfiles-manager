@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/11-mvp-acceptance-tests.md
 source-concept-sections:
   - MVP acceptance test matrix
@@ -78,6 +78,46 @@ A v2 MVP release must not be called production-ready unless these areas pass:
 | Restore | Restore preview, backup-before-restore, unsupported restore path. |
 | Migration | v1 `syncs:` parity and generated `custom.files` target. |
 | Trust | Untrusted local recipe, recipe broadening write scope, command-IO gate. |
+
+### Harbor agent-test mapping
+
+Harbor is a local agent-test harness for selected agent-facing acceptance
+scenarios. It complements deterministic tests; it does not replace unit,
+integration, contract, fixture, snapshot, safety, or performance tests.
+
+Use Harbor for acceptance criteria where the expected result requires judgment
+about process, UX clarity, documentation quality, or agent handoff quality.
+
+Good Harbor candidates:
+
+| Area | Harbor use |
+| --- | --- |
+| Agent implementation gate | Evaluate whether a generated issue or implementation plan cites exact specs, adds tests first, states out-of-scope boundaries, and preserves v1 behavior. |
+| Simple user model | Evaluate whether a proposed v2 issue/design keeps the happy path simple: manage app/config targets, save/diff/import/apply safely, with advanced custom apps optional. |
+| Recipe/support explanation | Evaluate whether `recipe explain` or recipe docs make supported settings, unsupported/risky settings, lifecycle behavior, and redaction boundaries clear. |
+| Safety/trust planning | Evaluate whether a proposed driver/recipe plan excludes credentials by default, respects trust boundaries, and avoids unsafe writes. |
+| Documentation/process handoff | Evaluate whether docs updates preserve canonicality, avoid user-facing internal tooling leakage, and give reviewers enough acceptance criteria. |
+| Native export/import review | Evaluate whether opaque/native export support is described with proper opt-in, size/category limits, passphrase handling, and diffability expectations. |
+
+Do not use Harbor as the sole test for deterministic behavior:
+
+| Area | Required normal tests |
+| --- | --- |
+| CLI commands, flags, prompts, exit codes | Go unit/integration/contract tests and snapshots. |
+| JSON schema/envelope behavior | Contract tests and schema fixtures. |
+| Path safety, symlink rejection, traversal rejection | Unit/integration safety fixtures. |
+| File/file-tree/structured driver diff/apply/restore behavior | Deterministic filesystem fixtures. |
+| Ledger, backup, restore, partial failure recording | Integration and contract fixtures. |
+| Redaction/secret leakage in output, JSON, logs, artifacts, ledgers, or backups | Deterministic safety regression tests. |
+| Performance thresholds | Normal performance regression tests. |
+
+Every Harbor case must identify:
+
+- the relevant v2 spec section;
+- the user or reviewer risk being evaluated;
+- the rubric or pass/fail expectations;
+- the deterministic tests it complements;
+- the out-of-scope behavior it must not ask the agent to implement.
 
 ### First vertical slice gate
 
@@ -185,7 +225,11 @@ This file is satisfied when:
 - every row in the matrix maps to automated or explicitly manual tests;
 - every implementation issue references relevant tests;
 - CI can run the core MVP fixture suite;
-- production readiness cannot be claimed without the gate passing.
+- production readiness cannot be claimed without the gate passing;
+- judgment-heavy v2 acceptance criteria are either mapped to Harbor candidates
+  or explicitly kept as manual review;
+- deterministic product behavior remains covered by normal automated tests and
+  is never accepted solely because a Harbor case passed.
 
 ## Out of scope
 
@@ -193,7 +237,12 @@ This file is satisfied when:
 - exact test framework;
 - remote catalog tests;
 - AI discovery tests;
-- broad app reverse-engineering tests.
+- broad app reverse-engineering tests;
+- running Harbor cases;
+- defining CI/cloud Harbor execution;
+- copying or normalizing Codex auth;
+- treating Harbor results as production release gates before a separate
+  CI/cloud-safe design exists.
 
 ## Spec follow-ups / open decisions
 
