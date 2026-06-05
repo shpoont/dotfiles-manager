@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/05-desired-artifacts-and-uris.md
 source-concept-sections:
   - Desired artifact lifecycle rules
@@ -42,9 +42,8 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- exact artifact manifest schema is deferred;
-- exact filename conventions are draft;
 - exact encryption format for opaque artifacts is deferred.
+- exact URI escaping rules remain deferred.
 
 ## Terms owned by this spec
 
@@ -71,6 +70,42 @@ A desired artifact may be one of:
 
 Desired artifacts are repository-owned if and only if policy permits them to be
 committed.
+
+### Desired artifact paths
+
+Every selected target scope has a desired target directory:
+
+```text
+desired/<scope>/<subject>/targets/<target-id>/
+```
+
+The canonical files under a target directory are:
+
+```text
+manifest.yaml
+settings.yaml
+artifacts/...
+```
+
+`manifest.yaml` is a manager-owned object with:
+
+```yaml
+schema: dotfiles-manager.v2.desired-manifest
+schemaVersion: 1
+```
+
+`settings.yaml` is the default manager-owned structured desired object for
+scalar/object settings and uses:
+
+```yaml
+schema: dotfiles-manager.v2.desired-settings
+schemaVersion: 1
+```
+
+Payloads under `artifacts/` may be arbitrary file, file-tree, native-export, or
+opaque material. Non-YAML/JSON payloads do not need embedded manager schema
+fields; their form, schema/version context, hash, and owner context are recorded
+in `manifest.yaml`.
 
 ### Desired artifact lifecycle
 
@@ -146,16 +181,20 @@ This spec owns the desired manifest and artifact-reference boundary.
 
 Persisted objects:
 
-| Object | Owned here? | Notes |
-| --- | --- | --- |
-| Desired manifest | yes | Index from settings to artifacts. |
-| Artifact URI | yes | Logical grammar and allowed schemes. |
-| Artifact metadata | yes | Form, sensitivity, hash, origin, schema version. |
-| Artifact payload | partial | Payload shape depends on driver/setting. |
-| Opaque metadata | partial | Encryption details deferred. |
+| Object | Owned here? | Canonical path | Schema file | Notes |
+| --- | --- | --- | --- | --- |
+| Desired manifest | yes | `desired/.../targets/<target-id>/manifest.yaml` | `schemas/v2/desired-manifest.schema.json` | Index from settings to artifacts. |
+| Desired settings | yes | `desired/.../targets/<target-id>/settings.yaml` | `schemas/v2/desired-settings.schema.json` | Default structured desired object for scalar/object settings. |
+| Artifact URI | yes | Stored in manifests, profiles, ledgers, and CLI output; not a standalone file. | N/A | Logical grammar and allowed schemes. |
+| Artifact metadata | yes | `desired/.../targets/<target-id>/manifest.yaml` | `schemas/v2/desired-manifest.schema.json` | Form, sensitivity, hash, origin, and per-payload schema/version context. |
+| Artifact payload | partial | `desired/.../targets/<target-id>/artifacts/...` | Recorded by `manifest.yaml` | Payload shape depends on driver/setting and metadata in `manifest.yaml`. |
+| Opaque metadata | partial | `desired/.../targets/<target-id>/manifest.yaml` | `schemas/v2/desired-manifest.schema.json` | Encryption details deferred. |
 
-Final schemas must define per-artifact schema versions independently from root
-config, profile, recipe, ledger, and backup versions.
+Desired manifests and desired settings use fully qualified schema identifiers
+`dotfiles-manager.v2.desired-manifest` and
+`dotfiles-manager.v2.desired-settings`. Final field schemas must define
+per-artifact schema versions independently from root config, profile, recipe,
+ledger, and backup versions.
 
 ## Examples
 
@@ -211,7 +250,6 @@ and the command supports partial success.
 ## Out of scope
 
 - final encryption format;
-- final schema filenames;
 - remote artifact storage;
 - cross-machine merge;
 - arbitrary templating.
@@ -219,6 +257,5 @@ and the command supports partial success.
 ## Spec follow-ups / open decisions
 
 - Decide exact URI grammar and escaping rules.
-- Decide exact desired manifest filename and schema.
 - Decide final artifact hash and metadata fields.
 - Decide exact opaque bundle encryption policy.
