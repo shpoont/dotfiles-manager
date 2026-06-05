@@ -188,6 +188,9 @@ Persisted/emitted objects:
 
 ## Examples
 
+Examples demonstrate acceptance-test intent and issue shape. They do not define
+final schema fields unless a referenced owning spec has promoted them.
+
 ### Issue acceptance block
 
 ```text

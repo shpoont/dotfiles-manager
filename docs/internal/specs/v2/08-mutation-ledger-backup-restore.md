@@ -195,6 +195,10 @@ records, not cache.
 
 ## Examples
 
+Examples use the public target/setting ref grammar owned by
+`00-vocabulary.md`. Ledger, backup, and preview field names remain sketches
+until their schemas are promoted.
+
 ### Apply transaction sketch
 
 ```text

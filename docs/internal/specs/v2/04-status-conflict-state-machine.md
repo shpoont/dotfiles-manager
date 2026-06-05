@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/04-status-conflict-state-machine.md
 source-concept-sections:
   - Canonical status and conflict state machine
@@ -155,6 +155,10 @@ Persisted or emitted objects:
 | JSON item result | partial | CLI schema owns envelope. |
 
 ## Examples
+
+Examples use the public target/setting ref grammar owned by
+`00-vocabulary.md`. Renderer layout and field names remain sketches unless this
+spec promotes them.
 
 ### Unchanged without ledger
 

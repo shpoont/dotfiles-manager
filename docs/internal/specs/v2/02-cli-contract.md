@@ -117,13 +117,17 @@ state.
 
 ### Ref operands
 
-A ref may identify:
+Public ref grammar is owned by `00-vocabulary.md`. A normal-command ref may
+identify:
 
-- a target, such as `git`;
-- a setting, such as `git:user.email`;
-- a future narrowed resource only in verbose/authoring workflows.
+- a target-ref, such as `git`;
+- a setting-ref, such as `git:user.email`.
 
-Normal docs should prefer target and setting refs.
+`recipe explain <target>` accepts a target-ref only. Future narrowed resource,
+group, driver, or artifact refs are outside the normal user-facing MVP command
+surface and must not be implied by examples here.
+
+Normal docs should prefer public target and setting refs over internal URIs.
 
 ### Prompt rules
 
@@ -197,6 +201,10 @@ Final JSON schemas must define:
 - diff payload and redaction format.
 
 ## Examples
+
+Examples in this CLI spec demonstrate command/ref shape and required semantic
+content. Field names inside YAML/JSON result snippets remain sketches until the
+CLI result schema is promoted.
 
 ### Normal setup
 

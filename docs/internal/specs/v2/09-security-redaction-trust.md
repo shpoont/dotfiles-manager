@@ -192,6 +192,10 @@ Persisted/emitted objects:
 
 ## Examples
 
+Examples use the public target/setting ref grammar owned by
+`00-vocabulary.md`. Diagnostic field names and enum values remain sketches until
+the owning schemas are promoted.
+
 ### Blocked secret
 
 ```text

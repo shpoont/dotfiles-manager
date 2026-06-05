@@ -167,6 +167,10 @@ Persisted/emitted objects:
 
 ## Examples
 
+Examples use the public target/setting ref grammar owned by
+`00-vocabulary.md`. Migration-plan field names remain sketches until the
+migration-plan schema is promoted.
+
 ### Legacy sync to custom.files
 
 ```text
