@@ -210,6 +210,122 @@ func TestCustomFilesRejectsUnsafeDesiredArtifactSymlinkTraversal(t *testing.T) {
 	}
 }
 
+func TestCustomFilesFileTreeSaveAndApplyArtifactDirectory(t *testing.T) {
+	t.Parallel()
+
+	root, liveRoot, profile, rec := setupCustomFileTreeFixture(t)
+	liveTree := filepath.Join(liveRoot, "profiles")
+	desiredTree := desiredTreeArtifactPath(root)
+	req := Request{Profile: profile, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}}
+
+	writeFile(t, filepath.Join(liveTree, "config.yaml"), "live v1\n")
+	writeFile(t, filepath.Join(liveTree, "cache", "ignored.yaml"), "ignored\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(liveTree, "empty"), 0o755))
+
+	plan, err := PlanSave(req)
+	require.NoError(t, err)
+	require.Equal(t, filedriver.ChangeCreate, plan.TreePreview.Change.Kind)
+	dry, err := Execute(plan, ExecuteOptions{DryRun: true})
+	require.NoError(t, err)
+	require.True(t, dry.DryRun)
+	require.False(t, dry.Mutated)
+	assertMissing(t, desiredTree)
+
+	result, err := Execute(plan, ExecuteOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Mutated)
+	require.True(t, result.Verified)
+	requireFile(t, filepath.Join(desiredTree, "config.yaml"), "live v1\n")
+	assertMissing(t, filepath.Join(desiredTree, "cache", "ignored.yaml"))
+	require.DirExists(t, filepath.Join(desiredTree, "empty"))
+
+	require.NoError(t, os.RemoveAll(liveTree))
+	writeFile(t, filepath.Join(desiredTree, "config.yaml"), "desired v2\n")
+	plan, err = PlanApply(req)
+	require.NoError(t, err)
+	require.Equal(t, filedriver.ChangeCreate, plan.TreePreview.Change.Kind)
+
+	backupCalls := 0
+	result, err = Execute(plan, ExecuteOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+		backupCalls++
+		require.Equal(t, OperationApply, req.Operation)
+		require.Equal(t, "custom.files:file", req.SettingRef)
+		require.Equal(t, "config-file", req.ResourceID)
+		require.Equal(t, liveTree, req.Path)
+		require.False(t, req.TreeBefore.Exists)
+		assertMissing(t, liveTree)
+		return BackupResult{ID: "memory://backup/tree-create", TreeBefore: req.TreeBefore.Snapshot()}, nil
+	}})
+	require.NoError(t, err)
+	require.True(t, result.Mutated)
+	require.True(t, result.Verified)
+	require.Equal(t, 1, backupCalls)
+	require.NotNil(t, result.Backup)
+	require.Equal(t, "memory://backup/tree-create", result.Backup.ID)
+	requireFile(t, filepath.Join(liveTree, "config.yaml"), "desired v2\n")
+}
+
+func TestCustomFilesFileTreeApplyRejectsStaleDesiredSymlinkBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	root, liveRoot, profile, rec := setupCustomFileTreeFixture(t)
+	liveTree := filepath.Join(liveRoot, "profiles")
+	desiredTree := desiredTreeArtifactPath(root)
+	req := Request{Profile: profile, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}}
+
+	writeFile(t, filepath.Join(liveTree, "config.yaml"), "live\n")
+	writeFile(t, filepath.Join(desiredTree, "config.yaml"), "desired\n")
+	plan, err := PlanApply(req)
+	require.NoError(t, err)
+	require.Equal(t, filedriver.ChangeUpdate, plan.TreePreview.Change.Kind)
+
+	require.NoError(t, os.Remove(filepath.Join(desiredTree, "config.yaml")))
+	require.NoError(t, os.Symlink(filepath.Join(liveTree, "config.yaml"), filepath.Join(desiredTree, "config.yaml")))
+	backupCalled := false
+	_, err = Execute(plan, ExecuteOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+		backupCalled = true
+		return BackupResult{}, nil
+	}})
+	require.Error(t, err)
+	require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+	require.False(t, backupCalled)
+	requireFile(t, filepath.Join(liveTree, "config.yaml"), "live\n")
+}
+
+func TestCustomFilesFileTreeErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	root, liveRoot, profile, rec := setupCustomFileTreeFixture(t)
+	liveTree := filepath.Join(liveRoot, "profiles")
+	desiredTree := desiredTreeArtifactPath(root)
+	req := Request{Profile: profile, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}}
+
+	writeFile(t, filepath.Join(liveTree, "config.yaml"), "live\n")
+	writeFile(t, filepath.Join(desiredTree, "config.yaml"), "desired\n")
+	plan, err := PlanApply(req)
+	require.NoError(t, err)
+	_, err = Execute(plan, ExecuteOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+		return BackupResult{}, fmt.Errorf("tree backup failed")
+	}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tree backup failed")
+	requireFile(t, filepath.Join(liveTree, "config.yaml"), "live\n")
+
+	settingsArtifact := *profile
+	settingsArtifact.Settings = append([]resolution.ResolvedSetting{}, profile.Settings...)
+	settingsArtifact.Settings[0].DesiredRelPath = filepath.Join("desired", "user", "leon", "targets", "custom.files", "settings.yaml")
+	_, err = PlanSave(Request{Profile: &settingsArtifact, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "artifacts")
+
+	invalidArtifact := *profile
+	invalidArtifact.Settings = append([]resolution.ResolvedSetting{}, profile.Settings...)
+	invalidArtifact.Settings[0].DesiredRelPath = "desired/user/leon/targets/custom.files/artifacts/../bad"
+	_, err = PlanSave(Request{Profile: &invalidArtifact, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desired artifact path")
+}
+
 func TestCustomFilesRejectsUnknownSettingRef(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +345,24 @@ func setupCustomFilesFixture(t *testing.T) (string, string, *resolution.Resolved
 	writeStack(t, root)
 	writeLayer(t, root)
 	writeRecipe(t, root)
+
+	profile, err := resolution.Resolve(root, resolution.ResolveOptions{UserID: "leon", MachineID: "mbp"})
+	require.NoError(t, err)
+	rec, err := recipe.LoadCustomFiles(root)
+	require.NoError(t, err)
+	return root, liveRoot, profile, rec
+}
+
+func setupCustomFileTreeFixture(t *testing.T) (string, string, *resolution.ResolvedProfile, *recipe.Recipe) {
+	t.Helper()
+
+	root := t.TempDir()
+	liveRoot := filepath.Join(t.TempDir(), "cobona")
+	require.NoError(t, os.MkdirAll(liveRoot, 0o755))
+	writeV2Root(t, root)
+	writeStack(t, root)
+	writeTreeLayer(t, root)
+	writeTreeRecipe(t, root)
 
 	profile, err := resolution.Resolve(root, resolution.ResolveOptions{UserID: "leon", MachineID: "mbp"})
 	require.NoError(t, err)
@@ -260,6 +394,19 @@ selections:
 `)
 }
 
+func writeTreeLayer(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, "profiles", "layers", "global.yaml"), `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  custom.files:
+    settings:
+      file:
+        scope: user
+        artifact: artifacts/profiles
+`)
+}
+
 func writeRecipe(t *testing.T, root string) {
 	t.Helper()
 	writeFile(t, filepath.Join(root, "recipes", "local", "custom.files", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
@@ -283,8 +430,39 @@ resources:
 `)
 }
 
+func writeTreeRecipe(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, "recipes", "local", "custom.files", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: custom.files
+displayName: Custom files
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ~/.cobona
+settings:
+  file:
+    scopeDefault: user
+    resource: config-file
+resources:
+  config-file:
+    driver: file-tree
+    location: config
+    path: profiles
+    include:
+      - "**"
+    exclude:
+      - "cache/**"
+`)
+}
+
 func desiredArtifactPath(root string) string {
 	return filepath.Join(root, "desired", "user", "leon", "targets", "custom.files", "artifacts", "config.txt")
+}
+
+func desiredTreeArtifactPath(root string) string {
+	return filepath.Join(root, "desired", "user", "leon", "targets", "custom.files", "artifacts", "profiles")
 }
 
 func writeFile(t *testing.T, path string, body string) {
@@ -379,7 +557,9 @@ func TestCustomFilesAdditionalErrorBranches(t *testing.T) {
 	t.Parallel()
 
 	root, liveRoot, profile, rec := setupCustomFilesFixture(t)
-	writeFile(t, filepath.Join(liveRoot, "config.txt"), "live\n")
+	livePath := filepath.Join(liveRoot, "config.txt")
+	desiredPath := desiredArtifactPath(root)
+	writeFile(t, livePath, "live\n")
 	req := Request{Profile: profile, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}}
 
 	_, err := Save(Request{}, ExecuteOptions{})
@@ -415,4 +595,33 @@ func TestCustomFilesAdditionalErrorBranches(t *testing.T) {
 	_, err = buildPlan(req, Operation("bad"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported")
+
+	writeFile(t, desiredPath, "desired hook error\n")
+	plan, err := PlanApply(req)
+	require.NoError(t, err)
+	_, err = Execute(plan, ExecuteOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+		return BackupResult{}, fmt.Errorf("file backup failed")
+	}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "file backup failed")
+	requireFile(t, livePath, "live\n")
+
+	planSave, err := PlanSave(req)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(desiredPath))
+	require.NoError(t, os.Symlink(livePath, desiredPath))
+	_, err = Execute(planSave, ExecuteOptions{})
+	require.Error(t, err)
+	require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+	requireFile(t, livePath, "live\n")
+
+	err = ensureDesiredPathSafe(nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "plan is required")
+	err = rejectDesiredSymlinkPath("", "desired/user/leon/targets/custom.files/artifacts/config.txt")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "repo root")
+	err = rejectDesiredSymlinkPath(root, "../bad")
+	require.Error(t, err)
+	require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
 }

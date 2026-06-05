@@ -27,6 +27,24 @@ func TestLoadCustomFilesRecipeAcceptsSingleFileResourceUnderNamedLocation(t *tes
 	require.Equal(t, "config.yaml", resource.Path)
 }
 
+func TestLoadCustomFilesRecipeAcceptsSingleFileTreeResourceUnderNamedLocation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRecipe(t, root, validCustomFileTreeRecipe("profiles", []string{"**/*.json", "empty-dir"}, []string{"cache/**"}))
+
+	rec, err := LoadCustomFiles(root)
+	require.NoError(t, err)
+	resourceID, resource, err := rec.ResourceForSetting("file")
+	require.NoError(t, err)
+	require.Equal(t, "config-file", resourceID)
+	require.Equal(t, FileTreeDriverID, resource.Driver)
+	require.Equal(t, "config", resource.Location)
+	require.Equal(t, "profiles", resource.Path)
+	require.Equal(t, []string{"**/*.json", "empty-dir"}, resource.Include)
+	require.Equal(t, []string{"cache/**"}, resource.Exclude)
+}
+
 func TestRecipeRejectsUnknownFieldsAndInvalidReferences(t *testing.T) {
 	t.Parallel()
 
@@ -84,9 +102,9 @@ func TestCustomFilesRecipeIsIntentionallyNarrow(t *testing.T) {
 			wantErr: "target must be",
 		},
 		{
-			name:    "driver must be file",
+			name:    "driver must be file or file-tree",
 			body:    replace(validCustomFilesRecipe("config.yaml"), "driver: file", "driver: yaml-file"),
-			wantErr: "driver must be \"file\"",
+			wantErr: "driver must be \"file\" or \"file-tree\"",
 		},
 		{
 			name:    "exactly one resource",
@@ -102,6 +120,63 @@ func TestCustomFilesRecipeIsIntentionallyNarrow(t *testing.T) {
 			root := t.TempDir()
 			writeRecipe(t, root, tc.body)
 			_, err := LoadCustomFiles(root)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestCustomFilesRecipeValidatesFileTreeGlobs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "file resource rejects include",
+			body:    validCustomFilesRecipe("config.yaml") + "    include:\n      - \"**\"\n",
+			wantErr: "must not declare include/exclude",
+		},
+		{
+			name:    "file-tree rejects traversal glob",
+			body:    validCustomFileTreeRecipe("profiles", []string{"../escape"}, nil),
+			wantErr: "unsafe segment",
+		},
+		{
+			name:    "file-tree rejects absolute glob",
+			body:    validCustomFileTreeRecipe("profiles", []string{"/escape"}, nil),
+			wantErr: "must be relative",
+		},
+		{
+			name:    "file-tree rejects backslash glob",
+			body:    validCustomFileTreeRecipe("profiles", []string{`nested\\escape`}, nil),
+			wantErr: "backslashes",
+		},
+		{
+			name:    "file-tree rejects empty glob",
+			body:    validCustomFileTreeRecipe("profiles", []string{""}, nil),
+			wantErr: "glob is required",
+		},
+		{
+			name:    "file-tree defaults include",
+			body:    validCustomFileTreeRecipe("profiles", nil, []string{"cache/**"}),
+			wantErr: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeRecipe(t, root, tc.body)
+			_, err := LoadCustomFiles(root)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantErr)
 		})
@@ -160,6 +235,27 @@ resources:
     location: config
     path: ` + resourcePath + `
 `
+}
+
+func validCustomFileTreeRecipe(resourcePath string, include []string, exclude []string) string {
+	body := replace(validCustomFilesRecipe(resourcePath), "driver: file", "driver: file-tree")
+	if include != nil {
+		body += "    include:\n"
+		for _, value := range include {
+			body += "      - " + yamlQuote(value) + "\n"
+		}
+	}
+	if exclude != nil {
+		body += "    exclude:\n"
+		for _, value := range exclude {
+			body += "      - " + yamlQuote(value) + "\n"
+		}
+	}
+	return body
+}
+
+func yamlQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func replace(value string, old string, new string) string {

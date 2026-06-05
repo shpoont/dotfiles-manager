@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 )
@@ -26,18 +27,24 @@ type Request struct {
 }
 
 type Plan struct {
-	Operation         Operation
-	Setting           resolution.ResolvedSetting
-	ResourceID        string
-	Resource          recipe.Resource
-	RepoRoot          string
-	DesiredRelPath    string
-	LiveTarget        filedriver.Target
-	DesiredTarget     filedriver.Target
-	SourceState       filedriver.State
-	DestinationState  filedriver.State
-	DesiredFinalState filedriver.State
-	Preview           filedriver.Preview
+	Operation             Operation
+	Setting               resolution.ResolvedSetting
+	ResourceID            string
+	Resource              recipe.Resource
+	RepoRoot              string
+	DesiredRelPath        string
+	LiveTarget            filedriver.Target
+	DesiredTarget         filedriver.Target
+	TreeLiveTarget        filetreedriver.Target
+	TreeDesiredTarget     filetreedriver.Target
+	SourceState           filedriver.State
+	DestinationState      filedriver.State
+	DesiredFinalState     filedriver.State
+	TreeSourceState       filetreedriver.State
+	TreeDestinationState  filetreedriver.State
+	TreeDesiredFinalState filetreedriver.State
+	Preview               filedriver.Preview
+	TreePreview           filetreedriver.Preview
 }
 
 type ExecuteOptions struct {
@@ -51,11 +58,13 @@ type BackupRequest struct {
 	ResourceID string
 	Path       string
 	Before     filedriver.State
+	TreeBefore filetreedriver.State
 }
 
 type BackupResult struct {
-	ID     string
-	Before filedriver.Snapshot
+	ID         string
+	Before     filedriver.Snapshot
+	TreeBefore filetreedriver.Snapshot
 }
 
 type BackupHook func(BackupRequest) (BackupResult, error)
@@ -70,13 +79,14 @@ type RestoreRequest struct {
 type RestoreHook func(RestoreRequest) error
 
 type Result struct {
-	Operation  Operation
-	SettingRef string
-	DryRun     bool
-	Mutated    bool
-	Verified   bool
-	Preview    filedriver.Preview
-	Backup     *BackupResult
+	Operation   Operation
+	SettingRef  string
+	DryRun      bool
+	Mutated     bool
+	Verified    bool
+	Preview     filedriver.Preview
+	TreePreview filetreedriver.Preview
+	Backup      *BackupResult
 }
 
 func PlanSave(req Request) (*Plan, error) {
@@ -108,20 +118,28 @@ func Execute(plan *Plan, opts ExecuteOptions) (*Result, error) {
 		return nil, fmt.Errorf("operation plan is required")
 	}
 	result := &Result{
-		Operation:  plan.Operation,
-		SettingRef: plan.Setting.Ref(),
-		DryRun:     opts.DryRun,
-		Preview:    plan.Preview,
+		Operation:   plan.Operation,
+		SettingRef:  plan.Setting.Ref(),
+		DryRun:      opts.DryRun,
+		Preview:     plan.Preview,
+		TreePreview: plan.TreePreview,
 	}
 	if opts.DryRun {
 		return result, nil
 	}
 
-	driver := filedriver.Driver{}
 	if err := ensureDesiredPathSafe(plan); err != nil {
 		return nil, err
 	}
 
+	if plan.Resource.Driver == recipe.FileTreeDriverID {
+		return executeTree(plan, opts, result)
+	}
+	return executeFile(plan, opts, result)
+}
+
+func executeFile(plan *Plan, opts ExecuteOptions, result *Result) (*Result, error) {
+	driver := filedriver.Driver{}
 	if plan.Operation == OperationApply {
 		applyResult, backup, err := applyLiveWithBackup(driver, plan, opts.BackupHook)
 		if err != nil {
@@ -142,6 +160,40 @@ func Execute(plan *Plan, opts ExecuteOptions) (*Result, error) {
 	}
 
 	verify, err := driver.Verify(destinationTarget(plan), plan.DesiredFinalState)
+	if err != nil {
+		return nil, err
+	}
+	result.Verified = verify.Verified
+	return result, nil
+}
+
+func executeTree(plan *Plan, opts ExecuteOptions, result *Result) (*Result, error) {
+	driver := filetreedriver.Driver{}
+	if plan.Operation == OperationApply {
+		desiredState, err := driver.ReadCurrent(plan.TreeDesiredTarget)
+		if err != nil {
+			return nil, fmt.Errorf("read desired %s: %w", plan.Setting.Ref(), err)
+		}
+		plan.TreeDesiredFinalState = desiredState
+		applyResult, backup, err := applyLiveTreeWithBackup(driver, plan, opts.BackupHook)
+		if err != nil {
+			return nil, err
+		}
+		result.TreePreview = applyResult.Preview
+		if backup != nil {
+			result.Backup = backup
+		}
+		result.Mutated = applyResult.Mutated
+	} else {
+		applyResult, err := driver.Apply(plan.TreeDesiredTarget, plan.TreeDesiredFinalState)
+		if err != nil {
+			return nil, err
+		}
+		result.TreePreview = applyResult.Preview
+		result.Mutated = applyResult.Mutated
+	}
+
+	verify, err := driver.Verify(destinationTreeTarget(plan), plan.TreeDesiredFinalState)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +233,12 @@ func buildPlan(req Request, op Operation) (*Plan, error) {
 	locationRoot, err := req.Recipe.LocationRoot(resource.Location, req.LocationRoots)
 	if err != nil {
 		return nil, err
+	}
+	if resource.Driver == recipe.FileTreeDriverID {
+		return buildTreePlan(req.Profile, setting, resourceID, resource, resourceRelPath, locationRoot, op)
+	}
+	if resource.Driver != recipe.FileDriverID {
+		return nil, fmt.Errorf("unsupported custom.files resource driver: %s", resource.Driver)
 	}
 	liveTarget := filedriver.Target{LocationID: resource.Location, Root: locationRoot, RelPath: resourceRelPath}
 	desiredTarget, desiredRel, err := desiredTargetForSetting(req.Profile.RepoRoot, setting)
@@ -233,6 +291,69 @@ func buildPlan(req Request, op Operation) (*Plan, error) {
 	return plan, nil
 }
 
+func buildTreePlan(profile *resolution.ResolvedProfile, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, resourceRelPath string, locationRoot string, op Operation) (*Plan, error) {
+	include, exclude, err := filetreedriver.NormalizeGlobs(resource.Include, resource.Exclude)
+	if err != nil {
+		return nil, fmt.Errorf("resource %s globs: %w", resourceID, err)
+	}
+	liveTarget := filetreedriver.Target{
+		LocationID:        resource.Location,
+		Root:              locationRoot,
+		RelPath:           resourceRelPath,
+		Include:           include,
+		Exclude:           exclude,
+		RejectRootSymlink: true,
+	}
+	desiredTarget, desiredRel, err := desiredTreeTargetForSetting(profile.RepoRoot, setting, include, exclude)
+	if err != nil {
+		return nil, err
+	}
+
+	driver := filetreedriver.Driver{}
+	liveState, err := driver.ReadCurrent(liveTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read live %s: %w", setting.Ref(), err)
+	}
+	desiredState, err := driver.ReadCurrent(desiredTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read desired %s: %w", setting.Ref(), err)
+	}
+
+	plan := &Plan{
+		Operation:            op,
+		Setting:              setting,
+		ResourceID:           resourceID,
+		Resource:             resource,
+		RepoRoot:             profile.RepoRoot,
+		DesiredRelPath:       desiredRel,
+		TreeLiveTarget:       liveTarget,
+		TreeDesiredTarget:    desiredTarget,
+		TreeSourceState:      liveState,
+		TreeDestinationState: desiredState,
+	}
+	switch op {
+	case OperationSave:
+		plan.TreeDesiredFinalState = liveState
+		preview, err := driver.PreviewApply(desiredTarget, liveState)
+		if err != nil {
+			return nil, fmt.Errorf("preview save %s: %w", setting.Ref(), err)
+		}
+		plan.TreePreview = preview
+	case OperationApply:
+		plan.TreeSourceState = desiredState
+		plan.TreeDestinationState = liveState
+		plan.TreeDesiredFinalState = desiredState
+		preview, err := driver.PreviewApply(liveTarget, desiredState)
+		if err != nil {
+			return nil, fmt.Errorf("preview apply %s: %w", setting.Ref(), err)
+		}
+		plan.TreePreview = preview
+	default:
+		return nil, fmt.Errorf("unsupported custom.files operation: %s", op)
+	}
+	return plan, nil
+}
+
 func resolveSetting(profile *resolution.ResolvedProfile, targetID string, ref string) (resolution.ResolvedSetting, error) {
 	if strings.TrimSpace(ref) != "" {
 		parts := strings.SplitN(ref, ":", 2)
@@ -279,6 +400,28 @@ func desiredTargetForSetting(repoRoot string, setting resolution.ResolvedSetting
 		Root:              filepath.Join(repoRoot, filepath.FromSlash(targetRel), "artifacts"),
 		RelPath:           artifactRel,
 		AllowMissingRoot:  true,
+		RejectRootSymlink: true,
+	}, desiredRel, nil
+}
+
+func desiredTreeTargetForSetting(repoRoot string, setting resolution.ResolvedSetting, include []string, exclude []string) (filetreedriver.Target, string, error) {
+	desiredRel := filepath.ToSlash(setting.DesiredRelPath)
+	targetRel, artifactRel, ok := strings.Cut(desiredRel, "/artifacts/")
+	if !ok || artifactRel == "" {
+		return filetreedriver.Target{}, "", fmt.Errorf("custom.files setting %s must use a desired artifact under artifacts/..., got %s", setting.Ref(), desiredRel)
+	}
+	if _, err := filedriver.ValidateRelativePath(artifactRel); err != nil {
+		return filetreedriver.Target{}, "", fmt.Errorf("desired artifact path for %s: %w", setting.Ref(), err)
+	}
+	if err := rejectDesiredSymlinkPath(repoRoot, desiredRel); err != nil {
+		return filetreedriver.Target{}, "", err
+	}
+	return filetreedriver.Target{
+		LocationID:        "desired",
+		Root:              repoRoot,
+		RelPath:           filepath.ToSlash(filepath.Join(targetRel, "artifacts", artifactRel)),
+		Include:           include,
+		Exclude:           exclude,
 		RejectRootSymlink: true,
 	}, desiredRel, nil
 }
@@ -348,9 +491,43 @@ func applyLiveWithBackup(driver filedriver.Driver, plan *Plan, hook BackupHook) 
 	return applied, &BackupResult{ID: backup.ID, Before: backup.Before}, nil
 }
 
+func applyLiveTreeWithBackup(driver filetreedriver.Driver, plan *Plan, hook BackupHook) (filetreedriver.ApplyResult, *BackupResult, error) {
+	var wrapped filetreedriver.BackupHook
+	if hook != nil {
+		wrapped = func(req filetreedriver.BackupRequest) (filetreedriver.BackupResult, error) {
+			result, err := hook(BackupRequest{
+				Operation:  plan.Operation,
+				SettingRef: plan.Setting.Ref(),
+				ResourceID: plan.ResourceID,
+				Path:       req.Path,
+				TreeBefore: req.Before,
+			})
+			if err != nil {
+				return filetreedriver.BackupResult{}, err
+			}
+			return filetreedriver.BackupResult{ID: result.ID, Before: result.TreeBefore}, nil
+		}
+	}
+	applied, backup, err := driver.ApplyWithBackup(plan.TreeLiveTarget, plan.TreeDesiredFinalState, wrapped)
+	if err != nil {
+		return filetreedriver.ApplyResult{}, nil, err
+	}
+	if backup == nil {
+		return applied, nil, nil
+	}
+	return applied, &BackupResult{ID: backup.ID, TreeBefore: backup.Before}, nil
+}
+
 func destinationTarget(plan *Plan) filedriver.Target {
 	if plan.Operation == OperationSave {
 		return plan.DesiredTarget
 	}
 	return plan.LiveTarget
+}
+
+func destinationTreeTarget(plan *Plan) filetreedriver.Target {
+	if plan.Operation == OperationSave {
+		return plan.TreeDesiredTarget
+	}
+	return plan.TreeLiveTarget
 }

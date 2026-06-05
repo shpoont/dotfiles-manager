@@ -128,6 +128,38 @@ Write-capable `macos-defaults`, general `command-io`, `manual`, and
 
 Selectors must not escape recipe-declared resource boundaries.
 
+#### MVP `file-tree` selector and metadata policy
+
+For the MVP `custom.files` vertical slice, a `file-tree` resource has one named
+location and one resource `path`. The effective resource root is the named
+location root plus that resource path. Include/exclude globs are evaluated only
+against slash-relative paths inside this effective resource root. The root
+directory itself is implicit and is not represented by an empty relative path.
+
+Default include is `["**"]`. Excludes override includes. If an exclude glob
+matches a directory, that directory and its descendants are pruned. Directories
+are managed when they match an include and are not excluded, or when they are
+required parents of a selected descendant. Empty directories are preserved when
+selected by the include/exclude policy.
+
+The MVP case-conflict rule is intentionally stricter than any particular local
+filesystem: selected relative paths are rejected before mutation when their
+`strings.ToLower` form conflicts. This is a deterministic portability rule, not
+a complete Unicode case-folding or filesystem-normalization model.
+
+The MVP metadata policy is content-and-presence only:
+
+- managed: relative path identity, regular-file bytes, regular-file presence,
+  and directory presence;
+- not managed by diff or verify: mtime, owner, group, xattrs, ACLs,
+  app-specific metadata, and file mode bits except for deterministic write
+  behavior;
+- write behavior: new directories are created with `0755`, new files are
+  created with `0644`, and updates to an existing regular file preserve that
+  file's current permission bits while replacing bytes;
+- unsupported and rejected before mutation: symlinks, hard-link identity,
+  device files, sockets, FIFOs, and other special entries.
+
 ### Driver safety requirements
 
 Drivers must:
