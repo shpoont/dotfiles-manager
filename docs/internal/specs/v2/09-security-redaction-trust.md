@@ -46,8 +46,7 @@ Extracted from the concept sections covering:
 Deliberate non-decisions:
 
 - exact trust-record invalidation rules are deferred;
-- exact secret-detection implementation is deferred;
-- exact platform matrix is deferred.
+- exact secret-detection implementation is deferred.
 
 ## Terms owned by this spec
 
@@ -179,15 +178,38 @@ apps unless a future explicit safe flag is defined.
 
 ### Platform/filesystem assumptions
 
-MVP should assume:
+MVP platform support is explicit and capability-gated:
 
+| Platform | MVP support | Notes |
+| --- | --- | --- |
+| macOS | supported | Primary supported platform for CLI/local state roots, portable file/config drivers, `plist-file`, and `macos-defaults-readonly` capabilities. |
+| Linux | supported for portable targets | Supported for CLI/local state roots and portable `file`, `file-tree`, INI, JSON, YAML, and TOML drivers. macOS-specific targets and drivers are unsupported on Linux. |
+| Windows | unsupported | Must fail before live reads or writes. Repository data may still be inspected as plain files by implementation tooling, but v2 runtime commands are not supported. |
+| unknown OS | blocked | Must fail before live reads or writes. |
+
+Unsupported OS, target, driver, or recipe/platform combinations must be reported
+as unsupported or blocked metadata. Mutating commands must fail before live
+reads, writes, native operations, lifecycle actions, backups, or ledgers for
+the unsupported item. `recipe explain` may still describe unsupported platform
+metadata safely because it is metadata-only.
+
+Filesystem and process assumptions:
+
+- local state, cache, and temp roots are the platform-specific roots defined by
+  `01-repository-layout.md`;
 - no root/sudo writes;
 - no writes outside declared named locations;
+- no system service-manager mutation in MVP;
+- no TCC/privacy automation;
 - path traversal is rejected;
 - unsafe symlink traversal is rejected;
-- case-conflict behavior is tested;
+- case-conflict behavior is tested before repository or live writes;
 - app databases are unmanaged unless a reviewed driver says otherwise;
-- platform support matrix is explicit.
+- atomic write/replace behavior is used where supported by the platform and
+  filesystem;
+- executable bit and permission preservation is allowed only when a driver
+  explicitly declares support for that platform; otherwise permission-changing
+  apply operations are blocked or reported as unsupported.
 
 ## Derived schema boundaries, not final schemas
 
@@ -253,6 +275,11 @@ blocked trust or policy decisions.
 - Lifecycle fixtures cover allowed, warn, blocked, quit declined, and reopen
   failure.
 - Path traversal and unsafe symlink fixtures are rejected.
+- Platform fixtures cover macOS local-state roots, Linux XDG local-state roots,
+  unsupported Windows/unknown OS blocking, unsupported driver gating, and safe
+  `recipe explain` metadata for unsupported platforms.
+- Filesystem fixtures cover case conflicts and unsupported permission or
+  executable-bit changes.
 - Native export fixtures cover timeout, opaque output, and verification failure.
 
 ## Out of scope
@@ -268,6 +295,5 @@ blocked trust or policy decisions.
 
 - Decide exact sensitivity levels.
 - Decide exact trust-record invalidation rules.
-- Decide platform support matrix for MVP.
 - Decide whether constrained command IO is included in MVP local recipes or
   deferred.

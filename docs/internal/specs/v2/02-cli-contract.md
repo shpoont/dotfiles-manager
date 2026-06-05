@@ -224,6 +224,8 @@ exit code `4` in normal operation. Exit code `6` is not expected for the single-
 | --- | --- |
 | `--profile <layer>` | Add an explicit profile layer to the active stack. Repeatable. |
 | `--scope <scope>` | Choose `shared`, `user`, `machine`, or `machine-user` when saving. |
+| `--machine-id <id>` | Explicit machine identity input for bootstrap or transient read-only resolution; must not override an existing local machine identity. |
+| `--user-id <id>` | Explicit user identity input for bootstrap or transient read-only resolution; must not override an existing local user identity. |
 | `--dry-run` | Do not mutate desired repo artifacts or live target state. |
 | `--json` | Emit stable machine-readable result data. |
 | `--non-interactive` | Never prompt. Fail if input is required. |
@@ -233,6 +235,15 @@ exit code `4` in normal operation. Exit code `6` is not expected for the single-
 `--dry-run` may read current state, run declared read-only native export, and
 write temporary/local run records. It must not change desired artifacts or live
 state.
+
+`--machine-id` and `--user-id` are advanced identity inputs. They must validate
+against the identity grammar in `03-profile-and-scope-resolution.md`. If a
+local identity record already exists, a conflicting flag value must fail with a
+clear adoption/rename diagnostic rather than silently overriding the record.
+Read-only and dry-run commands may use these flags only transiently and must not
+persist identity records. `init` and other commands that are explicitly allowed
+to bootstrap local manager state may persist them after validation and the
+prompt/non-interactive rules in `03-profile-and-scope-resolution.md`.
 
 ### Ref operands
 

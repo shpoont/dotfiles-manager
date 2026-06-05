@@ -208,16 +208,27 @@ value. Scope does not by itself define the active profile stack.
 A logical device identity known to the manager. A machine can have multiple OS
 users and multiple profile layers.
 
-Machine identity should be stable enough for machine-scoped desired state and
-local ledgers. Exact bootstrap and persistence are specified outside this file.
+Machine identity is not a cloud account, login account, hardware serial number,
+or proof that the same physical hardware is present. It is a stable manager
+subject used for machine-scoped desired artifacts and local ledgers.
+
+Machine IDs are repo-visible because they appear in desired-state paths.
+Bootstrap, persistence, adoption, rename, and collision behavior are specified
+by `03-profile-and-scope-resolution.md`.
 
 ### User
 
 A logical user identity known to the manager. A user can appear on multiple
 machines. A machine can have multiple users.
 
-A user is not necessarily the same as a local POSIX account name, although a
-local account may be used as a default bootstrap hint.
+A user is not necessarily the same as a local POSIX account name, login account,
+cloud account, or app account. A local OS account may be used as a default
+bootstrap hint and local mapping key, but the manager user is the logical
+subject used for user-scoped desired artifacts.
+
+User IDs are repo-visible because they appear in desired-state paths.
+Bootstrap, persistence, local-account mapping, adoption, rename, and collision
+behavior are specified by `03-profile-and-scope-resolution.md`.
 
 ### Profile layer
 
@@ -397,6 +408,5 @@ Vocabulary errors should surface as validation errors in downstream specs:
 
 ## Spec follow-ups / open decisions
 
-- Decide exact machine and user ID bootstrap format.
 - Decide whether named profile stacks are MVP or post-MVP.
 - Decide final product name and compatibility aliases.

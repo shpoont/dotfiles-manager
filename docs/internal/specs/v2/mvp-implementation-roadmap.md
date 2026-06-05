@@ -107,8 +107,10 @@ Agent issues should cover:
    with field-level JSON Schemas.
 4. Implement the canonical local state, backup, cache, and temp roots from
    `01-repository-layout.md`; retention policy remains a separate decision.
-5. Decide machine/user ID bootstrap rules.
-6. Decide MVP platform matrix.
+5. Implement machine/user ID bootstrap, adoption, rename-preview, and collision
+   rules from `03-profile-and-scope-resolution.md`.
+6. Implement the MVP platform matrix and filesystem gates from
+   `09-security-redaction-trust.md`.
 7. Implement `recipe.explain` from the CLI/JSON contract as a read-only MVP
    advanced command.
 8. Set up Systems Mapping/Evaluation as local process support for design
@@ -150,7 +152,8 @@ Agent issues should cover:
 
 1. Root config discovery for v2 without silently reinterpreting v1 config.
 2. Profile layer and profile stack schema skeleton.
-3. Machine/user identity bootstrap skeleton.
+3. Machine/user identity bootstrap, local-account mapping, adoption, and
+   rename-preview skeleton.
 4. Target and setting selection model.
 5. Scope resolution for `shared`, `user`, `machine`, and `machine-user`.
 6. Desired artifact URI and repository path resolution.

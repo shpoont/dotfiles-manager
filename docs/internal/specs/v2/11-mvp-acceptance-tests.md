@@ -66,11 +66,13 @@ A v2 MVP release must not be called production-ready unless these areas pass:
 | --- | --- |
 | CLI | Text and `--json` snapshots for every normal command and exit code. |
 | Profile/scope | All four scopes, multi-user machine, multiple profile layers. |
+| Identity bootstrap | Machine/user bootstrap, local-account mapping, adoption, rename preview, collision handling, non-interactive missing-identity failures. |
 | Status | Every canonical state and target-level aggregation. |
 | File driver | Create/update/delete preview, backup, restore, symlink rejection. |
 | File-tree driver | Globs, case conflicts, unsafe traversal, metadata policy. |
 | Structured drivers | INI/JSON/YAML/TOML selectors, invalid selectors, normalization. |
 | Plist/defaults | Selected keys only, read-only defaults, unsupported write attempts. |
+| Platform/filesystem | macOS roots, Linux XDG roots, unsupported Windows/unknown OS, unsupported driver gating, case-conflict and permission behavior. |
 | Redaction | Display redaction, blocked save, unavailable redaction, safe values. |
 | Lifecycle | Running app allowed/warn/blocked, quit declined, reopen failure. |
 | Native export | Diffable export, opaque export, passphrase prompt, size/category limits. |
@@ -78,6 +80,54 @@ A v2 MVP release must not be called production-ready unless these areas pass:
 | Restore | Restore preview, backup-before-restore, unsupported restore path. |
 | Migration | v1 `syncs:` parity and generated `custom.files` target. |
 | Trust | Untrusted local recipe, recipe broadening write scope, command-IO gate. |
+
+### Identity and platform fixture details
+
+Identity fixtures must prove:
+
+- `init` creates machine and user identity records with repo-visible ID prompts;
+- existing identity records reload without prompting;
+- non-interactive commands that require missing identity exit with input-required
+  exit code `4`;
+- `--machine-id` and `--user-id` validate, satisfy non-interactive bootstrap
+  when persistence is allowed, and fail if they conflict with existing local
+  identity records;
+- read-only and dry-run commands do not create identity records;
+- hostname or computer-name changes do not automatically rename `machineId`;
+- local OS account rename does not automatically rename `userId`;
+- machine adoption links local state to an existing repository machine subject
+  without moving repository paths;
+- user adoption links a local account mapping to an existing repository user
+  subject without moving repository paths;
+- machine rename previews affected `desired/machine/<old>/...` and
+  `desired/machine-user/<old>/<user-id>/...` paths and blocks on destination
+  overwrite or case conflict;
+- user rename previews affected `desired/user/<old>/...` and
+  `desired/machine-user/<machine-id>/<old>/...` paths and blocks on destination
+  overwrite or case conflict;
+- a machine with two local users resolves distinct `machine-user` subjects;
+- one logical user can be adopted on two machines for user-scoped desired
+  artifacts;
+- two local accounts on one machine can map to the same logical user only after
+  explicit warning/confirmation;
+- one user can use multiple profile layers on one machine with deterministic
+  merge order.
+
+Platform fixtures must prove:
+
+- macOS local state, cache, and temp roots match `01-repository-layout.md`;
+- Linux local state, cache, and temp roots honor XDG defaults from
+  `01-repository-layout.md`;
+- Windows and unknown OS targets fail before live reads or writes;
+- unsupported platform-specific drivers are reported as unsupported/blocked
+  metadata;
+- mutating commands fail before live reads/writes for unsupported
+  OS/driver/target combinations;
+- `recipe explain` can safely describe unsupported platform metadata without
+  bootstrapping identity or reading live state;
+- path traversal, unsafe symlink traversal, case-conflict, and unsupported
+  executable-bit/permission changes are rejected or blocked as specified by
+  `09-security-redaction-trust.md`.
 
 ### Harbor agent-test mapping
 
@@ -229,6 +279,9 @@ This file is satisfied when:
 - every implementation issue references relevant tests;
 - CI can run the core MVP fixture suite;
 - production readiness cannot be claimed without the gate passing;
+- identity bootstrap, adoption, rename-preview, collision, and local-account
+  mapping behavior has deterministic fixtures;
+- platform support and unsupported-platform behavior has deterministic fixtures;
 - judgment-heavy v2 acceptance criteria are either mapped to Harbor candidates
   or explicitly kept as manual review;
 - deterministic product behavior remains covered by normal automated tests and

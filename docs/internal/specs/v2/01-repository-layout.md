@@ -45,8 +45,7 @@ Deliberate non-decisions:
 
 - retention and pruning policy for ledgers, backups, captures, and caches is
   deferred;
-- exact schema field definitions and runtime validators are deferred;
-- machine/user identity bootstrap semantics are deferred.
+- exact schema field definitions and runtime validators are deferred.
 
 ## Terms owned by this spec
 
@@ -160,8 +159,16 @@ files.
 
 ### Path variable safety
 
-`<target-id>`, `<recipe-id>`, `<machine-id>`, `<user-id>`, and local-state
-`<local-user>` path segments match `[A-Za-z0-9][A-Za-z0-9._-]*` for MVP paths.
+`<target-id>` uses the lower-case public ID grammar owned by
+`00-vocabulary.md`. `<recipe-id>` uses the same lower-case path-safe ID
+components for MVP.
+
+`<machine-id>`, `<user-id>`, and local-state `<local-account-key>` path
+segments match `[a-z0-9][a-z0-9._-]*` for MVP paths. Generated identity IDs and
+local account keys must be lower-case so repository paths do not depend on
+case-sensitive filesystem behavior. `<local-account-key>` is a manager-owned
+safe key derived from the local OS account with a disambiguator when needed; it
+is not raw OS account text and is not a portable user identity.
 
 `<stack-id>` and `<layer-id>` may be relative profile paths to allow names such
 as `os/macos`, but they must reject absolute paths, empty segments, `.`, `..`,
@@ -243,7 +250,7 @@ State subpaths:
 
 ```text
 identity/machine.yaml
-identity/users/<local-user>.yaml
+identity/users/<local-account-key>.yaml
 ledger/ledger.jsonl
 ledger/runs/<run-id>.json
 backups/<run-id>/backup.yaml
@@ -294,7 +301,7 @@ This spec owns layout boundaries for these persisted objects:
 | Profile stack | repository | `profiles/stacks/<stack-id>.yaml` | profile spec | `schemas/v2/profile-stack.schema.json` |
 | Profile layer | repository | `profiles/layers/<layer-id>.yaml` | profile spec | `schemas/v2/profile-layer.schema.json` |
 | Machine identity | local state | `identity/machine.yaml` | profile spec | `schemas/v2/machine-identity.schema.json` |
-| User identity | local state | `identity/users/<local-user>.yaml` | profile spec | `schemas/v2/user-identity.schema.json` |
+| User identity | local state | `identity/users/<local-account-key>.yaml` | profile spec | `schemas/v2/user-identity.schema.json` |
 | Desired manifest | repository | `desired/.../targets/<target-id>/manifest.yaml` | artifact spec | `schemas/v2/desired-manifest.schema.json` |
 | Desired settings | repository | `desired/.../targets/<target-id>/settings.yaml` | artifact spec | `schemas/v2/desired-settings.schema.json` |
 | Desired artifact payload | repository | `desired/.../targets/<target-id>/artifacts/...` | artifact and driver specs | recorded by `manifest.yaml` |
@@ -366,4 +373,3 @@ which other items, if any, remain safe to process.
 
 - Decide exact retention and cleanup policy for ledgers, backups, and captures.
 - Decide exact schema field definitions and runtime validator implementation.
-- Decide machine/user identity bootstrap semantics.
