@@ -100,6 +100,10 @@ A recipe must not contain arbitrary executable code in MVP.
 
 ### Settings
 
+Public target and setting ref grammar is owned by `00-vocabulary.md`. Desired
+artifact URI and artifact payload schema context are owned by
+`05-desired-artifacts-and-uris.md`.
+
 Each setting must declare:
 
 - stable setting ID;
@@ -201,6 +205,9 @@ The recipe schema uses the fully qualified identifier
 config, profile, artifact, ledger, and backup schemas.
 
 ## Examples
+
+Recipe examples demonstrate relationship and capability shape. YAML field names
+remain sketches until `schemas/v2/recipe.schema.json` is promoted.
 
 ### Cobona recipe sketch
 

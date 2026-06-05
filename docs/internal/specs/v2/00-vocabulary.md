@@ -95,9 +95,11 @@ apply, and conflict reporting.
 
 ### Public target and setting refs
 
-Normal commands should use public refs, not internal URIs.
+Normal commands should use public refs, not internal URIs. This section is
+the canonical MVP grammar for public target and setting refs; other specs should
+reference it instead of restating or extending it.
 
-Draft public grammar:
+Canonical public ref grammar for MVP:
 
 ```text
 target-ref = target-id
@@ -118,8 +120,10 @@ Examples:
 - `visual-studio-code:settings`
 - `cobona:user-info`
 
-Internal URI form is separate. For example, public `cobona:user.email` may map
-to internal `target://cobona/user.email` when URI form is needed.
+Internal URI form is separate. Public refs are not URI strings. For example,
+public `cobona:user.email` may map to internal `target://cobona/user.email` when
+URI form is needed. Groups, resources, drivers, profile layers, and artifact
+paths are not public refs in the MVP normal command surface.
 
 ### Settings group
 
@@ -341,6 +345,10 @@ Schema-bearing specs must use these terms consistently when defining config,
 profile, recipe, artifact, ledger, backup, and preview objects.
 
 ## Examples
+
+Examples in this vocabulary spec demonstrate canonical noun, public-ref, and
+internal-URI shapes. Field names inside text or YAML snippets remain sketches
+unless the owning spec explicitly promotes them.
 
 ### Git email
 

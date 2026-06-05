@@ -149,9 +149,10 @@ input only and must not be silently parsed as v2.
 `manifest.yaml` binds public settings to desired artifacts. `settings.yaml` is
 the default manager-owned structured desired object for scalar/object settings
 and must carry schema/version metadata. `artifacts/` is for file, file-tree,
-native-export, opaque, and other payload material. Non-YAML/JSON payloads under
-`artifacts/` do not need embedded manager schema fields; their form,
-schema/version context, hash, and owner context are recorded in `manifest.yaml`.
+native-export, opaque, and other payload material. Driver-owned payloads under
+`artifacts/` do not embed manager schema fields by default, even when the
+payload format is YAML or JSON; their form, schema/version context, hash, and
+owner context are recorded in `manifest.yaml`.
 
 Repository-owned migration output is written under
 `migrations/v1-to-v2/<run-id>/` by default instead of overwriting active v2
@@ -309,6 +310,10 @@ This spec owns layout boundaries for these persisted objects:
 Fields shown in examples are sketches unless the owning spec promotes them.
 
 ## Examples
+
+Examples in this layout spec demonstrate canonical repository path shapes.
+Field names inside schema-bearing snippets remain sketches unless the owning
+spec promotes them.
 
 ### User-scoped Git identity
 

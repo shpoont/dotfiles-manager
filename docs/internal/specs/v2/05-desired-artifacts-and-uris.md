@@ -103,9 +103,30 @@ schemaVersion: 1
 ```
 
 Payloads under `artifacts/` may be arbitrary file, file-tree, native-export, or
-opaque material. Non-YAML/JSON payloads do not need embedded manager schema
-fields; their form, schema/version context, hash, and owner context are recorded
-in `manifest.yaml`.
+opaque material. Driver-owned payloads under `artifacts/` do not embed manager
+schema fields by default, even when the payload format is YAML or JSON; their
+form, schema/version context, hash, and owner context are recorded in
+`manifest.yaml`.
+
+### Payload schema context
+
+Manager-owned persisted YAML/JSON objects, including `manifest.yaml` and
+`settings.yaml`, must embed:
+
+```yaml
+schema: dotfiles-manager.v2.<object-name>
+schemaVersion: 1
+```
+
+Driver-owned payloads under `artifacts/` do not embed manager schema fields by
+default, even when the payload format is YAML or JSON. Their desired manifest
+entry records the payload form, driver or recipe owner, payload schema or format
+version context, and hash. Concrete manifest field names remain future schema
+work.
+
+If a future recipe declares a specific artifact payload as manager-owned instead
+of driver-owned, that exception must be explicit in the recipe and the payload
+must then carry the manager schema fields above.
 
 ### Desired artifact lifecycle
 
@@ -148,32 +169,43 @@ Logical schemes:
 | `secret://` | External secret reference, never secret material. |
 | `recipe://` | Recipe definition or recipe-owned resource. |
 
-URIs are internal identifiers. Normal user commands should prefer target and
-setting refs such as `git:user.email`.
+URIs are internal identifiers. Normal user commands should prefer public target
+and setting refs such as `git:user.email`; that public grammar is owned by
+`00-vocabulary.md`.
 
 ### URI authority rules
 
-`desired://` references must encode scope before target. `state://` and
-`temp://` references must not be committed as desired artifacts except as
-metadata references where explicitly allowed.
+`desired://` references must encode scope before target. Repository files remain
+`manifest.yaml`, `settings.yaml`, and payloads under `artifacts/`; internal
+`desired://` URIs intentionally use extensionless manager-object endpoints.
+
+`state://` and `temp://` references must not be committed as desired artifacts
+except as metadata references where explicitly allowed.
 
 `secret://` may reference an external secret, but it must never contain the
 secret value.
 
-Draft desired URI grammar:
+Canonical desired URI shapes for MVP:
 
 ```text
-desired-uri = "desired://" desired-scope "/" desired-subject
-              "/targets/" target-id
-              [ "/" desired-kind [ "/" artifact-path ] ]
+desired-manifest-uri = "desired://" desired-scope "/" desired-subject
+                       "/targets/" target-id "/manifest"
+
+desired-settings-uri = "desired://" desired-scope "/" desired-subject
+                       "/targets/" target-id "/settings"
+                       [ "#" setting-id ]
+
+desired-artifact-uri = "desired://" desired-scope "/" desired-subject
+                       "/targets/" target-id "/artifacts/" artifact-path
 
 desired-scope = "shared" | "user" | "machine" | "machine-user"
 desired-subject = "-" | user-id | machine-id | machine-id "/" user-id
-desired-kind = "manifest" | "settings" | "artifacts"
 ```
 
 Use `-` as the subject for `shared`, because shared scope has no user or
-machine subject.
+machine subject. The `<scope>`, `<subject>`, `<target-id>`, `<setting-id>`, and
+`<artifact-path>` values in URI examples are logical URI segments, not raw
+filesystem paths. URI escaping and encoding rules remain deferred.
 
 ## Derived schema boundaries, not final schemas
 
@@ -197,6 +229,10 @@ per-artifact schema versions independently from root config, profile, recipe,
 ledger, and backup versions.
 
 ## Examples
+
+Examples in this spec demonstrate canonical desired URI, public-ref, and path
+shape. YAML field names remain sketches until the desired manifest or desired
+settings schema is promoted.
 
 ### Git email desired artifact
 

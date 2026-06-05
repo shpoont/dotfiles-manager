@@ -199,6 +199,10 @@ schema work promotes them.
 
 ## Examples
 
+Examples use the public target/setting ref grammar owned by
+`00-vocabulary.md`. Profile field names remain sketches until the profile
+schemas are promoted.
+
 ### Active stack
 
 ```yaml

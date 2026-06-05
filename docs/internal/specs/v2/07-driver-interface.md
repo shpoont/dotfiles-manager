@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/07-driver-interface.md
 source-concept-sections:
   - Driver
@@ -157,6 +157,9 @@ Persisted/emitted objects:
 | Driver error enum | yes | Final JSON shape deferred. |
 
 ## Examples
+
+Examples demonstrate selector, normalizer, and driver contract shapes. YAML
+field names remain sketches until the driver-related schemas are promoted.
 
 ### INI selector
 
