@@ -85,6 +85,19 @@ an operation is unsupported:
 
 Read-only drivers must not expose writes through recipe overrides.
 
+### Static explanation metadata
+
+Drivers must expose static, redacted-safe explanation metadata separately from
+live operations. `recipe explain` may use this metadata to summarize selector
+support, operation support, backup/restore support, normalization mode, diff
+mode, and limitations without calling `detect`, `readCurrent`, `normalize`,
+`diff`, `backup`, `apply`, `verify`, `restore`, or native command operations.
+
+Driver explanation metadata must not include raw captures, live values,
+value-bearing defaults, raw command argv, environment variables, or local paths
+that may contain secrets. It may identify driver IDs, selector kinds, supported
+operation names, and limitation summaries.
+
 ### Initial MVP drivers
 
 Initial MVP drivers are:

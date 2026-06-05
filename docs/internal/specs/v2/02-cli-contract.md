@@ -93,11 +93,130 @@ dotfiles-manager app test <target> --roundtrip
 ```
 
 `recipe explain <target>` is included in the MVP as a read-only advanced command.
-It should explain target support, selected settings, resources, drivers,
-lifecycle policy, redaction behavior, support levels, and capability limits.
+It explains target support, selected settings, settings groups, resources,
+drivers, lifecycle policy, redaction behavior, support levels, and capability
+limits without reading live target state.
 
 Mutating authoring commands such as `app create`, `app edit`, `app validate`,
 and `app test` need their own later contract before implementation.
+
+### `recipe explain <target>` read-only contract
+
+`recipe explain <target>` accepts only a public target-ref owned by
+`00-vocabulary.md`. It must reject setting refs, settings group refs, resource
+refs, driver refs, artifact refs, and internal URIs as unsupported ref kinds.
+
+The command may read:
+
+- bundled recipe metadata;
+- user-local recipe metadata, subject to safe parsing and redaction;
+- active profile selection metadata when it can be resolved without mutation;
+- static driver explanation metadata.
+
+The command must not:
+
+- bootstrap machine/user identity;
+- create or update local state, cache, temp files, ledgers, backups, profiles,
+  desired artifacts, trust records, or repository files;
+- read live app/filesystem values for the target;
+- read desired artifact payloads;
+- read raw captures, ledger payloads, backup payloads, or native export output;
+- run native export/import, driver read, detect, normalize, diff, backup, apply,
+  verify, restore, or command-IO operations;
+- prompt for consent or trust.
+
+Profile selection reporting is best-effort and non-mutating. If the active
+profile cannot be resolved without bootstrapping identity or writing local state,
+`recipe explain` must still render safe recipe metadata, mark selection as
+`unknown` or `unresolved`, and include a diagnostic instead of failing only for
+that reason.
+
+#### Required text output fields
+
+Text output must include these sections when data exists, using clear human
+labels and redacted-safe values only:
+
+| Section | Required fields |
+| --- | --- |
+| Target support | target ref, display name, recipe source, recipe trust status, support level, target capability, platform support. |
+| Selection summary | whether the target and settings are selected in the active profile, why they are selected/excluded/defaulted, or `unknown` when profile selection cannot be resolved safely. |
+| Settings | public setting ref, label, support level, capability, default scope, artifact form, selection/default-inclusion status, sensitivity/redaction outcome, lifecycle policy, resource binding, driver, diff/apply limitations. |
+| Settings groups | group ID, label, purpose, included setting refs, default selection or bulk-selection role, native import/export grouping when declared. |
+| Resources and drivers | resource ID, named location ID, relative path or selector shape, driver ID, supported operations, backup/restore support, normalization mode, diff mode. |
+| Native import/export | operation kind, reviewed/bundled status, artifact form, opaque/diffability, lifecycle requirement, timeout class, verification summary. |
+| Safety and limitations | do-not-manage categories, lifecycle blockers/warnings, redaction limitations, unsupported or blocked settings, trust warnings. |
+| Diagnostics | stable diagnostic code, message, and relevant target/ref/source/path only when safe to print. |
+
+Native operation details must be summarized only. Output must not print raw argv,
+environment variables, captured output, local paths containing secrets, or
+value-bearing defaults.
+
+#### `recipe.explain` JSON output
+
+`recipe.explain --json` uses the existing CLI envelope with
+`command: recipe.explain`. The minimum command-specific object is
+`recipeExplain`. Field names below are a schema sketch until field-level CLI
+schemas are promoted, but the object names are the stable minimum shape:
+
+```yaml
+schema: dotfiles-manager.v2.preview
+schemaVersion: 1
+command: recipe.explain
+runId: run-...
+summary:
+  status: ok | blocked | error
+recipeExplain:
+  target:
+    ref: git
+    displayName: Git
+    supportLevel: stable | read-only | experimental | deprecated | blocked
+    capability: inspect-only | read-only | read-write | import-only | export-only | never
+    platformSupport: supported | unsupported | unknown
+  recipe:
+    source: bundled | local
+    recipeRef: recipe://bundled/git
+    trustStatus: trusted | untrusted | review-required | unknown
+    version: sketch
+  selection:
+    status: selected | partially-selected | not-selected | unknown | unresolved
+    reason: sketch
+    profileStack: [global, os/macos]
+  settings: []
+  settingGroups: []
+  resources: []
+  drivers: []
+  nativeOperations: []
+  safety:
+    redactionSummary: sketch
+    lifecycleSummary: sketch
+    trustSummary: sketch
+    doNotManage: []
+  diagnostics: []
+```
+
+`settings[]`, `settingGroups[]`, `resources[]`, `drivers[]`, and
+`nativeOperations[]` must contain the same categories required by text output.
+`diagnostics[]` entries must include a stable code, message, severity, and safe
+ref/source/path context when available.
+
+#### `recipe.explain` diagnostics and exit codes
+
+Stable diagnostic codes for `recipe explain` include:
+
+| Code | Exit | Meaning |
+| --- | --- | --- |
+| `invalid-ref` | 2 | The operand is not valid public ref syntax. |
+| `unsupported-ref-kind` | 2 | The operand is a setting, group, resource, artifact, driver, or URI ref instead of a target-ref. |
+| `unknown-target` | 2 | No bundled or local recipe can explain the target. |
+| `invalid-recipe` | 2 | Matching recipe metadata fails schema or safety validation. |
+| `ambiguous-recipe` | 2 | More than one matching recipe applies and the manager cannot choose safely. |
+| `selection-unresolved` | 0 | Recipe metadata rendered, but active profile selection could not be resolved without mutation. |
+| `metadata-render-blocked` | 5 | Safety, trust, or redaction policy prevents even metadata explanation from being safely rendered. |
+| `internal-error` | 1 | Unexpected implementation failure. |
+
+A successful explanation exits `0`, including unsupported/blocked settings that
+can be described safely. The command must not prompt, so it should not return
+exit code `4` in normal operation. Exit code `6` is not expected for the single-target MVP form.
 
 ### Global flags
 
@@ -254,6 +373,8 @@ Partial results must identify succeeded, skipped, and failed items separately.
 - Prompt tests cover interactive, `--yes`, and `--non-interactive` behavior.
 - `sync` tests prove no blind two-way merge occurs.
 - JSON output is stable enough for CI and future tooling.
+- `recipe explain` snapshots cover text and JSON support, limitations,
+  diagnostics, read-only behavior, and redaction boundaries.
 
 ## Out of scope
 
@@ -266,6 +387,5 @@ Partial results must identify succeeded, skipped, and failed items separately.
 
 ## Spec follow-ups / open decisions
 
-- Define the exact `recipe explain` text and JSON payload shape.
 - Decide exact text rendering for grouped status output.
 - Decide compatibility aliases for v1 `deploy` and `import` commands.

@@ -109,8 +109,8 @@ Agent issues should cover:
    `01-repository-layout.md`; retention policy remains a separate decision.
 5. Decide machine/user ID bootstrap rules.
 6. Decide MVP platform matrix.
-7. Add `recipe.explain` to the CLI/JSON contract as a read-only MVP advanced
-   command.
+7. Implement `recipe.explain` from the CLI/JSON contract as a read-only MVP
+   advanced command.
 8. Set up Systems Mapping/Evaluation as local process support for design
    review, issue decomposition, and handoff evaluation. This is not v2 runtime
    product behavior and must not be read by the CLI.
@@ -395,7 +395,8 @@ Recommended initial GitHub batch:
 
 1. Harden v2 spec metadata and promotion state.
 2. Finalize v2 schema file locations and local state paths.
-3. Specify and add `recipe.explain` as read-only MVP advanced command.
+3. Implement `recipe.explain` as the read-only MVP advanced command specified
+   by the CLI contract.
 4. Implement v2 profile/scope/artifact resolution skeleton.
 5. Implement `custom.files` recipe and file driver vertical slice.
 6. Implement status state derivation fixtures.
@@ -412,13 +413,15 @@ reference the relevant v2 specs and concrete acceptance tests.
 because the accepted concept lists recipe explanation as part of the MVP support
 surface.
 
-Before implementation, `02-cli-contract.md` must explicitly include:
+Implementation must follow the `02-cli-contract.md` recipe-explain contract,
+including:
 
 - command row for `recipe explain <target>`;
 - JSON command identifier `recipe.explain`;
-- read-only behavior;
-- output expectations for target support, settings, resources, drivers,
-  lifecycle, redaction, and support levels.
+- read-only behavior and no live state reads;
+- output expectations for target support, settings, settings groups, resources,
+  drivers, lifecycle, redaction, support levels, capabilities, safety limits,
+  and stable diagnostics.
 
 This command is not a normal user happy-path command, but it is important for
 advanced users, recipe authors, and AI agents reviewing support boundaries.

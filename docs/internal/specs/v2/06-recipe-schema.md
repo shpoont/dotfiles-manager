@@ -98,6 +98,31 @@ A recipe must declare:
 
 A recipe must not contain arbitrary executable code in MVP.
 
+### Explainability metadata
+
+A recipe must provide enough static metadata for `recipe explain <target>` to
+render target support without reading live target state. Required explainability
+metadata includes:
+
+- target display name, support level, capability, platform support, and recipe
+  source/trust context;
+- setting labels, support levels, capabilities, default scopes, artifact forms,
+  sensitivity/redaction classifications, lifecycle policy, selection defaults,
+  resource bindings, driver IDs, and diff/apply limitations;
+- settings group IDs, labels, purpose, included setting refs, default selection
+  or bulk-selection role, and native import/export grouping where applicable;
+- resource IDs, named location IDs, selector shapes, backup/restore support,
+  normalization mode, and diff mode;
+- native operation summary metadata: operation kind, reviewed/bundled status,
+  artifact form, diffability/opacity, lifecycle requirement, timeout class, and
+  verification summary.
+
+Write-capable recipes must explain support, capability, lifecycle, trust, and
+redaction limits without requiring live reads, desired artifact reads, raw
+captures, or command execution. Recipes must not expose secret values,
+value-bearing defaults, raw argv, environment variables, or captured output in
+explain metadata.
+
 ### Settings
 
 Public target and setting ref grammar is owned by `00-vocabulary.md`. Desired
