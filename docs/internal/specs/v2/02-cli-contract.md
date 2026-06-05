@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/02-cli-contract.md
 source-concept-sections:
   - CLI contract v2
@@ -43,7 +43,8 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- exact JSON Schema file is deferred;
+- exact CLI result field definitions beyond the required envelope semantics are
+  deferred;
 - exact text formatting is not final except for required semantic content;
 - compatibility aliases are deferred.
 
@@ -157,12 +158,17 @@ blocked items are skipped, returning exit code `6` when appropriate.
 
 ## Derived schema boundaries, not final schemas
 
-The JSON result envelope is owned by this spec, but the final schema file is
-deferred.
+The JSON result envelope is owned by this spec. When the envelope is persisted
+as a preview record, the canonical local-state path is
+`runs/<run-id>/preview.json`, the schema identifier is
+`dotfiles-manager.v2.preview`, and the schema file is
+`schemas/v2/preview.schema.json`. Non-preview `--json` outputs reuse this
+manager-owned envelope shape, but exact field-level schemas remain deferred.
 
-Draft envelope:
+Draft persisted preview envelope:
 
 ```yaml
+schema: dotfiles-manager.v2.preview
 schemaVersion: 1
 command: init | add | list | status | diff | save | apply | sync | backup.list | restore | migrate | recipe.explain
 runId: run-...
@@ -243,7 +249,7 @@ Partial results must identify succeeded, skipped, and failed items separately.
 
 ## Out of scope
 
-- final JSON Schema file;
+- final CLI result field-level schemas;
 - shell completion;
 - UI/TUI design;
 - final authoring-command contracts;

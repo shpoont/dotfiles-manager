@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/08-mutation-ledger-backup-restore.md
 source-concept-sections:
   - Mutation transaction model
@@ -43,9 +43,8 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- exact local state directory is deferred;
-- exact ledger schema is deferred;
-- backup retention policy is deferred.
+- retention and pruning policy is deferred;
+- exact ledger, run-record, backup, and preview fields are deferred.
 
 ## Terms owned by this spec
 
@@ -99,6 +98,18 @@ A mutating command must follow these phases:
 
 ### Ledger commit rules
 
+Ledger and run records are local-only state:
+
+```text
+ledger/ledger.jsonl
+ledger/runs/<run-id>.json
+```
+
+`ledger/ledger.jsonl` stores append-only ledger entries with schema
+`dotfiles-manager.v2.ledger-entry` and `schemaVersion: 1`.
+`ledger/runs/<run-id>.json` stores the expanded run record with schema
+`dotfiles-manager.v2.run-record` and `schemaVersion: 1`.
+
 A ledger entry must record:
 
 - run ID;
@@ -121,7 +132,29 @@ Before live writes, the manager must create a backup when the driver supports it
 If backup is unsupported, the change preview must say so and the policy must
 allow proceeding.
 
-Backup material is local state, not desired repository data.
+Backup material is local state, not desired repository data:
+
+```text
+backups/<run-id>/backup.yaml
+backups/<run-id>/payloads/...
+```
+
+`backup.yaml` stores backup metadata with schema
+`dotfiles-manager.v2.backup-metadata` and `schemaVersion: 1`. Driver-specific
+restore material lives under `payloads/`.
+
+### Preview and capture records
+
+Previews and raw captures are local-only run records:
+
+```text
+runs/<run-id>/preview.json
+runs/<run-id>/captures/...
+```
+
+`preview.json` uses schema `dotfiles-manager.v2.preview` and
+`schemaVersion: 1`. Raw captures are retained only when policy permits;
+otherwise they remain in temp storage or are deleted after the command.
 
 ### Restore rules
 
@@ -144,16 +177,21 @@ This spec owns ledger and backup metadata boundaries.
 
 Persisted objects:
 
-| Object | Owned here? | Notes |
-| --- | --- | --- |
-| Ledger entry | yes | Final fields/schema deferred. |
-| Backup metadata | yes | Restore material reference and compatibility. |
-| Backup payload | partial | Driver-specific payload. |
-| Preview JSON | partial | CLI envelope owns result shape. |
-| Normalized hash | partial | Driver spec owns normalizer versioning. |
+| Object | Owned here? | Canonical path | Schema file | Notes |
+| --- | --- | --- | --- | --- |
+| Ledger entry | yes | `ledger/ledger.jsonl` local state | `schemas/v2/ledger-entry.schema.json` | Append-only verified outcome record. |
+| Run record | yes | `ledger/runs/<run-id>.json` local state | `schemas/v2/run-record.schema.json` | Expanded per-run transaction record. |
+| Backup metadata | yes | `backups/<run-id>/backup.yaml` local state | `schemas/v2/backup-metadata.schema.json` | Restore material reference and compatibility. |
+| Backup payload | partial | `backups/<run-id>/payloads/...` local state | Metadata in `backup.yaml` | Driver-specific payload. |
+| Preview JSON | partial | `runs/<run-id>/preview.json` local state | `schemas/v2/preview.schema.json` | CLI envelope owns result shape. |
+| Normalized hash | partial | ledger/run records; cache copies are disposable | `schemas/v2/ledger-entry.schema.json` and `schemas/v2/run-record.schema.json` | Driver spec owns normalizer versioning. |
 
 Ledger, backup, preview, config, profile, recipe, and artifact schemas must have
 independent schema versions.
+
+`cache/normalized/...` is disposable derived data only. Authoritative
+last-applied hashes and verified outcomes live in ledger entries and run
+records, not cache.
 
 ## Examples
 
@@ -213,7 +251,6 @@ command can report exact per-item outcomes.
 
 ## Spec follow-ups / open decisions
 
-- Decide exact local state and backup directory.
 - Decide retention and pruning rules.
-- Decide final ledger and backup schemas.
+- Decide final ledger, run-record, backup, and preview field schemas.
 - Decide how much backup metadata is safe to show in normal output.

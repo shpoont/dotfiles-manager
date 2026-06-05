@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/03-profile-and-scope-resolution.md
 source-concept-sections:
   - Scopes
@@ -44,7 +44,6 @@ Extracted from the concept sections covering:
 Deliberate non-decisions:
 
 - exact machine/user ID format is deferred;
-- exact profile schema filename is deferred;
 - whether named profile stacks beyond the active stack are MVP is deferred.
 
 ## Terms owned by this spec
@@ -87,6 +86,42 @@ The stored values should use the scope codes above.
 4. A user on one machine can use multiple profile layers.
 5. The same desired artifact must resolve differently only when scope or
    profile override rules say so explicitly.
+
+### Profile and identity file paths
+
+Profile stack and layer files are repository-owned:
+
+```text
+profiles/stacks/<stack-id>.yaml
+profiles/layers/<layer-id>.yaml
+```
+
+`<stack-id>` and `<layer-id>` may be relative profile paths to support names
+such as `os/macos`, but they must reject absolute paths, empty segments, `.`,
+`..`, backslashes, and traversal before resolving to repository paths.
+
+Machine and user identity records are local-only state:
+
+```text
+identity/machine.yaml
+identity/users/<local-user>.yaml
+```
+
+These local identity files carry the manager schema fields:
+
+```yaml
+schema: dotfiles-manager.v2.machine-identity
+schemaVersion: 1
+```
+
+or:
+
+```yaml
+schema: dotfiles-manager.v2.user-identity
+schemaVersion: 1
+```
+
+Exact bootstrap semantics for creating machine and user IDs remain deferred.
 
 ### Profile layers
 
@@ -148,16 +183,19 @@ This spec owns the profile and scope schema boundary.
 
 Persisted objects:
 
-| Object | Owned here? | Notes |
-| --- | --- | --- |
-| Profile stack | yes | Ordered profile layer names. |
-| Profile layer | yes | Selections, scopes, location overrides, policies. |
-| Machine identity | partial | Exact local path/format deferred. |
-| User identity | partial | Exact bootstrap format deferred. |
-| Desired artifact | no | Owned by artifact spec. |
-| Recipe default scope | no | Owned by recipe spec. |
+| Object | Owned here? | Canonical path | Schema file | Notes |
+| --- | --- | --- | --- | --- |
+| Profile stack | yes | `profiles/stacks/<stack-id>.yaml` | `schemas/v2/profile-stack.schema.json` | Ordered profile layer names. |
+| Profile layer | yes | `profiles/layers/<layer-id>.yaml` | `schemas/v2/profile-layer.schema.json` | Selections, scopes, location overrides, policies. |
+| Machine identity | partial | `identity/machine.yaml` local state | `schemas/v2/machine-identity.schema.json` | Bootstrap semantics deferred. |
+| User identity | partial | `identity/users/<local-user>.yaml` local state | `schemas/v2/user-identity.schema.json` | Bootstrap semantics deferred. |
+| Desired artifact | no | `desired/.../targets/<target-id>/...` | `schemas/v2/desired-manifest.schema.json` and `schemas/v2/desired-settings.schema.json` where applicable | Owned by artifact spec. |
+| Recipe default scope | no | `recipes/local/<recipe-id>/recipe.yaml` or bundled recipe catalog | `schemas/v2/recipe.schema.json` | Owned by recipe spec. |
 
-Field names in examples are sketches until schema work promotes them.
+Profile and identity objects use fully qualified schema identifiers such as
+`dotfiles-manager.v2.profile-stack` and
+`dotfiles-manager.v2.profile-layer`. Field names in examples are sketches until
+schema work promotes them.
 
 ## Examples
 
@@ -221,7 +259,7 @@ valid and the command supports partial results.
 
 ## Out of scope
 
-- final identity-file format;
+- final identity bootstrap semantics and field-level identity schema;
 - account login or cloud identity;
 - cross-machine merge;
 - templating engines;

@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/00-vocabulary.md
 source-concept-sections:
   - Core nouns and relationships
@@ -42,9 +42,10 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- exact schema filenames are defined outside this vocabulary spec;
-- exact local state paths are deferred to repository-layout and implementation
-  specs;
+- canonical schema filenames are defined by `01-repository-layout.md`, not this
+  vocabulary spec;
+- canonical local state paths are defined by `01-repository-layout.md`, not this
+  vocabulary spec;
 - product rename decisions are outside this spec.
 
 ## Terms owned by this spec
@@ -380,8 +381,8 @@ Vocabulary errors should surface as validation errors in downstream specs:
 
 ## Out of scope
 
-- final schema files;
-- final local state path;
+- final schema field definitions and runtime validators;
+- local state retention and cleanup policy;
 - product rename;
 - remote recipe catalog terminology;
 - AI discovery vocabulary beyond draft-recipe concepts.

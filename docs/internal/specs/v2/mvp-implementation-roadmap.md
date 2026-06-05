@@ -103,8 +103,10 @@ Agent issues should cover:
 
 1. Add final front matter and promotion metadata for v2 specs.
 2. Normalize desired URI and public ID examples across all specs.
-3. Decide final schema filenames and JSON Schema locations.
-4. Decide exact local state, backup, cache, and retention paths.
+3. Implement the canonical schema filenames from `01-repository-layout.md`
+   with field-level JSON Schemas.
+4. Implement the canonical local state, backup, cache, and temp roots from
+   `01-repository-layout.md`; retention policy remains a separate decision.
 5. Decide machine/user ID bootstrap rules.
 6. Decide MVP platform matrix.
 7. Add `recipe.explain` to the CLI/JSON contract as a read-only MVP advanced

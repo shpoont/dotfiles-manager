@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/06-recipe-schema.md
 source-concept-sections:
   - Recipe
@@ -46,7 +46,6 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- final recipe YAML/JSON schema is deferred;
 - remote recipe catalog is deferred;
 - arbitrary recipe scripts are deferred and not MVP.
 
@@ -66,6 +65,20 @@ Deliberate non-decisions:
 ## Normative MVP rules
 
 ### Recipe responsibilities
+
+Local repository recipes are stored at:
+
+```text
+recipes/local/<recipe-id>/recipe.yaml
+```
+
+`<recipe-id>` is a single path segment matching
+`[A-Za-z0-9][A-Za-z0-9._-]*`. A local recipe file must carry:
+
+```yaml
+schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+```
 
 A recipe must declare:
 
@@ -173,18 +186,19 @@ This spec owns the recipe schema boundary.
 
 Persisted objects:
 
-| Object | Owned here? | Notes |
-| --- | --- | --- |
-| Recipe metadata | yes | Target ID, display, support, platforms. |
-| Settings declaration | yes | IDs, defaults, sensitivity, capability. |
-| Settings group | yes | Optional grouping only. |
-| Named location | yes | Defaults and override permission. |
-| Resource declaration | partial | Driver spec owns operation semantics. |
-| Native operation | partial | Security spec owns command safety. |
-| Trust record | partial | Security spec owns trust persistence. |
+| Object | Owned here? | Canonical path | Schema file | Notes |
+| --- | --- | --- | --- | --- |
+| Recipe metadata | yes | `recipes/local/<recipe-id>/recipe.yaml` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Target ID, display, support, platforms. |
+| Settings declaration | yes | `recipes/local/<recipe-id>/recipe.yaml#/settings` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | IDs, defaults, sensitivity, capability. |
+| Settings group | yes | `recipes/local/<recipe-id>/recipe.yaml#/settingsGroups` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Optional grouping only. |
+| Named location | yes | `recipes/local/<recipe-id>/recipe.yaml#/locations` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Defaults and override permission. |
+| Resource declaration | partial | `recipes/local/<recipe-id>/recipe.yaml#/resources` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Driver spec owns operation semantics. |
+| Native operation | partial | `recipes/local/<recipe-id>/recipe.yaml#/nativeOperations` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Security spec owns command safety. |
+| Trust record | no | `trust/trust-record.yaml` local state | `schemas/v2/trust-record.schema.json` | Security spec owns trust persistence. |
 
-Final recipe schema must have its own schema version independent from config,
-profile, artifact, ledger, and backup schemas.
+The recipe schema uses the fully qualified identifier
+`dotfiles-manager.v2.recipe` and has its own version context independent from
+config, profile, artifact, ledger, and backup schemas.
 
 ## Examples
 
@@ -262,7 +276,5 @@ inspectable only if validation can isolate them without ambiguity.
 
 ## Spec follow-ups / open decisions
 
-- Decide exact recipe schema filename and format.
 - Decide whether constrained `command-io` is included in MVP local recipes.
-- Decide exact recipe trust-record storage.
 - Decide exact support matrix for bundled initial recipes.

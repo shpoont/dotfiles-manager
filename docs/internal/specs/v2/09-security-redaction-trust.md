@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-04
+last-updated: 2026-06-05
 canonical-source: docs/internal/specs/v2/09-security-redaction-trust.md
 source-concept-sections:
   - Security/privacy/trust model
@@ -45,7 +45,7 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- exact trust-record schema is deferred;
+- exact trust-record invalidation rules are deferred;
 - exact secret-detection implementation is deferred;
 - exact platform matrix is deferred.
 
@@ -109,6 +109,25 @@ sensitivity, or change lifecycle behavior must require review before writes.
 
 Remote recipe catalog, signed downloads, and update trust are post-MVP.
 
+### Trust-record storage
+
+Trust records are local-only state, not repository desired data:
+
+```text
+trust/trust-record.yaml
+```
+
+`trust-record.yaml` carries:
+
+```yaml
+schema: dotfiles-manager.v2.trust-record
+schemaVersion: 1
+```
+
+The canonical schema file is `schemas/v2/trust-record.schema.json`. The record
+must not be written inside `desired/`, profile files, recipe files, or desired
+artifact payloads.
+
 ### Command execution boundary
 
 Arbitrary recipe scripts are not allowed in MVP.
@@ -162,14 +181,14 @@ This spec owns safety policy, redaction, trust, and lifecycle boundaries.
 
 Persisted/emitted objects:
 
-| Object | Owned here? | Notes |
-| --- | --- | --- |
-| Sensitivity policy | yes | Recipe and profile policy fields. |
-| Redaction outcome | yes | Final enum deferred to JSON schemas. |
-| Trust record | partial | Exact storage path/format deferred. |
-| Lifecycle policy | yes | Recipe policy shape. |
-| Command-IO policy | partial | Only if included in MVP. |
-| Security diagnostics | partial | CLI envelope owns output shape. |
+| Object | Owned here? | Canonical path | Schema file | Notes |
+| --- | --- | --- | --- | --- |
+| Sensitivity policy | yes | recipe/profile policy fields | `schemas/v2/recipe.schema.json` and `schemas/v2/profile-layer.schema.json` where applicable | Field-level sensitivity enum deferred. |
+| Redaction outcome | yes | emitted CLI/preview diagnostics | `schemas/v2/preview.schema.json` where persisted | Final enum deferred to JSON schemas. |
+| Trust record | yes | `trust/trust-record.yaml` local state | `schemas/v2/trust-record.schema.json` | Trust decisions and reviewed recipe fingerprints. |
+| Lifecycle policy | yes | recipe policy fields | `schemas/v2/recipe.schema.json` | Recipe policy shape. |
+| Command-IO policy | partial | recipe native-operation fields | `schemas/v2/recipe.schema.json` | Only if included in MVP. |
+| Security diagnostics | partial | emitted CLI/preview diagnostics | `schemas/v2/preview.schema.json` where persisted | CLI envelope owns output shape. |
 
 ## Examples
 
@@ -230,7 +249,7 @@ blocked trust or policy decisions.
 ## Spec follow-ups / open decisions
 
 - Decide exact sensitivity levels.
-- Decide exact trust-record storage and invalidation rules.
+- Decide exact trust-record invalidation rules.
 - Decide platform support matrix for MVP.
 - Decide whether constrained command IO is included in MVP local recipes or
   deferred.
