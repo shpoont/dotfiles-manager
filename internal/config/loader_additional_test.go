@@ -222,3 +222,32 @@ func TestExpandSyncPathRejectsInvalidBracedName(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, dfmerr.CodeConfigSchemaType, dfmerr.MustCode(err))
 }
+
+func TestV1LoaderIgnoresV2RootWhenBothMarkersExist(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	v1Path := filepath.Join(dir, DefaultConfigFile)
+	require.NoError(t, os.WriteFile(v1Path, []byte("syncs:\n  - target: target\n    source: source\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dotfiles-manager.v2.yaml"), []byte("schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\nunknownV1Key: true\n"), 0o644))
+
+	resolved, err := ResolvePath(ResolveOptions{CWD: dir, Getenv: func(string) string { return "" }})
+	require.NoError(t, err)
+	require.Equal(t, v1Path, resolved)
+
+	cfg, err := Load(resolved)
+	require.NoError(t, err)
+	require.Len(t, cfg.Syncs, 1)
+	require.Equal(t, "target", cfg.Syncs[0].Target)
+}
+
+func TestV1ResolvePathDoesNotAcceptV2RootMarker(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dotfiles-manager.v2.yaml"), []byte("schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n"), 0o644))
+
+	_, err := ResolvePath(ResolveOptions{CWD: dir, Getenv: func(string) string { return "" }})
+	require.Error(t, err)
+	require.Equal(t, dfmerr.CodeConfigRequired, dfmerr.MustCode(err))
+}
