@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,6 +19,7 @@ const (
 	SupportedVersion   = 1
 	CustomFilesTarget  = "custom.files"
 	FileDriverID       = "file"
+	FileTreeDriverID   = "file-tree"
 	localRecipeRelRoot = "recipes/local"
 )
 
@@ -48,9 +50,11 @@ type Setting struct {
 }
 
 type Resource struct {
-	Driver   string `yaml:"driver"`
-	Location string `yaml:"location"`
-	Path     string `yaml:"path"`
+	Driver   string   `yaml:"driver"`
+	Location string   `yaml:"location"`
+	Path     string   `yaml:"path"`
+	Include  []string `yaml:"include,omitempty"`
+	Exclude  []string `yaml:"exclude,omitempty"`
 }
 
 func LoadCustomFiles(repoRoot string) (*Recipe, error) {
@@ -191,8 +195,17 @@ func (r *Recipe) ValidateCustomFiles() error {
 		return fmt.Errorf("custom.files recipe must declare exactly one resource, got %d", len(r.Resources))
 	}
 	for resourceID, resource := range r.Resources {
-		if resource.Driver != FileDriverID {
-			return fmt.Errorf("custom.files resource %s driver must be %q, got %q", resourceID, FileDriverID, resource.Driver)
+		switch resource.Driver {
+		case FileDriverID:
+			if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+				return fmt.Errorf("custom.files resource %s driver %q must not declare include/exclude globs", resourceID, FileDriverID)
+			}
+		case FileTreeDriverID:
+			if _, _, err := filetreedriver.NormalizeGlobs(resource.Include, resource.Exclude); err != nil {
+				return fmt.Errorf("custom.files resource %s globs: %w", resourceID, err)
+			}
+		default:
+			return fmt.Errorf("custom.files resource %s driver must be %q or %q, got %q", resourceID, FileDriverID, FileTreeDriverID, resource.Driver)
 		}
 	}
 	return nil
