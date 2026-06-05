@@ -51,35 +51,38 @@ type LedgerEntry struct {
 }
 
 type ItemRecord struct {
-	TargetRef      string          `json:"targetRef"`
-	SettingRef     string          `json:"settingRef"`
-	Operation      string          `json:"operation"`
-	ResourceID     string          `json:"resourceId"`
-	Driver         string          `json:"driver"`
-	DriverVersion  string          `json:"driverVersion"`
-	DesiredURI     string          `json:"desiredUri,omitempty"`
-	DesiredRelPath string          `json:"desiredRelPath,omitempty"`
-	LivePath       string          `json:"livePath,omitempty"`
-	DesiredPath    string          `json:"desiredPath,omitempty"`
-	ArtifactRefs   ArtifactRefs    `json:"artifactRefs"`
-	Before         NormalizedState `json:"before"`
-	Desired        NormalizedState `json:"desired"`
-	VerifiedState  NormalizedState `json:"verifiedState"`
-	BackupRefs     []string        `json:"backupRefs,omitempty"`
-	Verification   Verification    `json:"verification"`
-	Result         ItemResult      `json:"result"`
-	Diagnostics    []Diagnostic    `json:"diagnostics,omitempty"`
+	TargetRef        string          `json:"targetRef"`
+	SettingRef       string          `json:"settingRef"`
+	Operation        string          `json:"operation"`
+	ResourceID       string          `json:"resourceId"`
+	Driver           string          `json:"driver"`
+	DriverVersion    string          `json:"driverVersion"`
+	DesiredURI       string          `json:"desiredUri,omitempty"`
+	DesiredRelPath   string          `json:"desiredRelPath,omitempty"`
+	LivePath         string          `json:"livePath,omitempty"`
+	DesiredPath      string          `json:"desiredPath,omitempty"`
+	ArtifactRefs     ArtifactRefs    `json:"artifactRefs"`
+	Before           NormalizedState `json:"before"`
+	Desired          NormalizedState `json:"desired"`
+	VerifiedState    NormalizedState `json:"verifiedState"`
+	SourceBackupRefs []string        `json:"sourceBackupRefs,omitempty"`
+	BackupRefs       []string        `json:"backupRefs,omitempty"`
+	Verification     Verification    `json:"verification"`
+	Result           ItemResult      `json:"result"`
+	Diagnostics      []Diagnostic    `json:"diagnostics,omitempty"`
 }
 
 type ArtifactRefs struct {
-	Desired       string `json:"desired,omitempty"`
-	DesiredURI    string `json:"desiredUri,omitempty"`
-	DesiredPath   string `json:"desiredPath,omitempty"`
-	LivePath      string `json:"livePath,omitempty"`
-	Backup        string `json:"backup,omitempty"`
-	BackupPayload string `json:"backupPayload,omitempty"`
-	RunRecord     string `json:"runRecord,omitempty"`
-	Ledger        string `json:"ledger,omitempty"`
+	Desired             string `json:"desired,omitempty"`
+	DesiredURI          string `json:"desiredUri,omitempty"`
+	DesiredPath         string `json:"desiredPath,omitempty"`
+	LivePath            string `json:"livePath,omitempty"`
+	SourceBackup        string `json:"sourceBackup,omitempty"`
+	SourceBackupPayload string `json:"sourceBackupPayload,omitempty"`
+	Backup              string `json:"backup,omitempty"`
+	BackupPayload       string `json:"backupPayload,omitempty"`
+	RunRecord           string `json:"runRecord,omitempty"`
+	Ledger              string `json:"ledger,omitempty"`
 }
 
 type NormalizedState struct {
