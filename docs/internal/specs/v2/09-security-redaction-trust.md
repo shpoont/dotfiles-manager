@@ -109,6 +109,20 @@ sensitivity, or change lifecycle behavior must require review before writes.
 
 Remote recipe catalog, signed downloads, and update trust are post-MVP.
 
+### Recipe explanation safety
+
+`recipe explain <target>` is read-only metadata output. It must not include
+secret values, raw captures, session/account state, native command output,
+unredacted sensitive data, or value-bearing defaults. Native operation details
+must be summarized without raw argv, environment variables, captured output, or
+local paths that may contain secrets.
+
+Untrusted local recipes may be explained as metadata so the user can understand
+what would be trusted, but write-capable behavior remains blocked until trust is
+established. If a recipe cannot be rendered safely without exposing sensitive
+metadata, the CLI must emit `metadata-render-blocked` and exit with safety exit
+code `5`.
+
 ### Trust-record storage
 
 Trust records are local-only state, not repository desired data:
