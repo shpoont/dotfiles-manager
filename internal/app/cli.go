@@ -197,6 +197,7 @@ func newMigrateCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview migration without writing files")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.AddCommand(newMigrateParityCmd())
+	cmd.AddCommand(newMigratePromotePreviewCmd())
 	return cmd
 }
 
@@ -217,6 +218,24 @@ func newMigrateParityCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runDir, "run-dir", "", "Path to a generated migration run directory")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&yamlOutput, "yaml", false, "Emit machine-readable YAML output")
+	return cmd
+}
+
+func newMigratePromotePreviewCmd() *cobra.Command {
+	var runDir string
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "promote-preview",
+		Short: "Preview optional promotion from generated custom.files entries to known targets",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMigratePromotePreviewCommand(cmd, runDir, jsonOutput)
+		},
+	}
+
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "Path to a generated migration run directory")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -527,6 +546,22 @@ func runMigrateParityCommand(cmd *cobra.Command, runDir string, jsonOutput bool,
 	return nil
 }
 
+func runMigratePromotePreviewCommand(cmd *cobra.Command, runDir string, jsonOutput bool) error {
+	runDir = strings.TrimSpace(runDir)
+	if runDir == "" {
+		err := dfmerr.New(dfmerr.CodeFlagInvalidValue, "Flag required: --run-dir", map[string]any{"flag": "--run-dir"})
+		emitMigratePromotionError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, runDir, err)
+		return err
+	}
+
+	report, err := v2migration.BuildPromotionReport(v2migration.PromotionOptions{RunDir: runDir})
+	if err != nil {
+		emitMigratePromotionError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, runDir, err)
+		return err
+	}
+	return emitMigratePromotionReport(cmd.OutOrStdout(), report, jsonOutput)
+}
+
 type migrateParityBlockedError struct {
 	blocked int
 }
@@ -555,6 +590,23 @@ func emitMigrateParityReport(stdout io.Writer, report *v2migration.ParityReport,
 	return err
 }
 
+func emitMigratePromotionReport(stdout io.Writer, report *v2migration.PromotionReport, jsonOutput bool) error {
+	var (
+		payload string
+		err     error
+	)
+	if jsonOutput {
+		payload, err = v2migration.PromotionJSON(report)
+	} else {
+		payload = v2migration.PromotionText(report) + "\n"
+	}
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(stdout, payload)
+	return err
+}
+
 func emitMigrateParityError(stdout io.Writer, stderr io.Writer, jsonOutput bool, yamlOutput bool, runDir string, err error) {
 	if !jsonOutput && !yamlOutput {
 		_, _ = fmt.Fprintln(stderr, err.Error())
@@ -571,6 +623,26 @@ func emitMigrateParityError(stdout io.Writer, stderr io.Writer, jsonOutput bool,
 	}
 	report := v2migration.NewParityErrorReport(runDir, code, message, details)
 	if renderErr := emitMigrateParityReport(stdout, report, jsonOutput, yamlOutput); renderErr != nil {
+		_, _ = fmt.Fprintln(stderr, err.Error())
+	}
+}
+
+func emitMigratePromotionError(stdout io.Writer, stderr io.Writer, jsonOutput bool, runDir string, err error) {
+	if !jsonOutput {
+		_, _ = fmt.Fprintln(stderr, err.Error())
+		return
+	}
+
+	code := ""
+	message := err.Error()
+	var details map[string]any
+	if dfmError, ok := dfmerr.As(err); ok {
+		code = string(dfmError.Code)
+		message = dfmError.Message
+		details = dfmError.Details
+	}
+	report := v2migration.NewPromotionErrorReport(runDir, code, message, details)
+	if renderErr := emitMigratePromotionReport(stdout, report, jsonOutput); renderErr != nil {
 		_, _ = fmt.Fprintln(stderr, err.Error())
 	}
 }

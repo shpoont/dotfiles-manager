@@ -343,6 +343,117 @@ func TestMigrateParityRejectsConflictingFormatFlagsWithoutUsageNoise(t *testing.
 	require.NotContains(t, stderr.String(), "Usage:")
 }
 
+func TestMigratePromotePreviewJSONReportsGeneratedRun(t *testing.T) {
+	tempDir, configBody, runRoot, runID := createSuccessfulMigrationRun(t)
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "promote-preview", "--run-dir", runRoot, "--json"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "dotfiles-manager.v2.migration-promotion-preview", payload["schema"])
+	require.Equal(t, float64(1), payload["schemaVersion"])
+	require.Equal(t, runID, payload["runId"])
+	require.Equal(t, runRoot, payload["migrationRunDir"])
+	require.Equal(t, filepath.Join(runRoot, "generated"), payload["generatedRoot"])
+	require.NotContains(t, payload, "schema_version")
+	require.NotContains(t, payload, "run_id")
+
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "blocked", summary["status"])
+	require.Equal(t, float64(1), summary["syncs"])
+	require.Equal(t, float64(0), summary["promotable"])
+	require.Equal(t, float64(1), summary["blocked"])
+	require.Equal(t, float64(1), summary["gitConfigCandidates"])
+
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "custom.files:sync-0", item["currentSettingRef"])
+	require.Equal(t, "gitconfig", item["candidateId"])
+	require.Equal(t, "gitconfig-identity-v1", item["promotionRuleId"])
+	require.Equal(t, "git:identity", item["proposedSettingRef"])
+	require.Equal(t, "blocked", item["result"])
+	requireDiagnosticCode(t, item, "promotion-target-unimplemented")
+	require.NotContains(t, stdout.String(), "leon@example.com")
+
+	require.Equal(t, configBody, readFile(t, filepath.Join(tempDir, config.DefaultConfigFile)))
+	require.NoFileExists(t, filepath.Join(tempDir, "dotfiles-manager.v2.yaml"))
+	require.NoDirExists(t, filepath.Join(tempDir, "profiles"))
+	require.NoDirExists(t, filepath.Join(tempDir, "desired"))
+	require.NoDirExists(t, filepath.Join(tempDir, "recipes"))
+}
+
+func TestMigratePromotePreviewTextSummarizesPreviewOnlyReport(t *testing.T) {
+	_, _, runRoot, runID := createSuccessfulMigrationRun(t)
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "promote-preview", "--run-dir", runRoot})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	out := stdout.String()
+	require.Contains(t, out, "migration promotion preview")
+	require.Contains(t, out, "PREVIEW ONLY (no active v2 writes, no live file writes)")
+	require.Contains(t, out, "run: "+runID)
+	require.Contains(t, out, "current: custom.files:sync-0")
+	require.Contains(t, out, "proposed promotion: git:identity")
+	require.Contains(t, out, "result: blocked")
+	require.Contains(t, out, "summary syncs=1 promotable=0 blocked=1 not-promotable=0 git-config-candidates=1 status=blocked")
+}
+
+func TestMigratePromotePreviewRequiresRunDirWithoutUsageNoise(t *testing.T) {
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "promote-preview"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "Flag required: --run-dir")
+	require.NotContains(t, stderr.String(), "Usage:")
+}
+
+func TestMigratePromotePreviewMissingRunDirJSONUsesErrorReport(t *testing.T) {
+	missingRunDir := filepath.Join(t.TempDir(), "missing-run")
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "promote-preview", "--run-dir", missingRunDir, "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "dotfiles-manager.v2.migration-promotion-preview", payload["schema"])
+	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, missingRunDir, payload["migrationRunDir"])
+	errorObj := payload["error"].(map[string]any)
+	require.Equal(t, "", errorObj["code"])
+	require.Contains(t, errorObj["message"], "read migration plan:")
+	require.Contains(t, errorObj["message"], missingRunDir)
+}
+
 func TestMigratePlainJSONBlockedPlanWritesNothing(t *testing.T) {
 	tempDir := t.TempDir()
 	oldWD, err := os.Getwd()

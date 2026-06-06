@@ -111,3 +111,54 @@ func ParityText(report *ParityReport) string {
 	))
 	return strings.Join(lines, "\n")
 }
+
+func PromotionText(report *PromotionReport) string {
+	if report == nil {
+		return "migration promotion preview\nsummary syncs=0 promotable=0 blocked=0 not-promotable=0 git-config-candidates=0 status=error"
+	}
+	var lines []string
+	lines = append(lines, "migration promotion preview")
+	lines = append(lines, "PREVIEW ONLY (no active v2 writes, no live file writes)")
+	lines = append(lines, "run: "+report.RunID)
+	lines = append(lines, "run dir: "+report.MigrationRunDir)
+	lines = append(lines, "generated root: "+report.GeneratedRoot)
+	if report.ConfigPath != "" {
+		lines = append(lines, "config: "+report.ConfigPath)
+	}
+	if report.Error != nil && report.Summary.Status == "error" {
+		lines = append(lines, fmt.Sprintf("error[%s]: %s", report.Error.Code, report.Error.Message))
+	}
+	for _, item := range report.Items {
+		lines = append(lines, "")
+		lines = append(lines, item.SyncRef)
+		lines = append(lines, "  current: "+item.CurrentSettingRef)
+		lines = append(lines, fmt.Sprintf("  legacy target: %s driver=%s", item.LegacyTarget, item.Driver))
+		if item.CandidateID != "" {
+			lines = append(lines, "  candidate: "+item.CandidateID)
+		}
+		if item.PromotionRuleID != "" {
+			lines = append(lines, "  promotion rule: "+item.PromotionRuleID)
+		}
+		if item.ProposedSettingRef != "" {
+			lines = append(lines, "  proposed promotion: "+item.ProposedSettingRef)
+		}
+		lines = append(lines, "  result: "+item.Result)
+		for _, diagnostic := range item.Diagnostics {
+			lines = append(lines, fmt.Sprintf("  diagnostic[%s]: %s", diagnostic.Code, diagnostic.Message))
+		}
+	}
+	if report.Error != nil && report.Summary.Status != "error" {
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("error[%s]: %s", report.Error.Code, report.Error.Message))
+	}
+	lines = append(lines, fmt.Sprintf(
+		"summary syncs=%d promotable=%d blocked=%d not-promotable=%d git-config-candidates=%d status=%s",
+		report.Summary.Syncs,
+		report.Summary.Promotable,
+		report.Summary.Blocked,
+		report.Summary.NotPromotable,
+		report.Summary.GitConfigCandidates,
+		report.Summary.Status,
+	))
+	return strings.Join(lines, "\n")
+}
