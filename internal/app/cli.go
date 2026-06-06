@@ -14,6 +14,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/config"
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/shpoont/dotfiles-manager/internal/logging"
+	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	"github.com/spf13/cobra"
 )
 
@@ -57,6 +58,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newDeployCmd(opts))
 	rootCmd.AddCommand(newImportCmd(opts))
 	rootCmd.AddCommand(newDiffCmd(opts))
+	rootCmd.AddCommand(newMigrateCmd(opts))
 
 	return rootCmd
 }
@@ -176,6 +178,24 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for diff (validation error)")
 	_ = cmd.Flags().MarkHidden("dry-run")
 
+	return cmd
+}
+
+func newMigrateCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Preview v1 syncs as v2 custom.files entries",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMigrateCommand(cmd, opts, dryRun, jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview migration without writing files")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -399,6 +419,73 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	commandLogger.Info("command.complete")
 	return nil
+}
+
+func runMigrateCommand(cmd *cobra.Command, opts *rootOptions, dryRun bool, jsonOutput bool) error {
+	resolvedConfigPath, err := config.ResolvePath(config.ResolveOptions{ExplicitPath: opts.configPath})
+	if err != nil {
+		emitMigrateError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, dryRun, explicitConfigPath(opts.configPath), err)
+		return err
+	}
+
+	absConfigPath, err := filepath.Abs(resolvedConfigPath)
+	if err != nil {
+		cfgErr := dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", resolvedConfigPath), map[string]any{"path": resolvedConfigPath}, err)
+		emitMigrateError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, dryRun, resolvedConfigPath, cfgErr)
+		return cfgErr
+	}
+
+	if !dryRun {
+		err := dfmerr.New(dfmerr.CodeFlagUnsupported, "migrate currently supports --dry-run only", map[string]any{
+			"flag":           "--dry-run",
+			"required_flags": []string{"--dry-run"},
+		})
+		emitMigrateError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, dryRun, absConfigPath, err)
+		return err
+	}
+
+	plan, err := v2migration.BuildDryRunPlan(v2migration.Options{
+		ConfigPath: absConfigPath,
+		RunID:      v2migration.DefaultRunID,
+	})
+	if err != nil {
+		emitMigrateError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, dryRun, absConfigPath, err)
+		return err
+	}
+
+	if jsonOutput {
+		payload, err := v2migration.JSON(plan)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), payload)
+		return nil
+	}
+
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), v2migration.Text(plan))
+	return nil
+}
+
+func emitMigrateError(stdout io.Writer, stderr io.Writer, jsonOutput bool, dryRun bool, configPath any, err error) {
+	if !jsonOutput {
+		_, _ = fmt.Fprintln(stderr, err.Error())
+		return
+	}
+
+	code := ""
+	message := err.Error()
+	var details map[string]any
+	if dfmError, ok := dfmerr.As(err); ok {
+		code = string(dfmError.Code)
+		message = dfmError.Message
+		details = dfmError.Details
+	}
+	payload := v2migration.NewErrorPayload(dryRun, configPath, code, message, details)
+	rendered, renderErr := v2migration.ErrorJSON(payload)
+	if renderErr != nil {
+		return
+	}
+	_, _ = fmt.Fprint(stdout, rendered)
 }
 
 func logCommandError(logger *slog.Logger, err error) {

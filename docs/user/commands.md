@@ -9,6 +9,7 @@ dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
+dotfiles-manager [--config <path>] migrate --dry-run [--json]
 ```
 
 Config is resolved in this order:
@@ -163,6 +164,43 @@ add-unmanaged[1]
 remove-missing[1]
   remove       lua/legacy.lua (file)
 summary dry-run=true updated-managed=1 added-unmanaged=1 removed-missing=1
+```
+
+## `migrate --dry-run [--json]`
+
+Behavior:
+- preview-only v1-to-v2 migration command
+- reads existing v1 `.dotfiles-manager.yaml` `syncs:`
+- shows each legacy source and target exactly as configured
+- shows expanded source/target paths separately
+- proposes v2 `custom.files` setting refs, driver, desired artifact binding, and generated file paths
+- does not create `migrations/`, active v2 config, profiles, recipes, or desired artifacts
+- does not delete or rewrite the v1 config
+- plain `migrate` without `--dry-run` is not implemented yet
+
+JSON output uses v2-style field casing (`schemaVersion`, `dryRun`,
+`configPath`, `generatedFiles`) rather than the v1 command envelope.
+
+Example text output shape:
+
+```text
+MODE: DRY RUN (no writes)
+migration run=dry-run config=/repo/.dotfiles-manager.yaml
+v1 config action: leave unchanged
+v1 command behavior: unchanged
+
+sync[0]
+  legacy source: dotfiles/git/.gitconfig
+  legacy target: .gitconfig
+  expanded source: /repo/dotfiles/git/.gitconfig
+  expanded target: /home/user/.gitconfig
+  proposed: custom.files:sync-0 driver=file
+  artifact binding: desired://user/legacy/targets/custom.files/artifacts/sync-0
+  v1 config: leave-unchanged
+  result: planned
+  generated files:
+    migrations/v1-to-v2/dry-run/generated/desired/user/legacy/targets/custom.files/artifacts/sync-0
+summary syncs=1 planned=1 blocked=0 files=1 file-trees=0 generated-files=6 status=ok
 ```
 
 ## `[path]` scoping
