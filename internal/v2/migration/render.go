@@ -10,8 +10,15 @@ func Text(plan *Plan) string {
 		return "summary syncs=0 planned=0 blocked=0 generated-files=0 status=error"
 	}
 	var lines []string
-	lines = append(lines, "MODE: DRY RUN (no writes)")
+	if plan.DryRun {
+		lines = append(lines, "MODE: DRY RUN (no writes)")
+	} else {
+		lines = append(lines, "MODE: MIGRATE (writes generated output only)")
+	}
 	lines = append(lines, fmt.Sprintf("migration run=%s config=%s", plan.RunID, plan.ConfigPath))
+	if !plan.DryRun && plan.OutputDir != "" {
+		lines = append(lines, "output: "+plan.OutputDir)
+	}
 	lines = append(lines, "v1 config action: leave unchanged")
 	lines = append(lines, "v1 command behavior: unchanged")
 	for _, item := range plan.Items {

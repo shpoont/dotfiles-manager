@@ -187,7 +187,7 @@ func newMigrateCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Preview v1 syncs as v2 custom.files entries",
+		Short: "Preview or generate v1 syncs as v2 custom.files entries",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrateCommand(cmd, opts, dryRun, jsonOutput)
@@ -435,20 +435,30 @@ func runMigrateCommand(cmd *cobra.Command, opts *rootOptions, dryRun bool, jsonO
 		return cfgErr
 	}
 
-	if !dryRun {
-		err := dfmerr.New(dfmerr.CodeFlagUnsupported, "migrate currently supports --dry-run only", map[string]any{
-			"flag":           "--dry-run",
-			"required_flags": []string{"--dry-run"},
+	var plan *v2migration.Plan
+	if dryRun {
+		plan, err = v2migration.BuildDryRunPlan(v2migration.Options{
+			ConfigPath: absConfigPath,
+			RunID:      v2migration.DefaultRunID,
 		})
-		emitMigrateError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, dryRun, absConfigPath, err)
-		return err
+	} else {
+		plan, err = v2migration.WriteMigrationOutput(v2migration.Options{
+			ConfigPath: absConfigPath,
+		})
 	}
-
-	plan, err := v2migration.BuildDryRunPlan(v2migration.Options{
-		ConfigPath: absConfigPath,
-		RunID:      v2migration.DefaultRunID,
-	})
 	if err != nil {
+		if v2migration.IsBlocked(err) && plan != nil {
+			if jsonOutput {
+				payload, renderErr := v2migration.JSON(plan)
+				if renderErr != nil {
+					return renderErr
+				}
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), payload)
+			} else {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), v2migration.Text(plan))
+			}
+			return err
+		}
 		emitMigrateError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, dryRun, absConfigPath, err)
 		return err
 	}

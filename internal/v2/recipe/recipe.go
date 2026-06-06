@@ -191,8 +191,8 @@ func (r *Recipe) ValidateCustomFiles() error {
 	if r.Capability != "read-write" {
 		return fmt.Errorf("custom.files recipe capability must be read-write, got %s", r.Capability)
 	}
-	if len(r.Resources) != 1 {
-		return fmt.Errorf("custom.files recipe must declare exactly one resource, got %d", len(r.Resources))
+	if len(r.Resources) == 0 {
+		return fmt.Errorf("custom.files recipe must declare at least one resource")
 	}
 	for resourceID, resource := range r.Resources {
 		switch resource.Driver {

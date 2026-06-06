@@ -88,7 +88,7 @@ func TestRecipeRejectsUnknownFieldsAndInvalidReferences(t *testing.T) {
 	}
 }
 
-func TestCustomFilesRecipeIsIntentionallyNarrow(t *testing.T) {
+func TestCustomFilesRecipeRestrictsDriversButAllowsMultipleResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -106,11 +106,6 @@ func TestCustomFilesRecipeIsIntentionallyNarrow(t *testing.T) {
 			body:    replace(validCustomFilesRecipe("config.yaml"), "driver: file", "driver: yaml-file"),
 			wantErr: "driver must be \"file\" or \"file-tree\"",
 		},
-		{
-			name:    "exactly one resource",
-			body:    validCustomFilesRecipe("config.yaml") + "  other:\n    driver: file\n    location: config\n    path: other.txt\n",
-			wantErr: "exactly one resource",
-		},
 	}
 
 	for _, tc := range tests {
@@ -124,6 +119,12 @@ func TestCustomFilesRecipeIsIntentionallyNarrow(t *testing.T) {
 			require.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+
+	root := t.TempDir()
+	writeRecipe(t, root, validCustomFilesRecipe("config.yaml")+"  other:\n    driver: file\n    location: config\n    path: other.txt\n")
+	rec, err := LoadCustomFiles(root)
+	require.NoError(t, err)
+	require.Len(t, rec.Resources, 2)
 }
 
 func TestCustomFilesRecipeValidatesFileTreeGlobs(t *testing.T) {

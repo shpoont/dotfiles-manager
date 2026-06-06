@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/shpoont/dotfiles-manager/internal/config"
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
@@ -11,6 +12,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestDryRunPlanPreservesLegacyPathsAndInfersFileDriver(t *testing.T) {
@@ -164,6 +166,290 @@ func TestDryRunPlanInfersDriverFromTargetWhenSourceIsMissing(t *testing.T) {
 	require.Equal(t, "planned", plan.Items[0].Result)
 }
 
+func TestWriteMigrationOutputGeneratesV2RunForSingleAndMultiSyncs(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	homeRoot := t.TempDir()
+	writeFile(t, filepath.Join(repoRoot, "legacy", ".gitconfig"), "[user]\n\temail = leon@example.com\n")
+	writeFile(t, filepath.Join(repoRoot, "legacy", "nvim", "init.lua"), "vim.opt.number = true\n")
+	configPath := writeV1Config(t, repoRoot, `syncs:
+  - source: legacy/.gitconfig
+    target: .gitconfig
+  - source: legacy/nvim
+    target: .config/nvim
+`)
+	v1Before := readFile(t, configPath)
+
+	plan, err := WriteMigrationOutput(Options{ConfigPath: configPath, HomeDir: homeRoot, RunID: "fixture"})
+	require.NoError(t, err)
+	require.Equal(t, MigrationPlanSchema, plan.Schema)
+	require.False(t, plan.DryRun)
+	require.Equal(t, Summary{Syncs: 2, Planned: 2, Blocked: 0, Files: 1, FileTrees: 1, GeneratedFiles: 7, Status: "ok"}, plan.Summary)
+
+	runRoot := filepath.Join(repoRoot, "migrations", "v1-to-v2", "fixture")
+	generatedRoot := filepath.Join(runRoot, "generated")
+	require.FileExists(t, filepath.Join(runRoot, "migration-plan.yaml"))
+	require.FileExists(t, filepath.Join(generatedRoot, "dotfiles-manager.v2.yaml"))
+	require.FileExists(t, filepath.Join(generatedRoot, "profiles", "stacks", "legacy.yaml"))
+	require.FileExists(t, filepath.Join(generatedRoot, "profiles", "layers", "legacy.yaml"))
+	require.FileExists(t, filepath.Join(generatedRoot, "recipes", "local", "custom.files", "recipe.yaml"))
+	requireFile(t, filepath.Join(generatedRoot, "desired", "user", "legacy", "targets", "custom.files", "artifacts", "sync-0"), "[user]\n\temail = leon@example.com\n")
+	requireFile(t, filepath.Join(generatedRoot, "desired", "user", "legacy", "targets", "custom.files", "artifacts", "sync-1", "init.lua"), "vim.opt.number = true\n")
+
+	require.Equal(t, v1Before, readFile(t, configPath))
+	_, err = config.Load(configPath)
+	require.NoError(t, err)
+	require.NoFileExists(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"))
+	require.NoDirExists(t, filepath.Join(repoRoot, "profiles"))
+	require.NoDirExists(t, filepath.Join(repoRoot, "desired"))
+	require.NoDirExists(t, filepath.Join(repoRoot, "recipes"))
+
+	var planYAML map[string]any
+	require.NoError(t, yaml.Unmarshal(readFile(t, filepath.Join(runRoot, "migration-plan.yaml")), &planYAML))
+	require.Equal(t, MigrationPlanSchema, planYAML["schema"])
+	require.Equal(t, 1, planYAML["schemaVersion"])
+
+	profile, err := resolution.Resolve(generatedRoot, resolution.ResolveOptions{UserID: "legacy"})
+	require.NoError(t, err)
+	require.Len(t, profile.Settings, 2)
+	rec, err := recipe.LoadCustomFiles(generatedRoot)
+	require.NoError(t, err)
+	require.Len(t, rec.Resources, 2)
+	require.Len(t, rec.Locations, 2)
+
+	fileItem := plan.Items[0]
+	fileReq := customfiles.Request{
+		Profile:       profile,
+		Recipe:        rec,
+		SettingRef:    fileItem.SettingRef,
+		LocationRoots: map[string]string{fileItem.LocationID: homeRoot},
+	}
+	filePlan, err := customfiles.PlanApply(fileReq)
+	require.NoError(t, err)
+	require.Equal(t, filedriver.ChangeCreate, filePlan.Preview.Change.Kind)
+	fileResult, err := customfiles.Execute(filePlan, customfiles.ExecuteOptions{})
+	require.NoError(t, err)
+	require.True(t, fileResult.Verified)
+	requireFile(t, filepath.Join(homeRoot, ".gitconfig"), "[user]\n\temail = leon@example.com\n")
+
+	treeItem := plan.Items[1]
+	require.NoError(t, os.MkdirAll(filepath.Join(homeRoot, ".config"), 0o755))
+	treeReq := customfiles.Request{
+		Profile:       profile,
+		Recipe:        rec,
+		SettingRef:    treeItem.SettingRef,
+		LocationRoots: map[string]string{treeItem.LocationID: filepath.Join(homeRoot, ".config")},
+	}
+	treePlan, err := customfiles.PlanApply(treeReq)
+	require.NoError(t, err)
+	require.Equal(t, filedriver.ChangeCreate, treePlan.TreePreview.Change.Kind)
+	treeDry, err := customfiles.Execute(treePlan, customfiles.ExecuteOptions{DryRun: true})
+	require.NoError(t, err)
+	require.False(t, treeDry.Mutated)
+	require.NoFileExists(t, filepath.Join(homeRoot, ".config", "nvim", "init.lua"))
+	treeResult, err := customfiles.Execute(treePlan, customfiles.ExecuteOptions{})
+	require.NoError(t, err)
+	require.True(t, treeResult.Verified)
+	requireFile(t, filepath.Join(homeRoot, ".config", "nvim", "init.lua"), "vim.opt.number = true\n")
+}
+
+func TestWriteMigrationOutputBlocksAndWritesNothingWhenSourceMissing(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	homeRoot := t.TempDir()
+	writeFile(t, filepath.Join(homeRoot, ".fallback-target"), "live fallback\n")
+	configPath := writeV1Config(t, repoRoot, `syncs:
+  - source: missing/source
+    target: .fallback-target
+`)
+
+	plan, err := WriteMigrationOutput(Options{ConfigPath: configPath, HomeDir: homeRoot, RunID: "blocked"})
+	require.Error(t, err)
+	require.True(t, IsBlocked(err))
+	require.NotNil(t, plan)
+	require.Equal(t, "blocked", plan.Summary.Status)
+	require.Equal(t, "blocked", plan.Items[0].Result)
+	require.Equal(t, "migration-source-unavailable", plan.Items[0].Diagnostics[len(plan.Items[0].Diagnostics)-1].Code)
+	require.NoDirExists(t, filepath.Join(repoRoot, "migrations"))
+}
+
+func TestWriteMigrationOutputRefusesExistingRunDirectory(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	homeRoot := t.TempDir()
+	writeFile(t, filepath.Join(repoRoot, "legacy", ".gitconfig"), "[user]\n\temail = leon@example.com\n")
+	configPath := writeV1Config(t, repoRoot, `syncs:
+  - source: legacy/.gitconfig
+    target: .gitconfig
+`)
+	existing := filepath.Join(repoRoot, "migrations", "v1-to-v2", "fixture")
+	writeFile(t, filepath.Join(existing, "keep.txt"), "do not overwrite\n")
+
+	plan, err := WriteMigrationOutput(Options{ConfigPath: configPath, HomeDir: homeRoot, RunID: "fixture"})
+	require.Error(t, err)
+	require.NotNil(t, plan)
+	require.Contains(t, err.Error(), "already exists")
+	requireFile(t, filepath.Join(existing, "keep.txt"), "do not overwrite\n")
+}
+
+func TestWriteMigrationOutputBlocksSourceSymlinkEscapeAndWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	homeRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	outsideFile := filepath.Join(outsideRoot, "outside.txt")
+	writeFile(t, outsideFile, "outside\n")
+	require.NoError(t, os.Symlink(outsideFile, filepath.Join(repoRoot, "source-link")))
+	configPath := writeV1Config(t, repoRoot, `syncs:
+  - source: source-link
+    target: .outside
+`)
+
+	plan, err := WriteMigrationOutput(Options{ConfigPath: configPath, HomeDir: homeRoot, RunID: "blocked"})
+	require.Error(t, err)
+	require.True(t, IsBlocked(err))
+	require.NotNil(t, plan)
+	require.Equal(t, "blocked", plan.Summary.Status)
+	require.Equal(t, "migration-source-unavailable", plan.Items[0].Diagnostics[len(plan.Items[0].Diagnostics)-1].Code)
+	require.NoDirExists(t, filepath.Join(repoRoot, "migrations"))
+}
+
+func TestWriteMigrationOutputRejectsMigrationPathSymlinks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		setupSymlink  func(t *testing.T, repoRoot string, outsideRoot string)
+		outsideRunDir func(outsideRoot string) string
+	}{
+		{
+			name: "migrations symlink",
+			setupSymlink: func(t *testing.T, repoRoot string, outsideRoot string) {
+				t.Helper()
+				require.NoError(t, os.Symlink(outsideRoot, filepath.Join(repoRoot, "migrations")))
+			},
+			outsideRunDir: func(outsideRoot string) string {
+				return filepath.Join(outsideRoot, "v1-to-v2", "fixture")
+			},
+		},
+		{
+			name: "v1-to-v2 symlink",
+			setupSymlink: func(t *testing.T, repoRoot string, outsideRoot string) {
+				t.Helper()
+				require.NoError(t, os.MkdirAll(filepath.Join(repoRoot, "migrations"), 0o755))
+				require.NoError(t, os.Symlink(outsideRoot, filepath.Join(repoRoot, "migrations", "v1-to-v2")))
+			},
+			outsideRunDir: func(outsideRoot string) string {
+				return filepath.Join(outsideRoot, "fixture")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repoRoot := t.TempDir()
+			homeRoot := t.TempDir()
+			outsideRoot := t.TempDir()
+			writeFile(t, filepath.Join(repoRoot, "legacy", ".gitconfig"), "[user]\n\temail = leon@example.com\n")
+			configPath := writeV1Config(t, repoRoot, `syncs:
+  - source: legacy/.gitconfig
+    target: .gitconfig
+`)
+			tc.setupSymlink(t, repoRoot, outsideRoot)
+
+			plan, err := WriteMigrationOutput(Options{ConfigPath: configPath, HomeDir: homeRoot, RunID: "fixture"})
+			require.Error(t, err)
+			require.NotNil(t, plan)
+			require.Contains(t, err.Error(), "must not traverse symlinks")
+			require.NoDirExists(t, tc.outsideRunDir(outsideRoot))
+		})
+	}
+}
+
+func TestMigrationOutputValidationAndHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	var nilOutput *Output
+	require.Error(t, nilOutput.Write())
+	require.Error(t, (&Output{}).Write())
+	require.Error(t, (&Output{Plan: &Plan{DryRun: true}}).Write())
+
+	blockedPlan := &Plan{Summary: Summary{Blocked: 2}}
+	err := (&Output{Plan: blockedPlan}).Write()
+	require.Error(t, err)
+	require.True(t, IsBlocked(err))
+	require.Equal(t, "migration blocked", (&BlockedError{}).Error())
+	require.Contains(t, (&BlockedError{Plan: blockedPlan}).Error(), "2 blocked")
+
+	require.Equal(t, "20260102-030405-000000006", NewRunID(fixedTimeForRunID()))
+	generated, err := BuildMigrationOutput(Options{ConfigPath: writeOneFileMigrationRepo(t), Now: fixedTimeForRunID})
+	require.NoError(t, err)
+	require.Equal(t, "20260102-030405-000000006", generated.Plan.RunID)
+	require.NoDirExists(t, filepath.Join(generated.Plan.RepoRoot, "migrations"))
+
+	_, err = BuildMigrationOutput(Options{ConfigPath: generated.Plan.ConfigPath, RunID: "../bad"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "path-safe")
+
+	_, err = JSON(&Plan{Error: func() {}})
+	require.Error(t, err)
+
+	parentFile := filepath.Join(t.TempDir(), "parent-file")
+	writeFile(t, parentFile, "not a dir\n")
+	err = writeTextFile(filepath.Join(parentFile, "child.txt"), "body")
+	require.Error(t, err)
+
+	require.Equal(t, `"quote\" slash\\ newline\n tab\t carriage\r"`, yamlQuote("quote\" slash\\ newline\n tab\t carriage\r"))
+}
+
+func TestMigrationOutputCaptureAndWriteStagedErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	plan := &Plan{
+		RunID:    "fixture",
+		RepoRoot: t.TempDir(),
+		Items: []Item{{
+			SyncRef:               "sync[0]",
+			ExpandedSourceRelPath: "legacy/file",
+			ExpandedSourcePath:    "/repo/legacy/file",
+			Driver:                "native",
+			Result:                "planned",
+			GeneratedFiles:        []GeneratedFile{{Path: "generated"}},
+		}},
+		GeneratedFiles: baseGeneratedFiles("fixture"),
+	}
+	output, err := capturePayloads(plan)
+	require.NoError(t, err)
+	require.Equal(t, "blocked", output.Plan.Items[0].Result)
+	require.Equal(t, "migration-driver-unknown", output.Plan.Items[0].Diagnostics[0].Code)
+	require.Equal(t, Summary{Syncs: 1, Planned: 0, Blocked: 1, GeneratedFiles: 5, Status: "blocked"}, output.Plan.Summary)
+
+	err = (&Output{
+		Plan: &Plan{
+			RunID:    "fixture",
+			RepoRoot: t.TempDir(),
+			Items: []Item{{
+				SyncIndex: 0,
+				SyncRef:   "sync[0]",
+				SettingID: "sync-0",
+				Driver:    "native",
+				Result:    "planned",
+			}},
+			GeneratedFiles: baseGeneratedFiles("fixture"),
+		},
+		Payloads: []Payload{{SyncRef: "sync[0]", Driver: "native"}},
+	}).writeStaged(t.TempDir())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported payload driver")
+}
+
 func TestDryRunPlanErrorAndHelperBranches(t *testing.T) {
 	t.Parallel()
 
@@ -298,4 +584,25 @@ func requireFile(t *testing.T, path string, want string) {
 	body, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, want, string(body))
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return body
+}
+
+func fixedTimeForRunID() time.Time {
+	return time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+}
+
+func writeOneFileMigrationRepo(t *testing.T) string {
+	t.Helper()
+	repoRoot := t.TempDir()
+	writeFile(t, filepath.Join(repoRoot, "legacy", ".gitconfig"), "[user]\n\temail = leon@example.com\n")
+	return writeV1Config(t, repoRoot, `syncs:
+  - source: legacy/.gitconfig
+    target: .gitconfig
+`)
 }

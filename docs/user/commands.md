@@ -9,7 +9,7 @@ dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
-dotfiles-manager [--config <path>] migrate --dry-run [--json]
+dotfiles-manager [--config <path>] migrate [--dry-run] [--json]
 ```
 
 Config is resolved in this order:
@@ -166,22 +166,43 @@ remove-missing[1]
 summary dry-run=true updated-managed=1 added-unmanaged=1 removed-missing=1
 ```
 
-## `migrate --dry-run [--json]`
+## `migrate [--dry-run] [--json]`
 
 Behavior:
-- preview-only v1-to-v2 migration command
 - reads existing v1 `.dotfiles-manager.yaml` `syncs:`
 - shows each legacy source and target exactly as configured
 - shows expanded source/target paths separately
 - proposes v2 `custom.files` setting refs, driver, desired artifact binding, and generated file paths
-- does not create `migrations/`, active v2 config, profiles, recipes, or desired artifacts
 - does not delete or rewrite the v1 config
-- plain `migrate` without `--dry-run` is not implemented yet
+- `migrate --dry-run` is preview-only and writes nothing
+- plain `migrate` writes only a new migration run directory:
+
+```text
+migrations/v1-to-v2/<run-id>/
+  migration-plan.yaml
+  generated/
+    dotfiles-manager.v2.yaml
+    profiles/
+      stacks/legacy.yaml
+      layers/legacy.yaml
+    recipes/local/custom.files/recipe.yaml
+    desired/user/legacy/targets/custom.files/artifacts/...
+```
+
+Plain `migrate` does **not** write active v2 paths at the repository root. It
+does not create or replace root-level `dotfiles-manager.v2.yaml`, `profiles/`,
+`desired/`, or `recipes/`. The generated files live under the migration run's
+`generated/` directory so they can be reviewed, diffed, copied, or promoted by
+a later explicit step.
+
+Plain `migrate` also keeps `.dotfiles-manager.yaml` byte-for-byte unchanged.
+If any legacy sync cannot be represented safely, migration is blocked and no
+final run directory is produced by default.
 
 JSON output uses v2-style field casing (`schemaVersion`, `dryRun`,
 `configPath`, `generatedFiles`) rather than the v1 command envelope.
 
-Example text output shape:
+Dry-run text output shape:
 
 ```text
 MODE: DRY RUN (no writes)
@@ -201,6 +222,14 @@ sync[0]
   generated files:
     migrations/v1-to-v2/dry-run/generated/desired/user/legacy/targets/custom.files/artifacts/sync-0
 summary syncs=1 planned=1 blocked=0 files=1 file-trees=0 generated-files=6 status=ok
+```
+
+Plain migrate text output uses the same item mapping, but starts with:
+
+```text
+MODE: MIGRATE (writes generated output only)
+migration run=<run-id> config=/repo/.dotfiles-manager.yaml
+output: /repo/migrations/v1-to-v2/<run-id>
 ```
 
 ## `[path]` scoping
