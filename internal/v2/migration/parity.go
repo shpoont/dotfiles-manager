@@ -139,6 +139,16 @@ func ParityYAML(report *ParityReport) (string, error) {
 	return string(payload), nil
 }
 
+func NewParityErrorReport(runDir string, code string, message string, details map[string]any) *ParityReport {
+	return &ParityReport{
+		Schema:          ParityReportSchema,
+		SchemaVersion:   SchemaVersion,
+		MigrationRunDir: runDir,
+		Summary:         ParitySummary{Status: "error"},
+		Error:           &ErrorObject{Code: code, Message: message, Details: details},
+	}
+}
+
 func parityPlanAndRunDir(opts ParityOptions) (*Plan, string, error) {
 	if opts.Plan != nil {
 		if err := validateParityPlan(opts.Plan); err != nil {

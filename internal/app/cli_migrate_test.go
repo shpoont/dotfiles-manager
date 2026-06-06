@@ -10,7 +10,9 @@ import (
 
 	"github.com/shpoont/dotfiles-manager/internal/config"
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
+	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestMigrateDryRunJSONUsesV2StyleAndWritesNothing(t *testing.T) {
@@ -147,6 +149,200 @@ func TestMigratePlainJSONWritesGeneratedRunAndLeavesV1Config(t *testing.T) {
 	requireFile(t, filepath.Join(runRoot, "generated", "desired", "user", "legacy", "targets", "custom.files", "artifacts", "sync-0"), "[user]\n\temail = leon@example.com\n")
 }
 
+func TestMigrateParityJSONReportsGeneratedRun(t *testing.T) {
+	tempDir, configBody, runRoot, runID := createSuccessfulMigrationRun(t)
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", runRoot, "--json"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "dotfiles-manager.v2.migration-parity-report", payload["schema"])
+	require.Equal(t, float64(1), payload["schemaVersion"])
+	require.Equal(t, runID, payload["runId"])
+	require.Equal(t, runRoot, payload["migrationRunDir"])
+	require.Equal(t, filepath.Join(runRoot, "generated"), payload["generatedRoot"])
+	require.NotContains(t, payload, "schema_version")
+	require.NotContains(t, payload, "run_id")
+	require.NotContains(t, payload, "migration_run_dir")
+
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "ok", summary["status"])
+	require.Equal(t, float64(1), summary["syncs"])
+	require.Equal(t, float64(1), summary["ok"])
+	require.Equal(t, float64(0), summary["blocked"])
+
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "custom.files:sync-0", item["settingRef"])
+	require.Equal(t, "file", item["driver"])
+	require.Equal(t, "ok", item["result"])
+	require.NotEmpty(t, item["liveTargetPath"])
+	require.NotEmpty(t, item["desiredArtifactPath"])
+	require.NotContains(t, item, "live_target_path")
+	require.NotContains(t, item, "desired_artifact_path")
+
+	require.Equal(t, configBody, readFile(t, filepath.Join(tempDir, config.DefaultConfigFile)))
+	require.NoFileExists(t, filepath.Join(tempDir, "dotfiles-manager.v2.yaml"))
+	require.NoDirExists(t, filepath.Join(tempDir, "profiles"))
+	require.NoDirExists(t, filepath.Join(tempDir, "desired"))
+	require.NoDirExists(t, filepath.Join(tempDir, "recipes"))
+}
+
+func TestMigrateParityTextSummarizesGeneratedRun(t *testing.T) {
+	_, _, runRoot, runID := createSuccessfulMigrationRun(t)
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", runRoot})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	out := stdout.String()
+	require.Contains(t, out, "migration parity report")
+	require.Contains(t, out, "run: "+runID)
+	require.Contains(t, out, "run dir: "+runRoot)
+	require.Contains(t, out, "generated root: "+filepath.Join(runRoot, "generated"))
+	require.Contains(t, out, "custom.files:sync-0")
+	require.Contains(t, out, "legacy source:")
+	require.Contains(t, out, "desired artifact:")
+	require.Contains(t, out, "result: ok")
+	require.Contains(t, out, "summary syncs=1 ok=1 blocked=0 files=1 file-trees=0 status=ok")
+}
+
+func TestMigrateParityYAMLReportsGeneratedRun(t *testing.T) {
+	_, _, runRoot, runID := createSuccessfulMigrationRun(t)
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", runRoot, "--yaml"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, yaml.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "dotfiles-manager.v2.migration-parity-report", payload["schema"])
+	require.Equal(t, runID, payload["runId"])
+	require.Equal(t, "ok", payload["summary"].(map[string]any)["status"])
+}
+
+func TestMigrateParityBlockedMissingArtifactEmitsReportAndQuietError(t *testing.T) {
+	_, _, runRoot, _ := createSuccessfulMigrationRun(t)
+	require.NoError(t, os.Remove(filepath.Join(runRoot, "generated", "desired", "user", "legacy", "targets", "custom.files", "artifacts", "sync-0")))
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", runRoot, "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "migration parity blocked: 1 blocked item(s)")
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "dotfiles-manager.v2.migration-parity-report", payload["schema"])
+	require.Equal(t, "blocked", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "parity-blocked", payload["error"].(map[string]any)["code"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "blocked", item["result"])
+	requireDiagnosticCode(t, item, "parity-generated-artifact-missing")
+}
+
+func TestMigrateParityRequiresRunDirWithoutUsageNoise(t *testing.T) {
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "Flag required: --run-dir")
+	require.NotContains(t, stderr.String(), "Usage:")
+}
+
+func TestMigrateParityMissingRunDirErrorsWithoutUsageNoise(t *testing.T) {
+	missingRunDir := filepath.Join(t.TempDir(), "missing-run")
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", missingRunDir})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "read migration plan:")
+	require.Contains(t, stderr.String(), missingRunDir)
+	require.NotContains(t, stderr.String(), "Usage:")
+}
+
+func TestMigrateParityMissingRunDirJSONUsesErrorReport(t *testing.T) {
+	missingRunDir := filepath.Join(t.TempDir(), "missing-run")
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", missingRunDir, "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "dotfiles-manager.v2.migration-parity-report", payload["schema"])
+	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, missingRunDir, payload["migrationRunDir"])
+	errorObj := payload["error"].(map[string]any)
+	require.Equal(t, "", errorObj["code"])
+	require.Contains(t, errorObj["message"], "read migration plan:")
+	require.Contains(t, errorObj["message"], missingRunDir)
+}
+
+func TestMigrateParityRejectsConflictingFormatFlagsWithoutUsageNoise(t *testing.T) {
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "parity", "--run-dir", "ignored", "--json", "--yaml"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "--json and --yaml cannot be used together")
+	require.NotContains(t, stderr.String(), "Usage:")
+}
+
 func TestMigratePlainJSONBlockedPlanWritesNothing(t *testing.T) {
 	tempDir := t.TempDir()
 	oldWD, err := os.Getwd()
@@ -244,6 +440,18 @@ func TestEmitMigrateErrorTextAndGenericJSON(t *testing.T) {
 	require.Equal(t, "plain failure", errorObj["message"])
 }
 
+func TestEmitMigrateParityReportReturnsWriteErrors(t *testing.T) {
+	report := &v2migration.ParityReport{
+		Schema:        v2migration.ParityReportSchema,
+		SchemaVersion: v2migration.SchemaVersion,
+		Summary:       v2migration.ParitySummary{Status: "ok"},
+	}
+
+	err := emitMigrateParityReport(failingWriter{}, report, false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "write failed")
+}
+
 func TestParserHelpersPreserveJSONErrorContextForMigrate(t *testing.T) {
 	parserErr, ok := classifyParserError(errors.New(`unknown command "bogus" for "dotfiles-manager"`))
 	require.True(t, ok)
@@ -292,4 +500,56 @@ func readFile(t *testing.T, path string) []byte {
 func requireFile(t *testing.T, path string, want string) {
 	t.Helper()
 	require.Equal(t, want, string(readFile(t, path)))
+}
+
+func createSuccessfulMigrationRun(t *testing.T) (string, []byte, string, string) {
+	t.Helper()
+	tempDir := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	require.NoError(t, os.Chdir(tempDir))
+
+	configPath := filepath.Join(tempDir, config.DefaultConfigFile)
+	configBody := []byte("syncs:\n  - source: dotfiles/git/.gitconfig\n    target: .gitconfig\n")
+	require.NoError(t, os.WriteFile(configPath, configBody, 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "dotfiles", "git"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "dotfiles", "git", ".gitconfig"), []byte("[user]\n\temail = leon@example.com\n"), 0o644))
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"migrate", "--json"})
+
+	err = cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	runID := payload["runId"].(string)
+	runRoot := filepath.Join(tempDir, "migrations", "v1-to-v2", runID)
+	require.DirExists(t, runRoot)
+	return tempDir, configBody, runRoot, runID
+}
+
+func requireDiagnosticCode(t *testing.T, item map[string]any, code string) {
+	t.Helper()
+	diagnostics, ok := item["diagnostics"].([]any)
+	require.True(t, ok, "item diagnostics missing")
+	for _, rawDiagnostic := range diagnostics {
+		diagnostic := rawDiagnostic.(map[string]any)
+		if diagnostic["code"] == code {
+			return
+		}
+	}
+	require.Failf(t, "diagnostic code missing", "expected diagnostic code %q in %#v", code, diagnostics)
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
 }
