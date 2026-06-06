@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/shpoont/dotfiles-manager/internal/config"
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
@@ -372,6 +373,83 @@ func TestWriteMigrationOutputRejectsMigrationPathSymlinks(t *testing.T) {
 	}
 }
 
+func TestMigrationOutputValidationAndHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	var nilOutput *Output
+	require.Error(t, nilOutput.Write())
+	require.Error(t, (&Output{}).Write())
+	require.Error(t, (&Output{Plan: &Plan{DryRun: true}}).Write())
+
+	blockedPlan := &Plan{Summary: Summary{Blocked: 2}}
+	err := (&Output{Plan: blockedPlan}).Write()
+	require.Error(t, err)
+	require.True(t, IsBlocked(err))
+	require.Equal(t, "migration blocked", (&BlockedError{}).Error())
+	require.Contains(t, (&BlockedError{Plan: blockedPlan}).Error(), "2 blocked")
+
+	require.Equal(t, "20260102-030405-000000006", NewRunID(fixedTimeForRunID()))
+	generated, err := BuildMigrationOutput(Options{ConfigPath: writeOneFileMigrationRepo(t), Now: fixedTimeForRunID})
+	require.NoError(t, err)
+	require.Equal(t, "20260102-030405-000000006", generated.Plan.RunID)
+	require.NoDirExists(t, filepath.Join(generated.Plan.RepoRoot, "migrations"))
+
+	_, err = BuildMigrationOutput(Options{ConfigPath: generated.Plan.ConfigPath, RunID: "../bad"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "path-safe")
+
+	_, err = JSON(&Plan{Error: func() {}})
+	require.Error(t, err)
+
+	parentFile := filepath.Join(t.TempDir(), "parent-file")
+	writeFile(t, parentFile, "not a dir\n")
+	err = writeTextFile(filepath.Join(parentFile, "child.txt"), "body")
+	require.Error(t, err)
+
+	require.Equal(t, `"quote\" slash\\ newline\n tab\t carriage\r"`, yamlQuote("quote\" slash\\ newline\n tab\t carriage\r"))
+}
+
+func TestMigrationOutputCaptureAndWriteStagedErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	plan := &Plan{
+		RunID:    "fixture",
+		RepoRoot: t.TempDir(),
+		Items: []Item{{
+			SyncRef:               "sync[0]",
+			ExpandedSourceRelPath: "legacy/file",
+			ExpandedSourcePath:    "/repo/legacy/file",
+			Driver:                "native",
+			Result:                "planned",
+			GeneratedFiles:        []GeneratedFile{{Path: "generated"}},
+		}},
+		GeneratedFiles: baseGeneratedFiles("fixture"),
+	}
+	output, err := capturePayloads(plan)
+	require.NoError(t, err)
+	require.Equal(t, "blocked", output.Plan.Items[0].Result)
+	require.Equal(t, "migration-driver-unknown", output.Plan.Items[0].Diagnostics[0].Code)
+	require.Equal(t, Summary{Syncs: 1, Planned: 0, Blocked: 1, GeneratedFiles: 5, Status: "blocked"}, output.Plan.Summary)
+
+	err = (&Output{
+		Plan: &Plan{
+			RunID:    "fixture",
+			RepoRoot: t.TempDir(),
+			Items: []Item{{
+				SyncIndex: 0,
+				SyncRef:   "sync[0]",
+				SettingID: "sync-0",
+				Driver:    "native",
+				Result:    "planned",
+			}},
+			GeneratedFiles: baseGeneratedFiles("fixture"),
+		},
+		Payloads: []Payload{{SyncRef: "sync[0]", Driver: "native"}},
+	}).writeStaged(t.TempDir())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported payload driver")
+}
+
 func TestDryRunPlanErrorAndHelperBranches(t *testing.T) {
 	t.Parallel()
 
@@ -513,4 +591,18 @@ func readFile(t *testing.T, path string) []byte {
 	body, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return body
+}
+
+func fixedTimeForRunID() time.Time {
+	return time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+}
+
+func writeOneFileMigrationRepo(t *testing.T) string {
+	t.Helper()
+	repoRoot := t.TempDir()
+	writeFile(t, filepath.Join(repoRoot, "legacy", ".gitconfig"), "[user]\n\temail = leon@example.com\n")
+	return writeV1Config(t, repoRoot, `syncs:
+  - source: legacy/.gitconfig
+    target: .gitconfig
+`)
 }
