@@ -196,6 +196,27 @@ func newMigrateCmd(opts *rootOptions) *cobra.Command {
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview migration without writing files")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.AddCommand(newMigrateParityCmd())
+	return cmd
+}
+
+func newMigrateParityCmd() *cobra.Command {
+	var runDir string
+	var jsonOutput bool
+	var yamlOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "parity",
+		Short: "Check a generated v1-to-v2 migration run for parity",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMigrateParityCommand(cmd, runDir, jsonOutput, yamlOutput)
+		},
+	}
+
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "Path to a generated migration run directory")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&yamlOutput, "yaml", false, "Emit machine-readable YAML output")
 	return cmd
 }
 
@@ -474,6 +495,84 @@ func runMigrateCommand(cmd *cobra.Command, opts *rootOptions, dryRun bool, jsonO
 
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), v2migration.Text(plan))
 	return nil
+}
+
+func runMigrateParityCommand(cmd *cobra.Command, runDir string, jsonOutput bool, yamlOutput bool) error {
+	if jsonOutput && yamlOutput {
+		err := dfmerr.New(dfmerr.CodeFlagInvalidValue, "--json and --yaml cannot be used together", map[string]any{
+			"flags": []string{"--json", "--yaml"},
+		})
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		return err
+	}
+
+	runDir = strings.TrimSpace(runDir)
+	if runDir == "" {
+		err := dfmerr.New(dfmerr.CodeFlagInvalidValue, "Flag required: --run-dir", map[string]any{"flag": "--run-dir"})
+		emitMigrateParityError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, yamlOutput, runDir, err)
+		return err
+	}
+
+	report, err := v2migration.BuildParityReport(v2migration.ParityOptions{RunDir: runDir})
+	if err != nil {
+		emitMigrateParityError(cmd.OutOrStdout(), cmd.ErrOrStderr(), jsonOutput, yamlOutput, runDir, err)
+		return err
+	}
+	if err := emitMigrateParityReport(cmd.OutOrStdout(), report, jsonOutput, yamlOutput); err != nil {
+		return err
+	}
+	if report.Summary.Status != "ok" {
+		return migrateParityBlockedError{blocked: report.Summary.Blocked}
+	}
+	return nil
+}
+
+type migrateParityBlockedError struct {
+	blocked int
+}
+
+func (e migrateParityBlockedError) Error() string {
+	return fmt.Sprintf("migration parity blocked: %d blocked item(s)", e.blocked)
+}
+
+func emitMigrateParityReport(stdout io.Writer, report *v2migration.ParityReport, jsonOutput bool, yamlOutput bool) error {
+	var (
+		payload string
+		err     error
+	)
+	switch {
+	case jsonOutput:
+		payload, err = v2migration.ParityJSON(report)
+	case yamlOutput:
+		payload, err = v2migration.ParityYAML(report)
+	default:
+		payload = v2migration.ParityText(report) + "\n"
+	}
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(stdout, payload)
+	return err
+}
+
+func emitMigrateParityError(stdout io.Writer, stderr io.Writer, jsonOutput bool, yamlOutput bool, runDir string, err error) {
+	if !jsonOutput && !yamlOutput {
+		_, _ = fmt.Fprintln(stderr, err.Error())
+		return
+	}
+
+	code := ""
+	message := err.Error()
+	var details map[string]any
+	if dfmError, ok := dfmerr.As(err); ok {
+		code = string(dfmError.Code)
+		message = dfmError.Message
+		details = dfmError.Details
+	}
+	report := v2migration.NewParityErrorReport(runDir, code, message, details)
+	if renderErr := emitMigrateParityReport(stdout, report, jsonOutput, yamlOutput); renderErr != nil {
+		_, _ = fmt.Fprintln(stderr, err.Error())
+	}
 }
 
 func emitMigrateError(stdout io.Writer, stderr io.Writer, jsonOutput bool, dryRun bool, configPath any, err error) {

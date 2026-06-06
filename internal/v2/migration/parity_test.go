@@ -81,6 +81,13 @@ func TestBuildParityReportProvesGeneratedFileAndTreeParityFromRunDir(t *testing.
 	var decodedYAML map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(yamlPayload), &decodedYAML))
 	require.Equal(t, ParityReportSchema, decodedYAML["schema"])
+
+	textPayload := ParityText(report)
+	require.Contains(t, textPayload, "migration parity report")
+	require.Contains(t, textPayload, "run: fixture")
+	require.Contains(t, textPayload, "sync[0]")
+	require.Contains(t, textPayload, "desired artifact:")
+	require.Contains(t, textPayload, "summary syncs=2 ok=2 blocked=0 files=1 file-trees=1 status=ok")
 }
 
 func TestBuildParityReportBlocksWhenGeneratedArtifactMissing(t *testing.T) {
@@ -306,6 +313,26 @@ func TestGeneratedParityMappingDiagnosticsReportRecipeDrift(t *testing.T) {
 	requireDiagnosticCode(t, diagnostics, "parity-generated-resource-drift")
 	requireDiagnosticCode(t, diagnostics, "parity-generated-globs-drift")
 	requireDiagnosticCode(t, diagnostics, "parity-generated-location-missing")
+}
+
+func TestParityTextAndErrorReportHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, ParityText(nil), "summary syncs=0 ok=0 blocked=0 files=0 file-trees=0 status=error")
+
+	report := NewParityErrorReport("missing-run", "DFM_TEST", "cannot read migration plan", map[string]any{"runDir": "missing-run"})
+	require.Equal(t, ParityReportSchema, report.Schema)
+	require.Equal(t, SchemaVersion, report.SchemaVersion)
+	require.Equal(t, "missing-run", report.MigrationRunDir)
+	require.Equal(t, "error", report.Summary.Status)
+	require.Equal(t, "DFM_TEST", report.Error.Code)
+	require.Equal(t, "missing-run", report.Error.Details["runDir"])
+
+	textPayload := ParityText(report)
+	require.Contains(t, textPayload, "migration parity report")
+	require.Contains(t, textPayload, "run dir: missing-run")
+	require.Contains(t, textPayload, "error[DFM_TEST]: cannot read migration plan")
+	require.Contains(t, textPayload, "summary syncs=0 ok=0 blocked=0 files=0 file-trees=0 status=error")
 }
 
 func requireDiagnosticCode(t *testing.T, diagnostics []Diagnostic, code string) {
