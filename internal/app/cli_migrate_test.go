@@ -99,7 +99,7 @@ func TestMigrateDryRunTextShowsMappingAndNoWritesBanner(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(tempDir, "migrations"))
 }
 
-func TestMigratePlainIsUnsupportedAndUsesV2JSONError(t *testing.T) {
+func TestMigratePlainJSONWritesGeneratedRunAndLeavesV1Config(t *testing.T) {
 	tempDir := t.TempDir()
 	oldWD, err := os.Getwd()
 	require.NoError(t, err)
@@ -107,28 +107,42 @@ func TestMigratePlainIsUnsupportedAndUsesV2JSONError(t *testing.T) {
 	require.NoError(t, os.Chdir(tempDir))
 
 	configPath := filepath.Join(tempDir, config.DefaultConfigFile)
-	require.NoError(t, os.WriteFile(configPath, []byte("syncs:\n  - source: dotfiles/git/.gitconfig\n    target: .gitconfig\n"), 0o644))
+	configBody := []byte("syncs:\n  - source: dotfiles/git/.gitconfig\n    target: .gitconfig\n")
+	require.NoError(t, os.WriteFile(configPath, configBody, 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "dotfiles", "git"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "dotfiles", "git", ".gitconfig"), []byte("[user]\n\temail = leon@example.com\n"), 0o644))
 
 	cmd := NewRootCmd()
 	var stdout bytes.Buffer
+	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetErr(&stderr)
 	cmd.SetArgs([]string{"migrate", "--json"})
 
 	err = cmd.Execute()
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	require.Equal(t, configBody, readFile(t, configPath))
+	require.NoFileExists(t, filepath.Join(tempDir, "dotfiles-manager.v2.yaml"))
+	require.NoDirExists(t, filepath.Join(tempDir, "profiles"))
+	require.NoDirExists(t, filepath.Join(tempDir, "desired"))
+	require.NoDirExists(t, filepath.Join(tempDir, "recipes"))
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
-	require.Equal(t, "dotfiles-manager.v2.migration-preview", payload["schema"])
+	require.Equal(t, "dotfiles-manager.v2.migration-plan", payload["schema"])
 	require.Equal(t, float64(1), payload["schemaVersion"])
 	require.Equal(t, "migrate", payload["command"])
 	require.Equal(t, false, payload["dryRun"])
 	require.NotContains(t, payload, "schema_version")
 	require.NotContains(t, payload, "dry_run")
-	errorObj := payload["error"].(map[string]any)
-	require.Equal(t, "DFM_FLAG_UNSUPPORTED", errorObj["code"])
-	require.Contains(t, errorObj["message"], "--dry-run")
+	require.Equal(t, "ok", payload["summary"].(map[string]any)["status"])
+	runID := payload["runId"].(string)
+	require.NotEmpty(t, runID)
+	runRoot := filepath.Join(tempDir, "migrations", "v1-to-v2", runID)
+	require.FileExists(t, filepath.Join(runRoot, "migration-plan.yaml"))
+	require.FileExists(t, filepath.Join(runRoot, "generated", "dotfiles-manager.v2.yaml"))
+	requireFile(t, filepath.Join(runRoot, "generated", "desired", "user", "legacy", "targets", "custom.files", "artifacts", "sync-0"), "[user]\n\temail = leon@example.com\n")
 }
 
 func readFile(t *testing.T, path string) []byte {
@@ -136,4 +150,9 @@ func readFile(t *testing.T, path string) []byte {
 	body, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return body
+}
+
+func requireFile(t *testing.T, path string, want string) {
+	t.Helper()
+	require.Equal(t, want, string(readFile(t, path)))
 }
