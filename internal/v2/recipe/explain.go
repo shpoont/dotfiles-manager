@@ -491,7 +491,7 @@ func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus
 	for _, settingID := range sortedKeys(rec.Settings) {
 		setting := rec.Settings[settingID]
 		resource := rec.Resources[setting.Resource]
-		explain.Settings = append(explain.Settings, ExplainSetting{Ref: rec.Target + ":" + settingID, ID: settingID, Label: fallbackLabel(settingID), SupportLevel: rec.SupportLevel, Capability: rec.Capability, DefaultScope: fallbackUnknown(setting.ScopeDefault), ArtifactForm: artifactFormForDriver(resource.Driver), SelectionStatus: "unknown", Sensitivity: "not-declared", Lifecycle: "not-declared", ResourceID: setting.Resource, Driver: resource.Driver, DiffLimitations: []string{"metadata explanation only"}, ApplyLimitations: []string{"recipe explain does not apply"}})
+		explain.Settings = append(explain.Settings, ExplainSetting{Ref: rec.Target + ":" + settingID, ID: settingID, Label: fallbackLabel(settingID), SupportLevel: fallback(rec.SupportLevel, setting.SupportLevel), Capability: effectiveSettingCapability(rec, setting), DefaultScope: fallbackUnknown(setting.ScopeDefault), ArtifactForm: fallback(artifactFormForDriver(resource.Driver), setting.ArtifactForm), SelectionStatus: "unknown", Sensitivity: fallbackDeclared(setting.Sensitivity), Lifecycle: fallbackDeclared(setting.Lifecycle), ResourceID: setting.Resource, Driver: resource.Driver, DiffLimitations: []string{"metadata explanation only"}, ApplyLimitations: []string{"recipe explain does not apply"}})
 	}
 	for _, resourceID := range sortedKeys(rec.Resources) {
 		resource := rec.Resources[resourceID]
@@ -594,6 +594,20 @@ func fallbackLabel(value string) string {
 func fallbackUnknown(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "unknown"
+	}
+	return value
+}
+
+func fallbackDeclared(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "not-declared"
+	}
+	return value
+}
+
+func fallback(defaultValue string, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return defaultValue
 	}
 	return value
 }

@@ -2380,11 +2380,12 @@ Redaction outcomes must be explicit:
 | `redacted-for-display` | Value can be saved/applied but hidden in output. | yes, with policy |
 | `blocked-save` | Sensitive material would enter desired artifacts. | no |
 | `redaction-unavailable` | Opaque/unknown format cannot be inspected. | only with opaque opt-in |
-| `user-approved-sensitive` | User explicitly approved a sensitive portable value. | only if recipe permits |
 
 Display redaction, artifact redaction, and save blocking are different policies.
 The tool must not silently modify desired artifacts while calling that
 “redaction” unless the recipe defines deterministic format-aware redaction.
+User approvals are context or trust-record state, not recipe-declared redaction
+outcomes.
 
 ### Change preview and internal plan
 

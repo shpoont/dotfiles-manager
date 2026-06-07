@@ -31,7 +31,38 @@ const (
 )
 
 const (
-	ValidationSeverityError = "error"
+	ValidationSeverityError   = "error"
+	ValidationSeverityWarning = "warning"
+)
+
+const (
+	RecipeSourceBundled = "bundled"
+	RecipeSourceLocal   = "local"
+)
+
+const (
+	SensitivityLow          = "low"
+	SensitivityPersonal     = "personal"
+	SensitivityMachineLocal = "machine-local"
+	SensitivitySecret       = "secret"
+	SensitivityUnknown      = "unknown"
+)
+
+const (
+	RedactionKnownSafe          = "known-safe"
+	RedactionRedactedForDisplay = "redacted-for-display"
+	RedactionBlockedSave        = "blocked-save"
+	RedactionUnavailable        = "redaction-unavailable"
+)
+
+const (
+	LifecycleAllowed               = "allowed"
+	LifecycleWarn                  = "warn"
+	LifecycleBlocked               = "blocked"
+	LifecycleAskToQuit             = "ask-to-quit"
+	LifecycleQuitIfRunning         = "quit-if-running"
+	LifecycleBlockIfRunning        = "block-if-running"
+	LifecycleReopenIfStoppedByTool = "reopen-if-stopped-by-tool"
 )
 
 var (
@@ -69,17 +100,24 @@ type Setting struct {
 	SupportLevel string `yaml:"supportLevel,omitempty"`
 	Capability   string `yaml:"capability,omitempty"`
 	ArtifactForm string `yaml:"artifactForm,omitempty"`
+	Sensitivity  string `yaml:"sensitivity,omitempty"`
+	Redaction    string `yaml:"redaction,omitempty"`
+	Lifecycle    string `yaml:"lifecycle,omitempty"`
 	ScopeDefault string `yaml:"scopeDefault"`
 	Resource     string `yaml:"resource"`
 }
 
 type Resource struct {
-	Driver   string    `yaml:"driver"`
-	Location string    `yaml:"location"`
-	Path     string    `yaml:"path"`
-	Include  []string  `yaml:"include,omitempty"`
-	Exclude  []string  `yaml:"exclude,omitempty"`
-	Selector *Selector `yaml:"selector,omitempty"`
+	Driver      string    `yaml:"driver"`
+	Location    string    `yaml:"location"`
+	Path        string    `yaml:"path"`
+	Capability  string    `yaml:"capability,omitempty"`
+	Sensitivity string    `yaml:"sensitivity,omitempty"`
+	Redaction   string    `yaml:"redaction,omitempty"`
+	Lifecycle   string    `yaml:"lifecycle,omitempty"`
+	Include     []string  `yaml:"include,omitempty"`
+	Exclude     []string  `yaml:"exclude,omitempty"`
+	Selector    *Selector `yaml:"selector,omitempty"`
 }
 
 type Selector struct {
@@ -104,6 +142,15 @@ type ValidationDiagnostic struct {
 
 type ValidationError struct {
 	Diagnostics []ValidationDiagnostic `json:"diagnostics"`
+}
+
+type WriteSafetyContext struct {
+	Source                  string
+	Trusted                 bool
+	AllowOpaque             bool
+	AllowSensitive          bool
+	AllowUnknownSensitivity bool
+	HandlesLifecycleActions bool
 }
 
 func (e *ValidationError) Error() string {
@@ -255,6 +302,18 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		if _, err := ValidateResourcePath(resource.Path); err != nil {
 			add("resource.path.invalid", resourcePath+".path", fmt.Sprintf("resource %s path: %s", resourceID, err.Error()))
 		}
+		if resource.Capability != "" && !knownCapability(resource.Capability) {
+			add("resource.capability.unsupported", resourcePath+".capability", fmt.Sprintf("resource %s unsupported capability: %s", resourceID, resource.Capability))
+		}
+		if resource.Sensitivity != "" && !knownSensitivity(resource.Sensitivity) {
+			add("resource.sensitivity.unsupported", resourcePath+".sensitivity", fmt.Sprintf("resource %s unsupported sensitivity classification", resourceID))
+		}
+		if resource.Redaction != "" && !knownRedaction(resource.Redaction) {
+			add("resource.redaction.unsupported", resourcePath+".redaction", fmt.Sprintf("resource %s unsupported redaction policy", resourceID))
+		}
+		if resource.Lifecycle != "" && !knownLifecycle(resource.Lifecycle) {
+			add("resource.lifecycle.unsupported", resourcePath+".lifecycle", fmt.Sprintf("resource %s unsupported lifecycle policy", resourceID))
+		}
 		if driverDeclared {
 			addErr("resource.driver.invalid", resourcePath+".driver", r.validateResourceDriverShape(resourceID, resource))
 		}
@@ -275,6 +334,15 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		}
 		if setting.ArtifactForm != "" && !knownArtifactForm(setting.ArtifactForm) {
 			add("setting.artifactForm.unsupported", settingPath+".artifactForm", fmt.Sprintf("setting %s unsupported artifactForm: %s", settingID, setting.ArtifactForm))
+		}
+		if setting.Sensitivity != "" && !knownSensitivity(setting.Sensitivity) {
+			add("setting.sensitivity.unsupported", settingPath+".sensitivity", fmt.Sprintf("setting %s unsupported sensitivity classification", settingID))
+		}
+		if setting.Redaction != "" && !knownRedaction(setting.Redaction) {
+			add("setting.redaction.unsupported", settingPath+".redaction", fmt.Sprintf("setting %s unsupported redaction policy", settingID))
+		}
+		if setting.Lifecycle != "" && !knownLifecycle(setting.Lifecycle) {
+			add("setting.lifecycle.unsupported", settingPath+".lifecycle", fmt.Sprintf("setting %s unsupported lifecycle policy", settingID))
 		}
 		if setting.ScopeDefault != "" && !knownScope(setting.ScopeDefault) {
 			add("setting.scopeDefault.unsupported", settingPath+".scopeDefault", fmt.Sprintf("setting %s unsupported scopeDefault: %s", settingID, setting.ScopeDefault))
@@ -813,6 +881,33 @@ func knownScope(value string) bool {
 func knownArtifactForm(value string) bool {
 	switch value {
 	case "file", "file-tree", "scalar", "structured", "native-export", "opaque", "metadata-only":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownSensitivity(value string) bool {
+	switch value {
+	case SensitivityLow, SensitivityPersonal, SensitivityMachineLocal, SensitivitySecret, SensitivityUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func knownRedaction(value string) bool {
+	switch value {
+	case RedactionKnownSafe, RedactionRedactedForDisplay, RedactionBlockedSave, RedactionUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+func knownLifecycle(value string) bool {
+	switch value {
+	case LifecycleAllowed, LifecycleWarn, LifecycleBlocked, LifecycleAskToQuit, LifecycleQuitIfRunning, LifecycleBlockIfRunning, LifecycleReopenIfStoppedByTool:
 		return true
 	default:
 		return false
