@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,8 +19,10 @@ const (
 	Schema             = "dotfiles-manager.v2.recipe"
 	SupportedVersion   = 1
 	CustomFilesTarget  = "custom.files"
+	GitTarget          = "git"
 	FileDriverID       = "file"
 	FileTreeDriverID   = "file-tree"
+	IniFileDriverID    = "ini-file"
 	localRecipeRelRoot = "recipes/local"
 )
 
@@ -50,11 +53,21 @@ type Setting struct {
 }
 
 type Resource struct {
-	Driver   string   `yaml:"driver"`
-	Location string   `yaml:"location"`
-	Path     string   `yaml:"path"`
-	Include  []string `yaml:"include,omitempty"`
-	Exclude  []string `yaml:"exclude,omitempty"`
+	Driver   string       `yaml:"driver"`
+	Location string       `yaml:"location"`
+	Path     string       `yaml:"path"`
+	Include  []string     `yaml:"include,omitempty"`
+	Exclude  []string     `yaml:"exclude,omitempty"`
+	Selector *INISelector `yaml:"selector,omitempty"`
+}
+
+type INISelector struct {
+	Section         string `yaml:"section"`
+	Key             string `yaml:"key"`
+	MissingSection  string `yaml:"missingSection,omitempty"`
+	MissingKey      string `yaml:"missingKey,omitempty"`
+	DuplicatePolicy string `yaml:"duplicatePolicy,omitempty"`
+	DeleteKey       string `yaml:"deleteKey,omitempty"`
 }
 
 func LoadCustomFiles(repoRoot string) (*Recipe, error) {
@@ -63,6 +76,17 @@ func LoadCustomFiles(repoRoot string) (*Recipe, error) {
 		return nil, err
 	}
 	if err := rec.ValidateCustomFiles(); err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
+func LoadGit(repoRoot string) (*Recipe, error) {
+	rec, err := LoadLocal(repoRoot, GitTarget)
+	if err != nil {
+		return nil, err
+	}
+	if err := rec.ValidateGit(); err != nil {
 		return nil, err
 	}
 	return rec, nil
@@ -161,6 +185,9 @@ func (r *Recipe) Validate() error {
 		if _, err := ValidateResourcePath(resource.Path); err != nil {
 			return fmt.Errorf("resource %s path: %w", resourceID, err)
 		}
+		if err := r.validateResourceDriverShape(resourceID, resource); err != nil {
+			return err
+		}
 	}
 
 	for _, settingID := range sortedKeys(r.Settings) {
@@ -177,6 +204,83 @@ func (r *Recipe) Validate() error {
 		if _, ok := r.Resources[setting.Resource]; !ok {
 			return fmt.Errorf("setting %s references unknown resource %s", settingID, setting.Resource)
 		}
+	}
+	return nil
+}
+
+func (r *Recipe) ValidateGit() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Target != GitTarget {
+		return fmt.Errorf("git recipe target must be %q, got %q", GitTarget, r.Target)
+	}
+	if r.Capability != "read-write" {
+		return fmt.Errorf("git recipe capability must be read-write, got %s", r.Capability)
+	}
+	if len(r.Locations) != 1 {
+		return fmt.Errorf("git recipe must declare only the home location")
+	}
+	location, ok := r.Locations["home"]
+	if !ok {
+		return fmt.Errorf("git recipe must declare home location")
+	}
+	if strings.TrimSpace(location.Default) != "~" {
+		return fmt.Errorf("git home location default must be ~")
+	}
+	if len(r.Settings) != 2 {
+		return fmt.Errorf("git recipe must declare only user.name and user.email settings")
+	}
+	if len(r.Resources) != 2 {
+		return fmt.Errorf("git recipe must declare exactly two selected-key resources")
+	}
+	if err := r.validateGitSetting("user.name", "name"); err != nil {
+		return err
+	}
+	if err := r.validateGitSetting("user.email", "email"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Recipe) validateGitSetting(settingID string, key string) error {
+	setting, ok := r.Settings[settingID]
+	if !ok {
+		return fmt.Errorf("git recipe missing setting %s", settingID)
+	}
+	if setting.ScopeDefault != "user" {
+		return fmt.Errorf("git setting %s scopeDefault must be user", settingID)
+	}
+	resource, ok := r.Resources[setting.Resource]
+	if !ok {
+		return fmt.Errorf("git setting %s references unknown resource %s", settingID, setting.Resource)
+	}
+	if resource.Driver != IniFileDriverID {
+		return fmt.Errorf("git setting %s driver must be %q, got %q", settingID, IniFileDriverID, resource.Driver)
+	}
+	if resource.Location != "home" {
+		return fmt.Errorf("git setting %s location must be home", settingID)
+	}
+	if resource.Path != ".gitconfig" {
+		return fmt.Errorf("git setting %s path must be .gitconfig", settingID)
+	}
+	if resource.Selector == nil {
+		return fmt.Errorf("git setting %s requires an INI selector", settingID)
+	}
+	if resource.Selector.Section != "user" || resource.Selector.Key != key {
+		return fmt.Errorf("git setting %s must select [user] %s", settingID, key)
+	}
+	if selectorMissingSection(resource.Selector) != string(inidriver.MissingPolicyCreate) {
+		return fmt.Errorf("git setting %s missingSection must be %q", settingID, inidriver.MissingPolicyCreate)
+	}
+	if selectorMissingKey(resource.Selector) != string(inidriver.MissingPolicyCreate) {
+		return fmt.Errorf("git setting %s missingKey must be %q", settingID, inidriver.MissingPolicyCreate)
+	}
+	if selectorDuplicatePolicy(resource.Selector) != string(inidriver.DuplicatePolicyReject) {
+		return fmt.Errorf("git setting %s duplicatePolicy must be %q", settingID, inidriver.DuplicatePolicyReject)
+	}
+	if selectorDeleteKey(resource.Selector) != string(inidriver.DeletePolicyReject) {
+		return fmt.Errorf("git setting %s deleteKey must be %q", settingID, inidriver.DeletePolicyReject)
 	}
 	return nil
 }
@@ -200,9 +304,15 @@ func (r *Recipe) ValidateCustomFiles() error {
 			if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
 				return fmt.Errorf("custom.files resource %s driver %q must not declare include/exclude globs", resourceID, FileDriverID)
 			}
+			if resource.Selector != nil {
+				return fmt.Errorf("custom.files resource %s driver %q must not declare selector", resourceID, FileDriverID)
+			}
 		case FileTreeDriverID:
 			if _, _, err := filetreedriver.NormalizeGlobs(resource.Include, resource.Exclude); err != nil {
 				return fmt.Errorf("custom.files resource %s globs: %w", resourceID, err)
+			}
+			if resource.Selector != nil {
+				return fmt.Errorf("custom.files resource %s driver %q must not declare selector", resourceID, FileTreeDriverID)
 			}
 		default:
 			return fmt.Errorf("custom.files resource %s driver must be %q or %q, got %q", resourceID, FileDriverID, FileTreeDriverID, resource.Driver)
@@ -235,6 +345,98 @@ func (r *Recipe) LocationRoot(locationID string, overrides map[string]string) (s
 		return "", fmt.Errorf("unknown location %s", locationID)
 	}
 	return ExpandLocationDefault(location.Default)
+}
+
+func (r *Recipe) validateResourceDriverShape(resourceID string, resource Resource) error {
+	if r.Target == CustomFilesTarget {
+		switch resource.Driver {
+		case FileDriverID, FileTreeDriverID:
+		default:
+			return fmt.Errorf("custom.files resource %s driver must be %q or %q, got %q", resourceID, FileDriverID, FileTreeDriverID, resource.Driver)
+		}
+	}
+	switch resource.Driver {
+	case IniFileDriverID:
+		return validateINIResource(resourceID, resource)
+	case FileDriverID, FileTreeDriverID:
+		if resource.Selector != nil {
+			return fmt.Errorf("resource %s driver %q must not declare selector", resourceID, resource.Driver)
+		}
+	default:
+		return fmt.Errorf("resource %s unsupported driver %q", resourceID, resource.Driver)
+	}
+	return nil
+}
+
+func validateINIResource(resourceID string, resource Resource) error {
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("resource %s driver %q must not declare include/exclude globs", resourceID, IniFileDriverID)
+	}
+	if resource.Selector == nil {
+		return fmt.Errorf("resource %s driver %q requires selector", resourceID, IniFileDriverID)
+	}
+	selector := resource.Selector
+	if selector.Section == "" || strings.TrimSpace(selector.Section) != selector.Section {
+		return fmt.Errorf("resource %s selector section is required and must not have surrounding whitespace", resourceID)
+	}
+	if strings.ContainsAny(selector.Section, "\r\n[]\x00") {
+		return fmt.Errorf("resource %s selector section must be an unbracketed single-line section name", resourceID)
+	}
+	if selector.Key == "" || strings.TrimSpace(selector.Key) != selector.Key {
+		return fmt.Errorf("resource %s selector key is required and must not have surrounding whitespace", resourceID)
+	}
+	if strings.ContainsAny(selector.Key, "\r\n=\x00") {
+		return fmt.Errorf("resource %s selector key must be a single-line key name without equals", resourceID)
+	}
+	switch selectorMissingSection(selector) {
+	case string(inidriver.MissingPolicyError), string(inidriver.MissingPolicyCreate):
+	default:
+		return fmt.Errorf("resource %s unsupported selector missingSection policy %q", resourceID, selector.MissingSection)
+	}
+	switch selectorMissingKey(selector) {
+	case string(inidriver.MissingPolicyError), string(inidriver.MissingPolicyCreate):
+	default:
+		return fmt.Errorf("resource %s unsupported selector missingKey policy %q", resourceID, selector.MissingKey)
+	}
+	switch selectorDuplicatePolicy(selector) {
+	case string(inidriver.DuplicatePolicyReject):
+	default:
+		return fmt.Errorf("resource %s unsupported selector duplicatePolicy %q", resourceID, selector.DuplicatePolicy)
+	}
+	switch selectorDeleteKey(selector) {
+	case string(inidriver.DeletePolicyReject), string(inidriver.DeletePolicyAllow):
+	default:
+		return fmt.Errorf("resource %s unsupported selector deleteKey policy %q", resourceID, selector.DeleteKey)
+	}
+	return nil
+}
+
+func selectorMissingSection(selector *INISelector) string {
+	if selector == nil || selector.MissingSection == "" {
+		return string(inidriver.MissingPolicyError)
+	}
+	return selector.MissingSection
+}
+
+func selectorMissingKey(selector *INISelector) string {
+	if selector == nil || selector.MissingKey == "" {
+		return string(inidriver.MissingPolicyError)
+	}
+	return selector.MissingKey
+}
+
+func selectorDuplicatePolicy(selector *INISelector) string {
+	if selector == nil || selector.DuplicatePolicy == "" {
+		return string(inidriver.DuplicatePolicyReject)
+	}
+	return selector.DuplicatePolicy
+}
+
+func selectorDeleteKey(selector *INISelector) string {
+	if selector == nil || selector.DeleteKey == "" {
+		return string(inidriver.DeletePolicyReject)
+	}
+	return selector.DeleteKey
 }
 
 func ExpandLocationDefault(value string) (string, error) {

@@ -209,9 +209,277 @@ func TestValidateResourcePathRejectsTraversalAndNonCanonicalPaths(t *testing.T) 
 	}
 }
 
+func TestRecipeAcceptsAndValidatesINIFileResources(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, "test.ini", validINIRecipe())
+
+	rec, err := LoadLocal(root, "test.ini")
+	require.NoError(t, err)
+	resourceID, resource, err := rec.ResourceForSetting("identity")
+	require.NoError(t, err)
+	require.Equal(t, "git-email", resourceID)
+	require.Equal(t, IniFileDriverID, resource.Driver)
+	require.Equal(t, ".gitconfig", resource.Path)
+	require.NotNil(t, resource.Selector)
+	require.Equal(t, "user", resource.Selector.Section)
+	require.Equal(t, "email", resource.Selector.Key)
+	require.Equal(t, "create", resource.Selector.MissingSection)
+	require.Equal(t, "create", resource.Selector.MissingKey)
+}
+
+func TestRecipeDefaultsINISelectorPoliciesForGenericResources(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Replace(validINIRecipe(), "      missingSection: create\n      missingKey: create\n", "      deleteKey: allow\n", 1)
+	root := t.TempDir()
+	writeNamedRecipe(t, root, "test.ini", body)
+
+	rec, err := LoadLocal(root, "test.ini")
+	require.NoError(t, err)
+	_, resource, err := rec.ResourceForSetting("identity")
+	require.NoError(t, err)
+	require.Equal(t, "error", selectorMissingSection(resource.Selector))
+	require.Equal(t, "error", selectorMissingKey(resource.Selector))
+	require.Equal(t, "reject", selectorDuplicatePolicy(resource.Selector))
+	require.Equal(t, "allow", selectorDeleteKey(resource.Selector))
+}
+
+func TestRecipeRejectsInvalidINIFileResourceShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "missing selector",
+			body:    strings.Replace(validINIRecipe(), "    selector:\n      section: user\n      key: email\n      missingSection: create\n      missingKey: create\n", "", 1),
+			wantErr: "requires selector",
+		},
+		{
+			name:    "include rejected",
+			body:    validINIRecipe() + "    include:\n      - \"**\"\n",
+			wantErr: "must not declare include/exclude",
+		},
+		{
+			name:    "selector section blank",
+			body:    strings.Replace(validINIRecipe(), "section: user", "section: ' '", 1),
+			wantErr: "selector section is required",
+		},
+		{
+			name:    "selector section bracketed",
+			body:    strings.Replace(validINIRecipe(), "section: user", "section: '[user]'", 1),
+			wantErr: "unbracketed single-line section",
+		},
+		{
+			name:    "selector key equals",
+			body:    strings.Replace(validINIRecipe(), "key: email", "key: user=email", 1),
+			wantErr: "single-line key name without equals",
+		},
+		{
+			name:    "unsupported missing policy",
+			body:    strings.Replace(validINIRecipe(), "missingSection: create", "missingSection: append", 1),
+			wantErr: "unsupported selector missingSection",
+		},
+		{
+			name:    "unsupported duplicate policy",
+			body:    strings.Replace(validINIRecipe(), "missingKey: create", "missingKey: create\n      duplicatePolicy: last", 1),
+			wantErr: "unsupported selector duplicatePolicy",
+		},
+		{
+			name:    "unsupported delete policy",
+			body:    strings.Replace(validINIRecipe(), "missingKey: create", "missingKey: create\n      deleteKey: force", 1),
+			wantErr: "unsupported selector deleteKey",
+		},
+		{
+			name:    "file driver selector rejected",
+			body:    strings.Replace(validINIRecipe(), "driver: ini-file", "driver: file", 1),
+			wantErr: "must not declare selector",
+		},
+		{
+			name:    "unknown driver rejected",
+			body:    strings.Replace(validINIRecipe(), "driver: ini-file", "driver: yaml-file", 1),
+			wantErr: "unsupported driver",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, "test.ini", tc.body)
+			_, err := LoadLocal(root, "test.ini")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestCustomFilesRecipeStillRejectsINIFileResources(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRecipe(t, root, strings.Replace(validINIRecipe(), "target: test.ini", "target: custom.files", 1))
+
+	_, err := LoadCustomFiles(root)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `driver must be "file" or "file-tree"`)
+}
+
+func TestLoadGitRecipeAcceptsSelectedIdentitySettingsOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, GitTarget, validGitRecipe())
+
+	rec, err := LoadGit(root)
+	require.NoError(t, err)
+	require.Equal(t, GitTarget, rec.Target)
+	require.Equal(t, "Git", rec.DisplayName)
+	require.Equal(t, "read-write", rec.Capability)
+	require.Equal(t, "~", rec.Locations["home"].Default)
+
+	nameResourceID, nameResource, err := rec.ResourceForSetting("user.name")
+	require.NoError(t, err)
+	require.Equal(t, "user-name", nameResourceID)
+	requireGitINIResource(t, nameResource, "name")
+
+	emailResourceID, emailResource, err := rec.ResourceForSetting("user.email")
+	require.NoError(t, err)
+	require.Equal(t, "user-email", emailResourceID)
+	requireGitINIResource(t, emailResource, "email")
+}
+
+func TestGitRecipeRejectsCredentialAndBroadConfigDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "wrong target rejected",
+			body:    strings.Replace(validGitRecipe(), "target: git", "target: git.extra", 1),
+			wantErr: "target must be",
+		},
+		{
+			name:    "read only capability rejected",
+			body:    strings.Replace(validGitRecipe(), "capability: read-write", "capability: read-only", 1),
+			wantErr: "capability must be read-write",
+		},
+		{
+			name:    "extra location rejected",
+			body:    strings.Replace(validGitRecipe(), "settings:\n", "  work:\n    default: /tmp\nsettings:\n", 1),
+			wantErr: "only the home location",
+		},
+		{
+			name:    "missing home location rejected",
+			body:    strings.Replace(strings.Replace(validGitRecipe(), "  home:\n    default: \"~\"\n", "  work:\n    default: /tmp\n", 1), "location: home", "location: work", -1),
+			wantErr: "must declare home location",
+		},
+		{
+			name:    "extra credential setting rejected",
+			body:    strings.Replace(validGitRecipe(), "resources:\n", "  credential.helper:\n    scopeDefault: user\n    resource: user-email\nresources:\n", 1),
+			wantErr: "only user.name and user.email",
+		},
+		{
+			name:    "missing user name setting rejected",
+			body:    strings.Replace(validGitRecipe(), "  user.name:\n    scopeDefault: user\n    resource: user-name\n", "  user.alias:\n    scopeDefault: user\n    resource: user-name\n", 1),
+			wantErr: "missing setting user.name",
+		},
+		{
+			name:    "wrong default scope rejected",
+			body:    strings.Replace(validGitRecipe(), "scopeDefault: user", "scopeDefault: machine", 1),
+			wantErr: "scopeDefault must be user",
+		},
+		{
+			name:    "extra selected key resource rejected",
+			body:    validGitRecipe() + "  extra:\n    driver: file\n    location: home\n    path: extra\n",
+			wantErr: "exactly two selected-key resources",
+		},
+		{
+			name: "wrong selected key driver rejected",
+			body: strings.Replace(
+				strings.Replace(validGitRecipe(), "driver: ini-file", "driver: file", 1),
+				"    selector:\n      section: user\n      key: email\n      missingSection: create\n      missingKey: create\n      duplicatePolicy: reject\n",
+				"",
+				1,
+			),
+			wantErr: "driver must be",
+		},
+		{
+			name:    "credential section rejected",
+			body:    strings.Replace(validGitRecipe(), "section: user", "section: credential", 1),
+			wantErr: "must select [user]",
+		},
+		{
+			name:    "credential key rejected",
+			body:    strings.Replace(validGitRecipe(), "key: email", "key: helper", 1),
+			wantErr: "must select [user] email",
+		},
+		{
+			name:    "url section rejected",
+			body:    strings.Replace(validGitRecipe(), "section: user", "section: url", 1),
+			wantErr: "must select [user]",
+		},
+		{
+			name:    "include key rejected",
+			body:    strings.Replace(validGitRecipe(), "key: email", "key: path", 1),
+			wantErr: "must select [user] email",
+		},
+		{
+			name:    "wrong path rejected",
+			body:    strings.Replace(validGitRecipe(), "path: .gitconfig", "path: .config/git/config", 1),
+			wantErr: "path must be .gitconfig",
+		},
+		{
+			name:    "wrong location rejected",
+			body:    strings.Replace(validGitRecipe(), "location: home", "location: config", 1),
+			wantErr: "references unknown location",
+		},
+		{
+			name:    "wrong home default rejected",
+			body:    strings.Replace(validGitRecipe(), "default: \"~\"", "default: ~/.config", 1),
+			wantErr: "home location default must be ~",
+		},
+		{
+			name:    "missing create policy rejected",
+			body:    strings.Replace(validGitRecipe(), "missingSection: create", "missingSection: error", 1),
+			wantErr: "missingSection must be",
+		},
+		{
+			name:    "delete allow rejected",
+			body:    strings.Replace(validGitRecipe(), "duplicatePolicy: reject", "duplicatePolicy: reject\n      deleteKey: allow", 1),
+			wantErr: "deleteKey must be",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, GitTarget, tc.body)
+			_, err := LoadGit(root)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func writeRecipe(t *testing.T, root string, body string) {
 	t.Helper()
-	path := filepath.Join(root, "recipes", "local", CustomFilesTarget, "recipe.yaml")
+	writeNamedRecipe(t, root, CustomFilesTarget, body)
+}
+
+func writeNamedRecipe(t *testing.T, root string, recipeID string, body string) {
+	t.Helper()
+	path := filepath.Join(root, "recipes", "local", recipeID, "recipe.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
@@ -236,6 +504,90 @@ resources:
     location: config
     path: ` + resourcePath + `
 `
+}
+
+func validINIRecipe() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.ini
+displayName: Test INI
+supportLevel: experimental
+capability: read-write
+locations:
+  home:
+    default: "~"
+settings:
+  identity:
+    scopeDefault: user
+    resource: git-email
+resources:
+  git-email:
+    driver: ini-file
+    location: home
+    path: .gitconfig
+    selector:
+      section: user
+      key: email
+      missingSection: create
+      missingKey: create
+`
+}
+
+func validGitRecipe() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: git
+displayName: Git
+supportLevel: experimental
+capability: read-write
+locations:
+  home:
+    default: "~"
+settings:
+  user.email:
+    scopeDefault: user
+    resource: user-email
+  user.name:
+    scopeDefault: user
+    resource: user-name
+resources:
+  user-email:
+    driver: ini-file
+    location: home
+    path: .gitconfig
+    selector:
+      section: user
+      key: email
+      missingSection: create
+      missingKey: create
+      duplicatePolicy: reject
+  user-name:
+    driver: ini-file
+    location: home
+    path: .gitconfig
+    selector:
+      section: user
+      key: name
+      missingSection: create
+      missingKey: create
+      duplicatePolicy: reject
+`
+}
+
+func requireGitINIResource(t *testing.T, resource Resource, key string) {
+	t.Helper()
+	require.Equal(t, IniFileDriverID, resource.Driver)
+	require.Equal(t, "home", resource.Location)
+	require.Equal(t, ".gitconfig", resource.Path)
+	require.Empty(t, resource.Include)
+	require.Empty(t, resource.Exclude)
+	require.NotNil(t, resource.Selector)
+	require.Equal(t, "user", resource.Selector.Section)
+	require.Equal(t, key, resource.Selector.Key)
+	require.Equal(t, "create", resource.Selector.MissingSection)
+	require.Equal(t, "create", resource.Selector.MissingKey)
+	require.Equal(t, "reject", selectorDuplicatePolicy(resource.Selector))
+	require.Equal(t, "reject", selectorDeleteKey(resource.Selector))
 }
 
 func validCustomFileTreeRecipe(resourcePath string, include []string, exclude []string) string {

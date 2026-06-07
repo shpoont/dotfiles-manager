@@ -382,7 +382,7 @@ func TestMigratePromotePreviewJSONReportsGeneratedRun(t *testing.T) {
 	require.Equal(t, "gitconfig-identity-v1", item["promotionRuleId"])
 	require.Equal(t, "git:identity", item["proposedSettingRef"])
 	require.Equal(t, "blocked", item["result"])
-	requireDiagnosticCode(t, item, "promotion-target-unimplemented")
+	requireDiagnosticCode(t, item, "promotion-confirmed-write-unimplemented")
 	require.NotContains(t, stdout.String(), "leon@example.com")
 
 	require.Equal(t, configBody, readFile(t, filepath.Join(tempDir, config.DefaultConfigFile)))
