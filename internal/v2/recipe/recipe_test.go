@@ -1,6 +1,8 @@
 package recipe
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,6 +231,163 @@ func TestRecipeAcceptsAndValidatesINIFileResources(t *testing.T) {
 	require.Equal(t, "create", resource.Selector.MissingKey)
 }
 
+func TestRecipeAcceptsSettingsGroupsAndSelectedPathResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		recipeID   string
+		body       string
+		driver     string
+		settingRef string
+	}{
+		{
+			name:       "json selected scalar",
+			recipeID:   "test.json",
+			body:       validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"),
+			driver:     JSONFileDriverID,
+			settingRef: "identity.email",
+		},
+		{
+			name:       "yaml selected scalar",
+			recipeID:   "test.yaml",
+			body:       validSelectedPathRecipe("test.yaml", YAMLFileDriverID, "config.yaml"),
+			driver:     YAMLFileDriverID,
+			settingRef: "identity.email",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, tc.recipeID, tc.body)
+
+			rec, err := LoadLocal(root, tc.recipeID)
+			require.NoError(t, err)
+			require.Contains(t, rec.SettingsGroups, "identity")
+			require.Equal(t, []string{tc.settingRef}, rec.SettingsGroups["identity"].Settings)
+			_, resource, err := rec.ResourceForSetting(tc.settingRef)
+			require.NoError(t, err)
+			require.Equal(t, tc.driver, resource.Driver)
+			require.Equal(t, []string{"user", "email"}, resource.Selector.Path)
+			require.Equal(t, "create", resource.Selector.CreateMissing)
+		})
+	}
+}
+
+func TestRecipeRejectsInvalidSettingsGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "unknown setting ref",
+			body:    strings.Replace(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"), "      - identity.email", "      - missing.setting", 1),
+			wantErr: "references unknown setting missing.setting",
+		},
+		{
+			name:    "duplicate setting ref",
+			body:    strings.Replace(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"), "      - identity.email", "      - identity.email\n      - identity.email", 1),
+			wantErr: "duplicates setting ref identity.email",
+		},
+		{
+			name:    "unsupported group capability",
+			body:    strings.Replace(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"), "capability: read-write\n    settings:", "capability: command-io\n    settings:", 1),
+			wantErr: "unsupported capability",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, "test.json", tc.body)
+			_, err := LoadLocal(root, "test.json")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDecodeRejectsDuplicateYAMLIDsWithStableDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Replace(validCustomFilesRecipe("config.yaml"), "settings:\n  file:\n", "settings:\n  file:\n    scopeDefault: user\n    resource: config-file\n  file:\n", 1)
+
+	_, err := Decode("duplicate.yaml", strings.NewReader(body))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate mapping key")
+
+	diagnostics := ValidationDiagnostics(err)
+	require.Len(t, diagnostics, 1)
+	require.Equal(t, "yaml.duplicate-key", diagnostics[0].Code)
+	require.Equal(t, "$.settings.file", diagnostics[0].Path)
+	require.Equal(t, ValidationSeverityError, diagnostics[0].Severity)
+
+	payload, err := json.Marshal(diagnostics)
+	require.NoError(t, err)
+	require.Contains(t, string(payload), `"code":"yaml.duplicate-key"`)
+}
+
+func TestRecipeRejectsInvalidSelectedPathResourceShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "missing selector",
+			body:    strings.Replace(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"), "    selector:\n      path: [user, email]\n      createMissing: create\n      duplicatePolicy: reject\n", "", 1),
+			wantErr: "requires selector",
+		},
+		{
+			name:    "missing path",
+			body:    strings.Replace(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"), "path: [user, email]", "path: []", 1),
+			wantErr: "selector path is required",
+		},
+		{
+			name:    "expression segment",
+			body:    strings.Replace(validSelectedPathRecipe("test.yaml", YAMLFileDriverID, "config.yaml"), "path: [user, email]", "path: [$, email]", 1),
+			wantErr: "looks like an expression",
+		},
+		{
+			name:    "unsupported create policy",
+			body:    strings.Replace(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json"), "createMissing: create", "createMissing: append", 1),
+			wantErr: "unsupported selector createMissing",
+		},
+		{
+			name:    "ini fields rejected",
+			body:    strings.Replace(validSelectedPathRecipe("test.yaml", YAMLFileDriverID, "config.yaml"), "path: [user, email]", "section: user\n      key: email", 1),
+			wantErr: "must not declare INI selector fields",
+		},
+		{
+			name:    "include rejected",
+			body:    validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json") + "    include:\n      - \"**\"\n",
+			wantErr: "must not declare include/exclude",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, "test.json", tc.body)
+			_, err := LoadLocal(root, "test.json")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestRecipeDefaultsINISelectorPoliciesForGenericResources(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +439,11 @@ func TestRecipeRejectsInvalidINIFileResourceShapes(t *testing.T) {
 			wantErr: "single-line key name without equals",
 		},
 		{
+			name:    "selected path fields rejected",
+			body:    strings.Replace(validINIRecipe(), "section: user\n      key: email", "path: [user, email]", 1),
+			wantErr: "must not declare selected-path selector fields",
+		},
+		{
 			name:    "unsupported missing policy",
 			body:    strings.Replace(validINIRecipe(), "missingSection: create", "missingSection: append", 1),
 			wantErr: "unsupported selector missingSection",
@@ -301,7 +465,7 @@ func TestRecipeRejectsInvalidINIFileResourceShapes(t *testing.T) {
 		},
 		{
 			name:    "unknown driver rejected",
-			body:    strings.Replace(validINIRecipe(), "driver: ini-file", "driver: yaml-file", 1),
+			body:    strings.Replace(validINIRecipe(), "driver: ini-file", "driver: unknown-driver", 1),
 			wantErr: "unsupported driver",
 		},
 	}
@@ -574,6 +738,43 @@ resources:
 `
 }
 
+func validSelectedPathRecipe(target string, driver string, resourcePath string) string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: ` + target + `
+displayName: Selected path test
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ~/.example-tool
+settingsGroups:
+  identity:
+    label: Identity
+    supportLevel: experimental
+    capability: read-write
+    settings:
+      - identity.email
+settings:
+  identity.email:
+    label: User email
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: scalar
+    scopeDefault: user
+    resource: config-email
+resources:
+  config-email:
+    driver: ` + driver + `
+    location: config
+    path: ` + resourcePath + `
+    selector:
+      path: [user, email]
+      createMissing: create
+      duplicatePolicy: reject
+`
+}
+
 func requireGitINIResource(t *testing.T, resource Resource, key string) {
 	t.Helper()
 	require.Equal(t, IniFileDriverID, resource.Driver)
@@ -613,6 +814,21 @@ func yamlQuote(value string) string {
 
 func replace(value string, old string, new string) string {
 	return strings.ReplaceAll(value, old, new)
+}
+
+func TestRecipeValidationHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "recipe validation failed", (*ValidationError)(nil).Error())
+	require.Equal(t, "recipe validation failed", (&ValidationError{}).Error())
+	require.Empty(t, ValidationDiagnostics(fmt.Errorf("plain error")))
+
+	diagnostics := normalizeDiagnostics([]ValidationDiagnostic{{Code: "test.code", Message: "test message"}})
+	require.Equal(t, "$", diagnostics[0].Path)
+	require.Equal(t, ValidationSeverityError, diagnostics[0].Severity)
+	err := validationError(diagnostics)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "$[test.code]: test message")
 }
 
 func TestRecipeValidationErrorBranches(t *testing.T) {
@@ -660,6 +876,18 @@ func TestRecipeValidationErrorBranches(t *testing.T) {
 			r.Settings = map[string]Setting{"Bad": {ScopeDefault: "user", Resource: "config-file"}}
 		}), wantErr: "invalid setting id"},
 		{name: "setting scope", recipe: rec(func(r *Recipe) { r.Settings["file"] = Setting{ScopeDefault: "planet", Resource: "config-file"} }), wantErr: "unsupported scopeDefault"},
+		{name: "setting label whitespace", recipe: rec(func(r *Recipe) {
+			r.Settings["file"] = Setting{Label: " File", ScopeDefault: "user", Resource: "config-file"}
+		}), wantErr: "label must not have surrounding whitespace"},
+		{name: "setting support", recipe: rec(func(r *Recipe) {
+			r.Settings["file"] = Setting{SupportLevel: "unsafe", ScopeDefault: "user", Resource: "config-file"}
+		}), wantErr: "unsupported supportLevel"},
+		{name: "setting capability", recipe: rec(func(r *Recipe) {
+			r.Settings["file"] = Setting{Capability: "command-io", ScopeDefault: "user", Resource: "config-file"}
+		}), wantErr: "unsupported capability"},
+		{name: "setting artifact", recipe: rec(func(r *Recipe) {
+			r.Settings["file"] = Setting{ArtifactForm: "script", ScopeDefault: "user", Resource: "config-file"}
+		}), wantErr: "unsupported artifactForm"},
 		{name: "setting resource required", recipe: rec(func(r *Recipe) { r.Settings["file"] = Setting{ScopeDefault: "user"} }), wantErr: "resource is required"},
 		{name: "custom capability", recipe: rec(func(r *Recipe) { r.Capability = "read-only" }), wantErr: "capability must be read-write"},
 	}

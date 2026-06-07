@@ -256,9 +256,10 @@ resources:
     driver: yaml-file
     location: config
     path: config.yaml
-    selector: user.email
+    selector:
+      path: [user, email]
   userInfoJson:
-    driver: json-file
+    driver: file
     location: config
     path: user-info.json
 ```

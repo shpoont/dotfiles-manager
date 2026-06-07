@@ -121,13 +121,14 @@ type ExplainResource struct {
 }
 
 type ExplainSelector struct {
-	Section         string `json:"section,omitempty"`
-	Key             string `json:"key,omitempty"`
-	MissingSection  string `json:"missingSection,omitempty"`
-	MissingKey      string `json:"missingKey,omitempty"`
-	DuplicatePolicy string `json:"duplicatePolicy,omitempty"`
-	DeleteKey       string `json:"deleteKey,omitempty"`
-	Summary         string `json:"summary"`
+	Section         string   `json:"section,omitempty"`
+	Key             string   `json:"key,omitempty"`
+	Path            []string `json:"path,omitempty"`
+	MissingSection  string   `json:"missingSection,omitempty"`
+	MissingKey      string   `json:"missingKey,omitempty"`
+	DuplicatePolicy string   `json:"duplicatePolicy,omitempty"`
+	DeleteKey       string   `json:"deleteKey,omitempty"`
+	Summary         string   `json:"summary"`
 }
 
 type ExplainDriver struct {
@@ -218,8 +219,16 @@ func Explain(opts ExplainOptions) (*ExplainReport, error) {
 
 	rec, err := LoadLocal(repoRoot, target)
 	if err != nil {
-		explainErr := &ExplainError{Code: ExplainCodeInvalidRecipe, Message: fmt.Sprintf("invalid local recipe for target %s", target), Exit: 2, Details: map[string]any{"target": target, "path": safeRelOrBase(repoRoot, localPath), "reason": err.Error()}}
-		return errorExplainReport(report, explainErr, target, safeRelOrBase(repoRoot, localPath)), explainErr
+		safePath := safeRelOrBase(repoRoot, localPath)
+		details := map[string]any{"target": target, "path": safePath, "reason": err.Error()}
+		validationDiagnostics := ValidationDiagnostics(err)
+		if len(validationDiagnostics) > 0 {
+			details["diagnostics"] = validationDiagnostics
+		}
+		explainErr := &ExplainError{Code: ExplainCodeInvalidRecipe, Message: fmt.Sprintf("invalid local recipe for target %s", target), Exit: 2, Details: details}
+		report := errorExplainReport(report, explainErr, target, safePath)
+		appendValidationExplainDiagnostics(report, validationDiagnostics, target, safePath)
+		return report, explainErr
 	}
 	if rec.Target != target {
 		explainErr := &ExplainError{Code: ExplainCodeInvalidRecipe, Message: fmt.Sprintf("local recipe target mismatch: expected %s, got %s", target, rec.Target), Exit: 2, Details: map[string]any{"target": target, "recipeTarget": rec.Target, "path": safeRelOrBase(repoRoot, localPath)}}
@@ -369,6 +378,23 @@ func errorExplainReport(report *ExplainReport, err *ExplainError, target string,
 	return report
 }
 
+func appendValidationExplainDiagnostics(report *ExplainReport, diagnostics []ValidationDiagnostic, target string, path string) {
+	if report == nil || len(diagnostics) == 0 {
+		return
+	}
+	for _, diagnostic := range diagnostics {
+		report.RecipeExplain.Diagnostics = append(report.RecipeExplain.Diagnostics, ExplainDiagnostic{
+			Code:     diagnostic.Code,
+			Severity: diagnostic.Severity,
+			Message:  diagnostic.Message,
+			Ref:      target,
+			Source:   "validation",
+			Path:     path + "#" + diagnostic.Path,
+		})
+	}
+	sortDiagnostics(report.RecipeExplain.Diagnostics)
+}
+
 func validateExplainTargetRef(target string) error {
 	if target == "" {
 		return &ExplainError{Code: ExplainCodeInvalidRef, Message: "target ref is required", Exit: 2}
@@ -493,6 +519,20 @@ func explainResource(resourceID string, resource Resource) ExplainResource {
 		if resource.Selector != nil {
 			explained.Selector = &ExplainSelector{Section: resource.Selector.Section, Key: resource.Selector.Key, MissingSection: selectorMissingSection(resource.Selector), MissingKey: selectorMissingKey(resource.Selector), DuplicatePolicy: selectorDuplicatePolicy(resource.Selector), DeleteKey: selectorDeleteKey(resource.Selector), Summary: fmt.Sprintf("[%s] %s", resource.Selector.Section, resource.Selector.Key)}
 		}
+	case JSONFileDriverID:
+		explained.BackupRestore = "not-implemented"
+		explained.Normalization = "selected JSON scalar"
+		explained.DiffMode = "selected-path"
+		if resource.Selector != nil {
+			explained.Selector = &ExplainSelector{Path: append([]string(nil), resource.Selector.Path...), DuplicatePolicy: selectorDuplicatePolicy(resource.Selector), DeleteKey: selectorDeleteKey(resource.Selector), Summary: strings.Join(resource.Selector.Path, ".")}
+		}
+	case YAMLFileDriverID:
+		explained.BackupRestore = "not-implemented"
+		explained.Normalization = "selected YAML scalar"
+		explained.DiffMode = "selected-path"
+		if resource.Selector != nil {
+			explained.Selector = &ExplainSelector{Path: append([]string(nil), resource.Selector.Path...), DuplicatePolicy: selectorDuplicatePolicy(resource.Selector), DeleteKey: selectorDeleteKey(resource.Selector), Summary: strings.Join(resource.Selector.Path, ".")}
+		}
 	}
 	return explained
 }
@@ -512,6 +552,10 @@ func driverExplains(ids ...string) []ExplainDriver {
 			out = append(out, ExplainDriver{ID: id, Summary: "manages a declared file tree with include/exclude globs", Operations: []string{"detect", "read", "diff", "preview", "backup", "apply", "verify", "restore"}, Limitations: []string{"only paths allowed by recipe globs are managed"}})
 		case IniFileDriverID:
 			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic INI selected section/key resources", Operations: []string{"metadata", "future selected-key read/preview/apply"}, Limitations: []string{"no include/includeIf expansion", "no arbitrary section/key writes", "duplicate keys rejected"}})
+		case JSONFileDriverID:
+			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic JSON selected path scalar resources", Operations: []string{"metadata", "future selected-path read/preview/apply"}, Limitations: []string{"no JSONPath expressions", "selected leaf must be scalar"}})
+		case YAMLFileDriverID:
+			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic YAML selected path scalar resources", Operations: []string{"metadata", "future selected-path read/preview/apply"}, Limitations: []string{"no path expressions", "selected leaf must be supported scalar"}})
 		default:
 			out = append(out, ExplainDriver{ID: id, Summary: "unknown driver metadata", Operations: []string{"metadata explanation"}, Limitations: []string{"driver is not bundled"}})
 		}
@@ -534,7 +578,7 @@ func artifactFormForDriver(driver string) string {
 		return "file"
 	case FileTreeDriverID:
 		return "file-tree"
-	case IniFileDriverID:
+	case IniFileDriverID, JSONFileDriverID, YAMLFileDriverID:
 		return "scalar"
 	default:
 		return "unknown"

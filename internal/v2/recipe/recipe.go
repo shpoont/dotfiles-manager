@@ -1,6 +1,8 @@
 package recipe
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,7 +25,13 @@ const (
 	FileDriverID       = "file"
 	FileTreeDriverID   = "file-tree"
 	IniFileDriverID    = "ini-file"
+	JSONFileDriverID   = "json-file"
+	YAMLFileDriverID   = "yaml-file"
 	localRecipeRelRoot = "recipes/local"
+)
+
+const (
+	ValidationSeverityError = "error"
 )
 
 var (
@@ -32,42 +40,81 @@ var (
 )
 
 type Recipe struct {
-	Schema        string              `yaml:"schema"`
-	SchemaVersion int                 `yaml:"schemaVersion"`
-	Target        string              `yaml:"target"`
-	DisplayName   string              `yaml:"displayName"`
-	SupportLevel  string              `yaml:"supportLevel"`
-	Capability    string              `yaml:"capability"`
-	Locations     map[string]Location `yaml:"locations"`
-	Settings      map[string]Setting  `yaml:"settings"`
-	Resources     map[string]Resource `yaml:"resources"`
+	Schema         string                   `yaml:"schema"`
+	SchemaVersion  int                      `yaml:"schemaVersion"`
+	Target         string                   `yaml:"target"`
+	DisplayName    string                   `yaml:"displayName"`
+	SupportLevel   string                   `yaml:"supportLevel"`
+	Capability     string                   `yaml:"capability"`
+	Locations      map[string]Location      `yaml:"locations"`
+	SettingsGroups map[string]SettingsGroup `yaml:"settingsGroups,omitempty"`
+	Settings       map[string]Setting       `yaml:"settings"`
+	Resources      map[string]Resource      `yaml:"resources"`
 }
 
 type Location struct {
 	Default string `yaml:"default"`
 }
 
+type SettingsGroup struct {
+	Label        string   `yaml:"label,omitempty"`
+	Description  string   `yaml:"description,omitempty"`
+	SupportLevel string   `yaml:"supportLevel,omitempty"`
+	Capability   string   `yaml:"capability,omitempty"`
+	Settings     []string `yaml:"settings"`
+}
+
 type Setting struct {
+	Label        string `yaml:"label,omitempty"`
+	SupportLevel string `yaml:"supportLevel,omitempty"`
+	Capability   string `yaml:"capability,omitempty"`
+	ArtifactForm string `yaml:"artifactForm,omitempty"`
 	ScopeDefault string `yaml:"scopeDefault"`
 	Resource     string `yaml:"resource"`
 }
 
 type Resource struct {
-	Driver   string       `yaml:"driver"`
-	Location string       `yaml:"location"`
-	Path     string       `yaml:"path"`
-	Include  []string     `yaml:"include,omitempty"`
-	Exclude  []string     `yaml:"exclude,omitempty"`
-	Selector *INISelector `yaml:"selector,omitempty"`
+	Driver   string    `yaml:"driver"`
+	Location string    `yaml:"location"`
+	Path     string    `yaml:"path"`
+	Include  []string  `yaml:"include,omitempty"`
+	Exclude  []string  `yaml:"exclude,omitempty"`
+	Selector *Selector `yaml:"selector,omitempty"`
 }
 
-type INISelector struct {
-	Section         string `yaml:"section"`
-	Key             string `yaml:"key"`
-	MissingSection  string `yaml:"missingSection,omitempty"`
-	MissingKey      string `yaml:"missingKey,omitempty"`
-	DuplicatePolicy string `yaml:"duplicatePolicy,omitempty"`
-	DeleteKey       string `yaml:"deleteKey,omitempty"`
+type Selector struct {
+	Section         string   `yaml:"section,omitempty"`
+	Key             string   `yaml:"key,omitempty"`
+	Path            []string `yaml:"path,omitempty"`
+	MissingSection  string   `yaml:"missingSection,omitempty"`
+	MissingKey      string   `yaml:"missingKey,omitempty"`
+	CreateMissing   string   `yaml:"createMissing,omitempty"`
+	DuplicatePolicy string   `yaml:"duplicatePolicy,omitempty"`
+	DeleteKey       string   `yaml:"deleteKey,omitempty"`
+}
+
+type INISelector = Selector
+
+type ValidationDiagnostic struct {
+	Code     string `json:"code"`
+	Path     string `json:"path"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+type ValidationError struct {
+	Diagnostics []ValidationDiagnostic `json:"diagnostics"`
+}
+
+func (e *ValidationError) Error() string {
+	if e == nil || len(e.Diagnostics) == 0 {
+		return "recipe validation failed"
+	}
+	parts := make([]string, 0, len(e.Diagnostics))
+	for _, diagnostic := range e.Diagnostics {
+		parts = append(parts, fmt.Sprintf("%s[%s]: %s", diagnostic.Path, diagnostic.Code, diagnostic.Message))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func LoadCustomFiles(repoRoot string) (*Recipe, error) {
@@ -111,8 +158,20 @@ func LoadLocal(repoRoot string, recipeID string) (*Recipe, error) {
 }
 
 func Decode(name string, r io.Reader) (*Recipe, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read recipe %s: %w", name, err)
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, fmt.Errorf("parse recipe %s: %w", name, err)
+	}
+	if err := validationError(duplicateYAMLKeyDiagnostics(&node)); err != nil {
+		return nil, fmt.Errorf("validate recipe %s: %w", name, err)
+	}
+
 	var rec Recipe
-	dec := yaml.NewDecoder(r)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&rec); err != nil {
 		return nil, fmt.Errorf("parse recipe %s: %w", name, err)
@@ -124,88 +183,143 @@ func Decode(name string, r io.Reader) (*Recipe, error) {
 }
 
 func (r *Recipe) Validate() error {
+	return validationError(r.ValidationDiagnostics())
+}
+
+func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 	if r == nil {
-		return fmt.Errorf("recipe is required")
+		return []ValidationDiagnostic{validationDiagnostic("recipe.required", "$", "recipe is required")}
 	}
+	var diagnostics []ValidationDiagnostic
+	add := func(code string, path string, message string) {
+		diagnostics = append(diagnostics, validationDiagnostic(code, path, message))
+	}
+	addErr := func(code string, path string, err error) {
+		if err != nil {
+			add(code, path, err.Error())
+		}
+	}
+
 	if r.Schema != Schema {
-		return fmt.Errorf("invalid recipe schema: %q (expected %q)", r.Schema, Schema)
+		add("schema.invalid", "$.schema", fmt.Sprintf("invalid recipe schema: %q (expected %q)", r.Schema, Schema))
 	}
 	if r.SchemaVersion != SupportedVersion {
-		return fmt.Errorf("invalid recipe schemaVersion: %d (expected %d)", r.SchemaVersion, SupportedVersion)
+		add("schemaVersion.invalid", "$.schemaVersion", fmt.Sprintf("invalid recipe schemaVersion: %d (expected %d)", r.SchemaVersion, SupportedVersion))
 	}
-	if err := ValidatePublicID("target", r.Target); err != nil {
-		return err
-	}
+	addErr("target.invalid", "$.target", ValidatePublicID("target", r.Target))
 	if strings.TrimSpace(r.DisplayName) == "" {
-		return fmt.Errorf("recipe displayName is required")
+		add("displayName.required", "$.displayName", "recipe displayName is required")
 	}
 	if !knownSupportLevel(r.SupportLevel) {
-		return fmt.Errorf("unsupported supportLevel: %s", r.SupportLevel)
+		add("supportLevel.unsupported", "$.supportLevel", fmt.Sprintf("unsupported supportLevel: %s", r.SupportLevel))
 	}
 	if !knownCapability(r.Capability) {
-		return fmt.Errorf("unsupported capability: %s", r.Capability)
+		add("capability.unsupported", "$.capability", fmt.Sprintf("unsupported capability: %s", r.Capability))
 	}
 	if len(r.Locations) == 0 {
-		return fmt.Errorf("recipe must declare at least one location")
+		add("locations.required", "$.locations", "recipe must declare at least one location")
 	}
 	if len(r.Resources) == 0 {
-		return fmt.Errorf("recipe must declare at least one resource")
+		add("resources.required", "$.resources", "recipe must declare at least one resource")
 	}
 	if len(r.Settings) == 0 {
-		return fmt.Errorf("recipe must declare at least one setting")
+		add("settings.required", "$.settings", "recipe must declare at least one setting")
 	}
 
 	for _, locationID := range sortedKeys(r.Locations) {
 		location := r.Locations[locationID]
-		if err := ValidatePublicID("location", locationID); err != nil {
-			return err
-		}
+		locationPath := "$.locations." + locationID
+		addErr("location.id.invalid", locationPath, ValidatePublicID("location", locationID))
 		if strings.TrimSpace(location.Default) == "" {
-			return fmt.Errorf("location %s default is required", locationID)
+			add("location.default.required", locationPath+".default", fmt.Sprintf("location %s default is required", locationID))
 		}
 		if strings.ContainsRune(location.Default, '\x00') {
-			return fmt.Errorf("location %s default contains NUL", locationID)
+			add("location.default.nul", locationPath+".default", fmt.Sprintf("location %s default contains NUL", locationID))
 		}
 	}
 
 	for _, resourceID := range sortedKeys(r.Resources) {
 		resource := r.Resources[resourceID]
-		if err := ValidatePublicID("resource", resourceID); err != nil {
-			return err
-		}
+		resourcePath := "$.resources." + resourceID
+		addErr("resource.id.invalid", resourcePath, ValidatePublicID("resource", resourceID))
+		driverDeclared := true
 		if resource.Driver == "" {
-			return fmt.Errorf("resource %s driver is required", resourceID)
+			add("resource.driver.required", resourcePath+".driver", fmt.Sprintf("resource %s driver is required", resourceID))
+			driverDeclared = false
 		}
 		if resource.Location == "" {
-			return fmt.Errorf("resource %s location is required", resourceID)
-		}
-		if _, ok := r.Locations[resource.Location]; !ok {
-			return fmt.Errorf("resource %s references unknown location %s", resourceID, resource.Location)
+			add("resource.location.required", resourcePath+".location", fmt.Sprintf("resource %s location is required", resourceID))
+		} else if _, ok := r.Locations[resource.Location]; !ok {
+			add("resource.location.unknown", resourcePath+".location", fmt.Sprintf("resource %s references unknown location %s", resourceID, resource.Location))
 		}
 		if _, err := ValidateResourcePath(resource.Path); err != nil {
-			return fmt.Errorf("resource %s path: %w", resourceID, err)
+			add("resource.path.invalid", resourcePath+".path", fmt.Sprintf("resource %s path: %s", resourceID, err.Error()))
 		}
-		if err := r.validateResourceDriverShape(resourceID, resource); err != nil {
-			return err
+		if driverDeclared {
+			addErr("resource.driver.invalid", resourcePath+".driver", r.validateResourceDriverShape(resourceID, resource))
 		}
 	}
 
 	for _, settingID := range sortedKeys(r.Settings) {
 		setting := r.Settings[settingID]
-		if err := ValidatePublicID("setting", settingID); err != nil {
-			return err
+		settingPath := "$.settings." + settingID
+		addErr("setting.id.invalid", settingPath, ValidatePublicID("setting", settingID))
+		if strings.TrimSpace(setting.Label) != setting.Label {
+			add("setting.label.invalid", settingPath+".label", fmt.Sprintf("setting %s label must not have surrounding whitespace", settingID))
+		}
+		if setting.SupportLevel != "" && !knownSupportLevel(setting.SupportLevel) {
+			add("setting.supportLevel.unsupported", settingPath+".supportLevel", fmt.Sprintf("setting %s unsupported supportLevel: %s", settingID, setting.SupportLevel))
+		}
+		if setting.Capability != "" && !knownCapability(setting.Capability) {
+			add("setting.capability.unsupported", settingPath+".capability", fmt.Sprintf("setting %s unsupported capability: %s", settingID, setting.Capability))
+		}
+		if setting.ArtifactForm != "" && !knownArtifactForm(setting.ArtifactForm) {
+			add("setting.artifactForm.unsupported", settingPath+".artifactForm", fmt.Sprintf("setting %s unsupported artifactForm: %s", settingID, setting.ArtifactForm))
 		}
 		if setting.ScopeDefault != "" && !knownScope(setting.ScopeDefault) {
-			return fmt.Errorf("setting %s unsupported scopeDefault: %s", settingID, setting.ScopeDefault)
+			add("setting.scopeDefault.unsupported", settingPath+".scopeDefault", fmt.Sprintf("setting %s unsupported scopeDefault: %s", settingID, setting.ScopeDefault))
 		}
 		if setting.Resource == "" {
-			return fmt.Errorf("setting %s resource is required", settingID)
-		}
-		if _, ok := r.Resources[setting.Resource]; !ok {
-			return fmt.Errorf("setting %s references unknown resource %s", settingID, setting.Resource)
+			add("setting.resource.required", settingPath+".resource", fmt.Sprintf("setting %s resource is required", settingID))
+		} else if _, ok := r.Resources[setting.Resource]; !ok {
+			add("setting.resource.unknown", settingPath+".resource", fmt.Sprintf("setting %s references unknown resource %s", settingID, setting.Resource))
 		}
 	}
-	return nil
+
+	for _, groupID := range sortedKeys(r.SettingsGroups) {
+		group := r.SettingsGroups[groupID]
+		groupPath := "$.settingsGroups." + groupID
+		addErr("settingsGroup.id.invalid", groupPath, ValidatePublicID("settingsGroup", groupID))
+		if strings.TrimSpace(group.Label) != group.Label {
+			add("settingsGroup.label.invalid", groupPath+".label", fmt.Sprintf("settingsGroup %s label must not have surrounding whitespace", groupID))
+		}
+		if group.SupportLevel != "" && !knownSupportLevel(group.SupportLevel) {
+			add("settingsGroup.supportLevel.unsupported", groupPath+".supportLevel", fmt.Sprintf("settingsGroup %s unsupported supportLevel: %s", groupID, group.SupportLevel))
+		}
+		if group.Capability != "" && !knownCapability(group.Capability) {
+			add("settingsGroup.capability.unsupported", groupPath+".capability", fmt.Sprintf("settingsGroup %s unsupported capability: %s", groupID, group.Capability))
+		}
+		if len(group.Settings) == 0 {
+			add("settingsGroup.settings.required", groupPath+".settings", fmt.Sprintf("settingsGroup %s must reference at least one setting", groupID))
+		}
+		seen := map[string]bool{}
+		for idx, settingRef := range group.Settings {
+			settingPath := fmt.Sprintf("%s.settings[%d]", groupPath, idx)
+			if err := ValidatePublicID("setting", settingRef); err != nil {
+				add("settingsGroup.setting.invalid", settingPath, fmt.Sprintf("settingsGroup %s invalid setting ref %s", groupID, settingRef))
+				continue
+			}
+			if seen[settingRef] {
+				add("settingsGroup.setting.duplicate", settingPath, fmt.Sprintf("settingsGroup %s duplicates setting ref %s", groupID, settingRef))
+			}
+			seen[settingRef] = true
+			if _, ok := r.Settings[settingRef]; !ok {
+				add("settingsGroup.setting.unknown", settingPath, fmt.Sprintf("settingsGroup %s references unknown setting %s", groupID, settingRef))
+			}
+		}
+	}
+
+	return normalizeDiagnostics(diagnostics)
 }
 
 func (r *Recipe) ValidateGit() error {
@@ -358,6 +472,8 @@ func (r *Recipe) validateResourceDriverShape(resourceID string, resource Resourc
 	switch resource.Driver {
 	case IniFileDriverID:
 		return validateINIResource(resourceID, resource)
+	case JSONFileDriverID, YAMLFileDriverID:
+		return validateSelectedPathResource(resourceID, resource)
 	case FileDriverID, FileTreeDriverID:
 		if resource.Selector != nil {
 			return fmt.Errorf("resource %s driver %q must not declare selector", resourceID, resource.Driver)
@@ -376,6 +492,9 @@ func validateINIResource(resourceID string, resource Resource) error {
 		return fmt.Errorf("resource %s driver %q requires selector", resourceID, IniFileDriverID)
 	}
 	selector := resource.Selector
+	if len(selector.Path) > 0 || selector.CreateMissing != "" {
+		return fmt.Errorf("resource %s driver %q must not declare selected-path selector fields", resourceID, IniFileDriverID)
+	}
 	if selector.Section == "" || strings.TrimSpace(selector.Section) != selector.Section {
 		return fmt.Errorf("resource %s selector section is required and must not have surrounding whitespace", resourceID)
 	}
@@ -411,32 +530,86 @@ func validateINIResource(resourceID string, resource Resource) error {
 	return nil
 }
 
-func selectorMissingSection(selector *INISelector) string {
+func validateSelectedPathResource(resourceID string, resource Resource) error {
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("resource %s driver %q must not declare include/exclude globs", resourceID, resource.Driver)
+	}
+	if resource.Selector == nil {
+		return fmt.Errorf("resource %s driver %q requires selector", resourceID, resource.Driver)
+	}
+	selector := resource.Selector
+	if selector.Section != "" || selector.Key != "" || selector.MissingSection != "" || selector.MissingKey != "" {
+		return fmt.Errorf("resource %s driver %q must not declare INI selector fields", resourceID, resource.Driver)
+	}
+	if len(selector.Path) == 0 {
+		return fmt.Errorf("resource %s selector path is required", resourceID)
+	}
+	for idx, segment := range selector.Path {
+		if segment == "" {
+			return fmt.Errorf("resource %s selector path segment %d is required", resourceID, idx)
+		}
+		if strings.ContainsAny(segment, "\r\n\x00") {
+			return fmt.Errorf("resource %s selector path segment %d must not contain CR, LF, or NUL", resourceID, idx)
+		}
+		if isExpressionSegment(segment) {
+			return fmt.Errorf("resource %s selector path segment %d looks like an expression", resourceID, idx)
+		}
+	}
+	switch selectorCreatePolicy(selector) {
+	case "reject", "create":
+	default:
+		return fmt.Errorf("resource %s unsupported selector createMissing policy %q", resourceID, selector.CreateMissing)
+	}
+	switch selectorDuplicatePolicy(selector) {
+	case "reject":
+	default:
+		return fmt.Errorf("resource %s unsupported selector duplicatePolicy %q", resourceID, selector.DuplicatePolicy)
+	}
+	switch selectorDeleteKey(selector) {
+	case "reject", "allow":
+	default:
+		return fmt.Errorf("resource %s unsupported selector deleteKey policy %q", resourceID, selector.DeleteKey)
+	}
+	return nil
+}
+
+func selectorMissingSection(selector *Selector) string {
 	if selector == nil || selector.MissingSection == "" {
 		return string(inidriver.MissingPolicyError)
 	}
 	return selector.MissingSection
 }
 
-func selectorMissingKey(selector *INISelector) string {
+func selectorMissingKey(selector *Selector) string {
 	if selector == nil || selector.MissingKey == "" {
 		return string(inidriver.MissingPolicyError)
 	}
 	return selector.MissingKey
 }
 
-func selectorDuplicatePolicy(selector *INISelector) string {
+func selectorCreatePolicy(selector *Selector) string {
+	if selector == nil || selector.CreateMissing == "" {
+		return "reject"
+	}
+	return selector.CreateMissing
+}
+
+func selectorDuplicatePolicy(selector *Selector) string {
 	if selector == nil || selector.DuplicatePolicy == "" {
 		return string(inidriver.DuplicatePolicyReject)
 	}
 	return selector.DuplicatePolicy
 }
 
-func selectorDeleteKey(selector *INISelector) string {
+func selectorDeleteKey(selector *Selector) string {
 	if selector == nil || selector.DeleteKey == "" {
 		return string(inidriver.DeletePolicyReject)
 	}
 	return selector.DeleteKey
+}
+
+func isExpressionSegment(segment string) bool {
+	return segment == "*" || segment == "$" || segment == "." || segment == ".." || strings.ContainsAny(segment, "[]") || strings.HasPrefix(segment, "$.")
 }
 
 func ExpandLocationDefault(value string) (string, error) {
@@ -499,6 +672,87 @@ func ValidateResourcePath(value string) (string, error) {
 	return slashed, nil
 }
 
+func ValidationDiagnostics(err error) []ValidationDiagnostic {
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
+		return append([]ValidationDiagnostic(nil), validationErr.Diagnostics...)
+	}
+	return nil
+}
+
+func validationError(diagnostics []ValidationDiagnostic) error {
+	diagnostics = normalizeDiagnostics(diagnostics)
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	return &ValidationError{Diagnostics: diagnostics}
+}
+
+func validationDiagnostic(code string, path string, message string) ValidationDiagnostic {
+	return ValidationDiagnostic{Code: code, Path: path, Severity: ValidationSeverityError, Message: message}
+}
+
+func duplicateYAMLKeyDiagnostics(node *yaml.Node) []ValidationDiagnostic {
+	var diagnostics []ValidationDiagnostic
+	var walk func(*yaml.Node, string)
+	walk = func(current *yaml.Node, path string) {
+		if current == nil {
+			return
+		}
+		switch current.Kind {
+		case yaml.DocumentNode:
+			if len(current.Content) > 0 {
+				walk(current.Content[0], path)
+			}
+		case yaml.MappingNode:
+			seen := map[string]string{}
+			for idx := 0; idx+1 < len(current.Content); idx += 2 {
+				keyNode := current.Content[idx]
+				valueNode := current.Content[idx+1]
+				key := keyNode.Value
+				if key == "" {
+					key = fmt.Sprintf("<key-%d>", idx/2)
+				}
+				keyPath := path + "." + key
+				if firstPath, ok := seen[key]; ok {
+					diagnostics = append(diagnostics, validationDiagnostic("yaml.duplicate-key", keyPath, fmt.Sprintf("duplicate mapping key %q (first declared at %s)", key, firstPath)))
+				} else {
+					seen[key] = keyPath
+				}
+				walk(valueNode, keyPath)
+			}
+		case yaml.SequenceNode:
+			for idx, child := range current.Content {
+				walk(child, fmt.Sprintf("%s[%d]", path, idx))
+			}
+		}
+	}
+	walk(node, "$")
+	return normalizeDiagnostics(diagnostics)
+}
+
+func normalizeDiagnostics(diagnostics []ValidationDiagnostic) []ValidationDiagnostic {
+	out := append([]ValidationDiagnostic(nil), diagnostics...)
+	for idx := range out {
+		if out[idx].Severity == "" {
+			out[idx].Severity = ValidationSeverityError
+		}
+		if out[idx].Path == "" {
+			out[idx].Path = "$"
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		if out[i].Code != out[j].Code {
+			return out[i].Code < out[j].Code
+		}
+		return out[i].Message < out[j].Message
+	})
+	return out
+}
+
 func normalizeRepoRoot(repoRoot string) (string, error) {
 	trimmed := strings.TrimSpace(repoRoot)
 	if trimmed == "" {
@@ -550,6 +804,15 @@ func knownCapability(value string) bool {
 func knownScope(value string) bool {
 	switch value {
 	case "shared", "user", "machine", "machine-user":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownArtifactForm(value string) bool {
+	switch value {
+	case "file", "file-tree", "scalar", "structured", "native-export", "opaque", "metadata-only":
 		return true
 	default:
 		return false
