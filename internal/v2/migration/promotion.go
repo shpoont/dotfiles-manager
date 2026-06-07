@@ -191,8 +191,8 @@ func buildPromotionItem(item Item) PromotionItem {
 		promotionItem.ProposedSettingRef = "git:identity"
 		promotionItem.Result = PromotionResultBlocked
 		promotionItem.Diagnostics = append(promotionItem.Diagnostics, promotionDiagnostic(
-			"promotion-target-unimplemented",
-			"git config promotion is recognized but blocked until a bundled git recipe and structured git config driver are implemented",
+			"promotion-confirmed-write-unimplemented",
+			"git config promotion is recognized but blocked until confirmed promotion maps generated custom.files entries to selected git identity settings",
 			item.LegacyTarget,
 			"error",
 		))

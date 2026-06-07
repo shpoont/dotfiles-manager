@@ -52,7 +52,7 @@ func TestBuildPromotionReportClassifiesAllowlistedCandidatesWithoutReadingConten
 	require.Equal(t, "git", gitItem.ProposedTargetRef)
 	require.Equal(t, "git:identity", gitItem.ProposedSettingRef)
 	require.Equal(t, PromotionResultBlocked, gitItem.Result)
-	requireDiagnostic(t, gitItem.Diagnostics, "promotion-target-unimplemented")
+	requireDiagnostic(t, gitItem.Diagnostics, "promotion-confirmed-write-unimplemented")
 
 	miscItem := report.Items[1]
 	require.Equal(t, PromotionResultNotPromotable, miscItem.Result)
