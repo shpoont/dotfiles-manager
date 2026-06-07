@@ -241,11 +241,18 @@ relationships for mixed-scope resources.
 
 ```yaml
 target: example-tool
+capability: read-write
 settings:
   user.email:
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
     scopeDefault: user
     resource: configYaml.userEmail
   user-info:
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
     scopeDefault: shared
     resource: userInfoJson
 locations:
@@ -253,12 +260,20 @@ locations:
     default: ~/.example-tool
 resources:
   configYaml.userEmail:
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
     driver: yaml-file
     location: config
     path: config.yaml
     selector:
       path: [user, email]
   userInfoJson:
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
     driver: file
     location: config
     path: user-info.json
@@ -274,9 +289,10 @@ target: raycast
 settings:
   settings-and-data:
     capability: export-only
+    sensitivity: unknown
+    redaction: redaction-unavailable
     artifactForm: native-export
     diff: metadata-only
-    requiresOptIn: true
 ```
 
 ## Errors, blockers, and partial-result behavior
@@ -287,7 +303,8 @@ Recipe validation must reject:
 - unknown driver IDs;
 - selectors unsupported by the driver;
 - paths not rooted in named locations;
-- write-capable settings without support/capability declarations;
+- write-capable settings or resources without required safety metadata;
+- user-local write-capable recipes without caller-provided source/trust context;
 - forbidden resource categories;
 - arbitrary scripts in MVP;
 - native operations without lifecycle, timeout, and verification policy.

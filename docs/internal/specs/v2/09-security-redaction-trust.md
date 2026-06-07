@@ -82,6 +82,21 @@ The manager must not manage these categories by default:
 Recipes may explicitly mark a setting as allowed only when the value is portable
 and the safety policy permits it.
 
+### Sensitivity levels
+
+MVP recipe metadata uses this closed sensitivity set:
+
+| Level | Meaning | Write-safety default |
+| --- | --- | --- |
+| `low` | Non-sensitive portable value. | allowed with required redaction metadata |
+| `personal` | Personal but portable value, such as an identity string. | allowed with required redaction metadata |
+| `machine-local` | Value is tied to one machine or OS/user context. | allowed by this metadata gate; profile/scope policy may restrict portability |
+| `secret` | Secret-bearing value or credential material. | blocked unless caller context explicitly allows sensitive values |
+| `unknown` | Recipe cannot classify the value yet. | blocked unless caller context explicitly allows unknown sensitivity |
+
+Approval state is not stored in recipe YAML. Context-specific approvals belong
+to the write-planning context or future trust records.
+
 ### Redaction outcomes
 
 Every value that may be displayed or saved should resolve to one redaction
@@ -93,7 +108,6 @@ outcome:
 | `redacted-for-display` | Value may be saved/applied but hidden in output. | yes, with policy |
 | `blocked-save` | Sensitive material would enter desired artifacts. | no |
 | `redaction-unavailable` | Opaque/unknown format cannot be inspected. | only with opaque opt-in |
-| `user-approved-sensitive` | User approved a sensitive portable value. | only if recipe permits |
 
 Diff renderers must obey redaction. JSON output must not leak redacted values.
 
@@ -102,6 +116,10 @@ Diff renderers must obey redaction. JSON output must not leak redacted values.
 Bundled recipes are trusted by the release process. User-local recipes must be
 explicitly trusted before write-capable behavior. Untrusted recipes may be
 inspect-only or blocked.
+
+Write planning must receive an explicit recipe source context. Empty or unknown
+source context fails closed before writes. `local` requires explicit trust;
+`bundled` is trusted by the release process.
 
 Recipe changes that broaden write scope, add native operations, change
 sensitivity, or change lifecycle behavior must require review before writes.
@@ -161,8 +179,10 @@ Unreviewed command-backed save/apply is deferred.
 
 ### Lifecycle policy
 
-Recipes may declare lifecycle behavior at target, settings group, or resource
-level. Supported policy states include:
+MVP recipes declare lifecycle behavior at setting or resource level. Resource
+lifecycle is required for write-capable resources. Setting lifecycle is
+optional but enforced when present. Target/group lifecycle inheritance can be
+added later if needed. Supported policy states include:
 
 - `allowed`;
 - `warn`;
@@ -171,6 +191,12 @@ level. Supported policy states include:
 - `quit-if-running`;
 - `block-if-running`;
 - `reopen-if-stopped-by-tool`.
+
+`blocked` always blocks write planning. `ask-to-quit`, `quit-if-running`,
+`block-if-running`, and `reopen-if-stopped-by-tool` also block by default until
+a lifecycle engine or caller context explicitly handles lifecycle actions.
+`allowed` and `warn` do not block the metadata gate; `warn` must remain a
+non-blocking diagnostic.
 
 If the manager stops an app, it should reopen it only when policy and user
 confirmation permit that. Non-interactive mode must not silently quit or reopen
@@ -293,7 +319,6 @@ blocked trust or policy decisions.
 
 ## Spec follow-ups / open decisions
 
-- Decide exact sensitivity levels.
 - Decide exact trust-record invalidation rules.
 - Decide whether constrained command IO is included in MVP local recipes or
   deferred.
