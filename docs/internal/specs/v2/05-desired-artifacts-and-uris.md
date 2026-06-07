@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-07
 canonical-source: docs/internal/specs/v2/05-desired-artifacts-and-uris.md
 source-concept-sections:
   - Desired artifact lifecycle rules
@@ -128,6 +128,75 @@ If a future recipe declares a specific artifact payload as manager-owned instead
 of driver-owned, that exception must be explicit in the recipe and the payload
 must then carry the manager schema fields above.
 
+### MVP selected-value `settings.yaml`
+
+For MVP selected-value resources (`ini-file`, `json-file`, and `yaml-file`),
+the default manager-owned desired artifact is:
+
+```text
+desired/<scope>/<subject>/targets/<target-id>/settings.yaml
+```
+
+It stores actual desired scalar state in a manager-owned, driver-independent
+shape:
+
+```yaml
+schema: dotfiles-manager.v2.desired-settings
+schemaVersion: 1
+values:
+  <setting-id>:
+    intent: set | delete | unmanaged
+    kind: string | bool | number | null # required only for intent: set
+    value: ...                          # omitted for delete, unmanaged, and null
+```
+
+`intent: set` means the desired state has a scalar value. String and bool values
+use normal YAML scalar values. Number values are stored as a JSON-number lexical
+string so they are not interpreted through YAML-specific number rules.
+`kind: null` has no `value` field.
+
+`intent: delete` is an explicit desired-present state: applying it removes the
+selected live value if the selected-value driver supports that operation.
+
+`intent: unmanaged` is an explicit intentionally-unmanaged state. It differs
+from a missing `settings.yaml` file or a missing setting entry. Status and diff
+logic must be able to distinguish:
+
+- no desired artifact or no setting entry;
+- desired present (`set` or `delete`);
+- desired intentionally unmanaged.
+
+The selected-value `settings.yaml` helpers are only for selected-value drivers.
+They must not persist `file`, `file-tree`, native export/import, or opaque
+payload state through this manager-owned scalar format.
+
+Desired-value writes are gated even though #93 is storage-only. A write helper
+must receive an explicit write-safety decision with recipe, exact setting
+reference, source, trust, and approval flags. It must fail closed before
+filesystem mutation when:
+
+- the decision is absent;
+- source is empty or unsupported;
+- source is `local` without explicit trust;
+- the exact setting or resource is not write-capable;
+- the exact resource is not a selected-value driver;
+- the desired value kind is incompatible with the selected-value driver:
+  `ini-file` accepts only `string`, `delete`, and `unmanaged`; `json-file` and
+  `yaml-file` accept JSON-compatible scalar values (`string`, `bool`, `number`,
+  `null`), `delete`, and `unmanaged`;
+- setting or resource sensitivity metadata is missing;
+- setting or resource redaction metadata is missing;
+- sensitivity is `secret` without explicit sensitive-value approval;
+- sensitivity is `unknown` without explicit unknown-sensitivity approval;
+- redaction is `blocked-save`;
+- redaction is `redaction-unavailable` without explicit opaque-artifact
+  approval.
+
+This storage gate does not perform value-content secret scanning, persist trust
+records, execute lifecycle actions, inspect live apps, or perform live writes.
+Those behaviors belong to later command, secret, trust, lifecycle, and live-write
+work.
+
 ### Desired artifact lifecycle
 
 1. A selected setting may start with no desired artifact.
@@ -206,6 +275,12 @@ Use `-` as the subject for `shared`, because shared scope has no user or
 machine subject. The `<scope>`, `<subject>`, `<target-id>`, `<setting-id>`, and
 `<artifact-path>` values in URI examples are logical URI segments, not raw
 filesystem paths. URI escaping and encoding rules remain deferred.
+
+The MVP URI parser intentionally supports only the canonical shapes above. Until
+URI escaping rules are specified, it must fail closed on percent-encoding,
+queries, userinfo or host ambiguity, backslashes, empty path segments, `.`,
+`..`, absolute paths, fragments on `manifest` or `artifacts` URIs, and unknown
+object endpoints.
 
 ## Derived schema boundaries, not final schemas
 
