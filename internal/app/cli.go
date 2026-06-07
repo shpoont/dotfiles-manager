@@ -188,7 +188,24 @@ func newRecipeCmd(opts *rootOptions) *cobra.Command {
 		Use:   "recipe",
 		Short: "Inspect v2 recipe metadata",
 	}
+	cmd.AddCommand(newRecipeListCmd(opts))
 	cmd.AddCommand(newRecipeExplainCmd(opts))
+	return cmd
+}
+
+func newRecipeListCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List read-only v2 bundled recipe targets",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRecipeListCommand(cmd, opts, jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -511,6 +528,15 @@ func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target strin
 	return err
 }
 
+func runRecipeListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool) error {
+	repoRoot, err := recipeExplainRepoRoot(opts)
+	if err != nil {
+		return err
+	}
+	report := v2recipe.List(v2recipe.ListOptions{RepoRoot: repoRoot})
+	return emitRecipeListReport(cmd.OutOrStdout(), report, jsonOutput)
+}
+
 func recipeExplainRepoRoot(opts *rootOptions) (string, error) {
 	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
 		abs, err := filepath.Abs(strings.TrimSpace(opts.configPath))
@@ -532,6 +558,19 @@ func emitRecipeExplainReport(stdout io.Writer, report *v2recipe.ExplainReport, j
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2recipe.ExplainText(report))
+	return err
+}
+
+func emitRecipeListReport(stdout io.Writer, report *v2recipe.ListReport, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2recipe.ListJSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2recipe.ListText(report))
 	return err
 }
 

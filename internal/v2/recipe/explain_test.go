@@ -66,6 +66,38 @@ resources:
 	require.Contains(t, ExplainText(custom), "custom.files:file-tree")
 }
 
+func TestExplainBundledAliasAndLocalAliasCollision(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, "gitconfig", stringsForExplainTest(`schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: gitconfig
+displayName: Local Git Alias Collision
+supportLevel: experimental
+capability: read-write
+locations:
+  home:
+    default: "~"
+settings:
+  credential.helper:
+    scopeDefault: user
+    resource: helper
+resources:
+  helper:
+    driver: file
+    location: home
+    path: .gitconfig
+`))
+
+	report, err := Explain(ExplainOptions{Target: "gitconfig", RepoRoot: root})
+	require.NoError(t, err)
+	require.Equal(t, GitTarget, report.RecipeExplain.Target.Ref)
+	require.Equal(t, "recipe://bundled/git", report.RecipeExplain.Recipe.RecipeRef)
+	requireDiagnosticCodeInRecipe(t, report, ExplainCodeLocalRecipeShadowed)
+	requireDiagnosticCodeInRecipe(t, report, ExplainCodeSelectionUnresolved)
+}
+
 func TestExplainLocalRecipe(t *testing.T) {
 	t.Parallel()
 
@@ -152,6 +184,7 @@ func TestExplainErrorsAndExitCodes(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, ExplainCodeUnknownTarget, report.Error.Code)
 	require.Equal(t, 2, err.(*ExplainError).ExitCode())
+	require.Equal(t, []string{CustomFilesTarget, GitTarget}, report.Error.Details["knownTargets"])
 	require.Contains(t, ExplainText(report), "error[unknown-target]")
 
 	report, err = Explain(ExplainOptions{Target: "git:user.email", RepoRoot: root})
