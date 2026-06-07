@@ -38,7 +38,7 @@ Extracted from the concept sections covering:
 - desired artifact lifecycle;
 - URI style such as `desired://`;
 - artifact resolution algorithm;
-- examples for Git, Cobona, Raycast, and file-tree state.
+- examples for Git, illustrative-only Example Tool, candidate Raycast native state, and file-tree state.
 
 Deliberate non-decisions:
 
@@ -242,15 +242,18 @@ form: structured
 setting: git:user.email
 ```
 
-### Cobona shared JSON
+### Illustrative-only shared JSON
 
 ```yaml
-artifact: desired://shared/-/targets/cobona/artifacts/user-info.json
+artifact: desired://shared/-/targets/example-tool/artifacts/user-info.json
 form: structured
-setting: cobona:user-info
+setting: example-tool:user-info
 ```
 
-### Raycast opaque export
+### Candidate Raycast opaque export
+
+Raycast is a native-app candidate until current export/import support is
+verified. This snippet only describes desired artifact shape.
 
 ```yaml
 artifact: desired://machine/mbp-2026/targets/raycast/artifacts/settings.rayconfig.enc

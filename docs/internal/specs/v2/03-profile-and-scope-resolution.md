@@ -316,8 +316,9 @@ safety or policy blockers.
 
 ### Location overrides
 
-Named target location overrides belong in profile layers. For example, a user
-may override Cobona config location from `~/.cobona` to another declared root.
+Named target location overrides belong in profile layers. For example, an
+illustrative-only `example-tool` target may allow its config location to be
+overridden from `~/.example-tool` to another declared root.
 
 Overrides must remain inside the recipe's named-location model. Arbitrary
 unvalidated write paths are not allowed.
@@ -361,11 +362,13 @@ profileStack:
   - machine-user/mbp-2026/leon
 ```
 
-### Cobona mixed scopes
+### Illustrative-only mixed scopes
+
+The following uses `example-tool` only as an illustrative schema target.
 
 ```yaml
 selections:
-  cobona:
+  example-tool:
     settings:
       user.email:
         scope: user
@@ -375,11 +378,13 @@ selections:
 
 ### Non-default location
 
+The following uses `example-tool` only as an illustrative schema target.
+
 ```yaml
 locations:
-  cobona:
+  example-tool:
     config:
-      path: ~/.config/cobona
+      path: ~/.config/example-tool
 ```
 
 ## Errors, blockers, and partial-result behavior

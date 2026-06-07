@@ -234,10 +234,13 @@ config, profile, artifact, ledger, and backup schemas.
 Recipe examples demonstrate relationship and capability shape. YAML field names
 remain sketches until `schemas/v2/recipe.schema.json` is promoted.
 
-### Cobona recipe sketch
+### Illustrative-only recipe sketch
+
+`example-tool` is not a bundled target; this snippet only demonstrates schema
+relationships for mixed-scope resources.
 
 ```yaml
-target: cobona
+target: example-tool
 settings:
   user.email:
     scopeDefault: user
@@ -247,7 +250,7 @@ settings:
     resource: userInfoJson
 locations:
   config:
-    default: ~/.cobona
+    default: ~/.example-tool
 resources:
   configYaml.userEmail:
     driver: yaml-file
@@ -260,7 +263,10 @@ resources:
     path: user-info.json
 ```
 
-### Raycast native export sketch
+### Candidate Raycast native export sketch
+
+Raycast is a native-app candidate until issue #112 verifies current
+export/import support. This snippet only demonstrates capability shape.
 
 ```yaml
 target: raycast
@@ -290,8 +296,8 @@ inspectable only if validation can isolate them without ambiguity.
 
 ## Acceptance expectations
 
-- Recipe fixtures validate Git, Zsh, Nvim, Starship, Cobona, and Raycast-like
-  examples.
+- Recipe fixtures validate Git, planned/candidate Zsh/Nvim/Starship examples,
+  illustrative-only Example Tool examples, and Raycast-like native candidates.
 - Invalid selector and unsafe path fixtures are rejected.
 - Settings groups can be absent without affecting target support.
 - Native export fixtures distinguish diffable from opaque artifacts.

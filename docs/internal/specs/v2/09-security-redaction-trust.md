@@ -241,7 +241,7 @@ git:credential.helper    blocked-save    credential material must not enter repo
 ### App must be closed
 
 ```text
-cobona:user-info    blocked-lifecycle    Cobona must be closed before apply
+example-tool:user-info    blocked-lifecycle    Example Tool must be closed before apply  # illustrative-only
 ```
 
 ### Opaque native export

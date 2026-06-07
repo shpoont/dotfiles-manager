@@ -42,6 +42,18 @@ explicitly says **normative for the MVP**. Illustrative examples show intended
 shape and vocabulary; they must not be treated as final schemas until promoted
 into `docs/internal/specs/` or `docs/internal/contracts/`.
 
+Example target names must be read with an explicit support label:
+
+- **Implemented/current** examples describe behavior already present in the
+  current v2 code or already promoted specs.
+- **Planned/candidate** examples, including target names such as `starship`,
+  `zsh`, `nvim`, `tmux`, `ssh`, and native-app candidates such as `raycast`,
+  describe intended support and must not be presented as shipped support until
+  their recipe/driver issues are complete.
+- **Illustrative-only** examples use neutral IDs such as `example-tool` to show
+  schema, scope, URI, lifecycle, or artifact relationships. They are not bundled
+  targets, not planned product promises, and not real application support.
+
 ## Executive summary
 
 The direction is worth pursuing only if the user-facing product stays much
@@ -130,9 +142,11 @@ Convenience requirements:
 
 - `add` should detect whether the target is installed and show recommended safe
   settings before asking the user to edit config.
-- Supported targets should work from target names first: `git`, `nvim`,
-  `raycast`, `cobona`. Users should not need recipe IDs, drivers, locations,
-  artifact paths, or URI schemes for supported cases.
+- Supported targets should work from target names first, such as `git` once the
+  Git recipe ships. Planned/candidate targets such as `nvim` or `raycast` must be
+  labeled as planned/candidate until their support issues are complete. Users
+  should not need recipe IDs, drivers, locations, artifact paths, or URI schemes
+  for supported cases.
 - The manager should recommend scopes and ask only when the choice is ambiguous.
   Prompts should use labels such as “for me” or “for this machine,” while still
   storing the precise `user` or `machine` scope internally.
@@ -216,11 +230,12 @@ The messaging should avoid saying “manage the whole app.” Prefer:
 
 > Manage selected settings for this target.
 
-For example, Raycast support should not mean “restore all of Raycast.” Even if
-Raycast provides native export/import, support should mean “manage selected
-Raycast settings through declared native artifacts,” while explicitly excluding
-account, extension secrets, history, cache, and cloud state from normal
-settings management.
+For candidate native-app support, use Raycast only as an unverified example until
+current export/import commands or APIs are reviewed. If Raycast is later
+supported, support should not mean “restore all of Raycast.” It should mean
+“manage selected Raycast settings through declared native artifacts,” while
+explicitly excluding account, extension secrets, history, cache, and cloud state
+from normal settings management.
 
 ## User-facing model
 
@@ -229,7 +244,9 @@ settings management.
 The product should be documented around common end-user flows before explaining
 profiles, recipes, or artifacts.
 
-First setup on a configured machine:
+First setup on a configured machine. This flow uses `git` plus
+planned/candidate targets (`nvim`, `raycast`) to show intended UX; those
+candidate targets are not current shipped support until their issues land.
 
 ```bash
 dotfiles-manager init
@@ -313,9 +330,10 @@ command output should explain only these nouns:
 - **Target** — the app, CLI tool, service, system feature, or file bundle being
   managed. User-facing copy can usually say **app**, **tool**, or **setting**.
 - **Setting** — the user-meaningful piece of a target that can be managed, such
-  as `git:user.email`, `git:aliases`, `nvim:config`,
-  `raycast:snippets`, or `cobona:user-info`. A public setting may map to one
-  internal settings group when several technical resources are needed.
+  as implemented/planned `git:user.email`, `git:aliases`, candidate
+  `nvim:config`, or candidate `raycast:snippets`. Illustrative-only schema
+  examples may use refs such as `example-tool:user-info`. A public setting may
+  map to one internal settings group when several technical resources are needed.
 - **Scope** — who or what owns the saved setting. The only public scopes are
   `shared`, `user`, `machine`, and `machine-user`.
 - **Saved settings** — the versioned desired state in the repository.
@@ -377,12 +395,14 @@ The target side identifies the managed app, tool, service, or system setting.
 The setting side identifies a logical setting owned by that target.
 
 Public target IDs use kebab-case. Dots are allowed only as namespace
-separators, and each dot-separated segment must still be kebab-case:
+separators, and each dot-separated segment must still be kebab-case. The list
+below mixes real/planned target IDs with the explicitly illustrative-only
+`example-tool` ID:
 
 ```text
 git
 ssh
-cobona
+example-tool
 visual-studio-code
 aws-cli
 macos.finder
@@ -405,8 +425,8 @@ A public setting reference has this form:
 ```text
 git:user.email
 git:aliases.co
-cobona:user.email
-cobona:user-info
+example-tool:user.email
+example-tool:user-info
 raycast:settings-and-data
 ```
 
@@ -435,11 +455,14 @@ schema fields such as `backupBeforeApply` or internal named locations such as
 `userConfig`, but those names should not leak into normal target/setting
 references.
 
-Normal CLI examples should use public references:
+Normal CLI examples should use public references. Use implemented/planned real
+targets where possible and label candidate/illustrative refs when they appear:
 
 ```bash
-dotfiles-manager save cobona:user.email --scope user
-dotfiles-manager save cobona:user-info --scope shared
+dotfiles-manager save git:user.email --scope user
+# Illustrative-only shared-scope schema example, not bundled support:
+dotfiles-manager save example-tool:user-info --scope shared
+# Candidate native target until current export/import support is verified:
 dotfiles-manager diff raycast:settings-and-data
 ```
 
@@ -606,22 +629,22 @@ say things such as "applying shared settings and settings for
 leon@work-laptop" rather than "merging profile stack
 global -> os/macos -> role/personal-mac -> machine/...".
 
-Example scope choices:
+Example scope choices for an explicitly illustrative-only target:
 
 ```text
-cobona:user-info
+example-tool:user-info
   scope: shared
   reason: same file should apply to all users on all machines
 
-cobona:user.email
+example-tool:user.email
   scope: user
   reason: same person may use multiple machines
 
-cobona:window-layout
+example-tool:window-layout
   scope: machine
   reason: depends on this device's display setup
 
-cobona:local-token-cache
+example-tool:local-token-cache
   manage: never
   reason: not managed
 ```
@@ -724,7 +747,9 @@ Live program paths should normally be named locations such as `config`,
 
 Examples below use the current binary name as a placeholder. If the binary is
 later renamed, keep the same public verbs. `init` is a one-time setup/bootstrap
-command, not part of the daily management loop.
+command, not part of the daily management loop. Target names in these command
+examples may be planned/candidate examples unless the implementation says they
+are current support.
 
 ```bash
 dotfiles-manager init
@@ -881,7 +906,7 @@ Needs attention:
   raycast:settings-and-data this machine   opaque native export; diff limited
 
 Blocked:
-  cobona:user-info         shared          app must be closed before apply
+  example-tool:user-info         shared          app must be closed before apply
 ```
 
 `diff`, `save --dry-run`, and `apply --dry-run` should answer:
@@ -961,6 +986,9 @@ unchanged
 
 ### Example normal user config
 
+This config shape is illustrative. Non-Git target names in the snippet are
+planned/candidate examples until their recipe issues ship.
+
 The default config should be convention-based. Users should be able to select
 targets and settings without writing profile stacks, artifact URIs, resource
 names, driver names, or native paths. Most users should not need to open this
@@ -999,12 +1027,14 @@ Shorthand rules:
 Convention examples:
 
 ```text
-cobona:user.email --scope user
-  -> desired://user/<user-id>/targets/cobona/settings#user.email
+git:user.email --scope user
+  -> desired://user/<user-id>/targets/git/settings#user.email
 
-cobona:user-info --scope shared
-  -> desired://shared/-/targets/cobona/artifacts/user-info.json
+# Illustrative-only shared artifact example, not bundled support:
+example-tool:user-info --scope shared
+  -> desired://shared/-/targets/example-tool/artifacts/user-info.json
 
+# Planned/candidate file-tree target until its recipe issue ships:
 nvim:config --scope shared
   -> desired://shared/-/targets/nvim/artifacts/config
 ```
@@ -1023,7 +1053,8 @@ profile stacks, artifact URIs, driver names, and ledger references belong in
 
 The layered form is for advanced users and implementers who need explicit
 profile stacks, location overrides, recipe pins, or artifact bindings. It should
-not be required for the happy path.
+not be required for the happy path. Several target names in this example are
+planned/candidate examples used to show shape, not current bundled support.
 
 ```yaml
 schemaVersion: 1
@@ -1282,7 +1313,7 @@ dotfiles/
             artifacts/
               snippets.json
               quicklinks.json
-          cobona/
+          example-tool/
             manifest.yaml
             artifacts/
               user-info.json
@@ -1293,7 +1324,7 @@ dotfiles/
           git/
             manifest.yaml
             settings.yaml
-          cobona/
+          example-tool/
             manifest.yaml
             settings.yaml
 
@@ -1376,16 +1407,16 @@ Minimal desired manifest contract:
 
 ```yaml
 schemaVersion: 1
-target: cobona
+target: example-tool
 scope: user | shared | machine | machine-user
 subject: "-" | { user: leon } | { machine: host } | { machine: host, user: leon }
-recipe: cobona
+recipe: example-tool
 recipeVersion: "1"
 artifacts:
   settings:
     path: settings.yaml
     form: structured | file | file-tree | portable-export
-    schema: dotfiles-manager.cobona.settings.v1
+    schema: dotfiles-manager.example-tool.settings.v1
 settings:
   user.email:
     artifact: settings
@@ -1555,30 +1586,30 @@ Use `-` as the desired subject for `shared`, because shared scope has no user or
 machine subject.
 
 `target://` intentionally uses URI path syntax, not the public colon syntax.
-For example, public `cobona:user.email` becomes internal
-`target://cobona/user.email` when a URI is needed.
+For example, public `example-tool:user.email` becomes internal
+`target://example-tool/user.email` when a URI is needed.
 
 Examples:
 
 ```text
-target://cobona
-target://cobona/user.email
+target://example-tool
+target://example-tool/user.email
 
-desired://shared/-/targets/cobona/artifacts/user-info.json
-desired://user/leon/targets/cobona/settings#user.email
+desired://shared/-/targets/example-tool/artifacts/user-info.json
+desired://user/leon/targets/example-tool/settings#user.email
 desired://machine/klm.mobile.macbook-pro/targets/git/settings
 desired://machine-user/klm.mobile.macbook-pro/leon/targets/nvim/settings
 
-state://ledger/current/targets/cobona/save/2026-06-04T10-15-00Z
-state://backup/current/targets/cobona/apply/2026-06-04T10-15-00Z/config.yaml
+state://ledger/current/targets/example-tool/save/2026-06-04T10-15-00Z
+state://backup/current/targets/example-tool/apply/2026-06-04T10-15-00Z/config.yaml
 
-temp://run-20260604-101500/cobona/export/config.yaml
+temp://run-20260604-101500/example-tool/export/config.yaml
 
-secret://op/personal/cobona/api-token#value
-secret://env/COBONA_API_TOKEN
+secret://op/personal/example-tool/api-token#value
+secret://env/EXAMPLE_TOOL_API_TOKEN
 
-recipe://cobona
-recipe://cobona/files/config-yaml
+recipe://example-tool
+recipe://example-tool/files/config-yaml
 ```
 
 The fragment on `desired://.../settings#user.email` identifies a logical setting
@@ -1590,43 +1621,47 @@ contain the secret value. If persistent secret-provider integration is deferred,
 recipes that need a passphrase should prompt at runtime instead of writing a
 secret reference into the repository.
 
-### Example: Cobona
+### Example: illustrative-only binary tool with mixed scopes
 
-Cobona is a binary app with two live files:
+This section uses `example-tool` as an **illustrative-only** target to show a
+mixed-scope schema shape. It is not a bundled target, not a planned product
+promise, and not real application support. The illustrative tool has two live
+files:
 
 ```text
-~/.cobona/config.yaml
-~/.cobona/user-info.json
+~/.example-tool/config.yaml
+~/.example-tool/user-info.json
 ```
 
 The user wants to manage one logical value inside `config.yaml` and one whole
 portable file:
 
 ```text
-cobona:user.email   # value at user.email inside ~/.cobona/config.yaml
-cobona:user-info    # portable ~/.cobona/user-info.json artifact
+example-tool:user.email   # value at user.email inside ~/.example-tool/config.yaml
+example-tool:user-info    # portable ~/.example-tool/user-info.json artifact
 ```
 
 Scopes:
 
 ```text
-cobona:user.email
+example-tool:user.email
   scope: user
   reason: same OS user/person may use multiple machines
 
-cobona:user-info
+example-tool:user-info
   scope: shared
   reason: same file should apply to all users on all machines
 ```
 
-Normal CLI flow:
+Illustrative CLI flow, shown only to demonstrate target/setting references and
+scope choices:
 
 ```bash
-dotfiles-manager add cobona
-dotfiles-manager save cobona:user.email --scope user
-dotfiles-manager save cobona:user-info --scope shared
-dotfiles-manager diff cobona
-dotfiles-manager apply cobona
+dotfiles-manager add example-tool
+dotfiles-manager save example-tool:user.email --scope user
+dotfiles-manager save example-tool:user-info --scope shared
+dotfiles-manager diff example-tool
+dotfiles-manager apply example-tool
 ```
 
 Desired layout after save:
@@ -1636,14 +1671,14 @@ desired/
   user/
     leon/
       targets/
-        cobona/
+        example-tool/
           manifest.yaml
           settings.yaml
 
   shared/
     -/
       targets/
-        cobona/
+        example-tool/
           manifest.yaml
           artifacts/
             user-info.json
@@ -1660,16 +1695,16 @@ User-scoped `manifest.yaml` records desired-state metadata, not native live
 paths:
 
 ```yaml
-target: cobona
+target: example-tool
 scope: user
 subject:
   user: leon
-recipe: cobona
+recipe: example-tool
 artifacts:
   settings:
     path: settings.yaml
     form: structured
-    schema: dotfiles-manager.cobona.settings.v1
+    schema: dotfiles-manager.example-tool.settings.v1
 settings:
   user.email:
     artifact: settings
@@ -1679,10 +1714,10 @@ settings:
 Shared `manifest.yaml` records that `user-info` is a portable file artifact:
 
 ```yaml
-target: cobona
+target: example-tool
 scope: shared
 subject: "-"
-recipe: cobona
+recipe: example-tool
 artifacts:
   user-info:
     path: artifacts/user-info.json
@@ -1692,34 +1727,35 @@ settings:
     artifact: user-info
 ```
 
-The Cobona recipe owns native live locations and translation rules. A sketch:
+The illustrative Example Tool recipe owns native live locations and translation
+rules. A sketch:
 
 ```yaml
-id: cobona
+id: example-tool
 locations:
   config:
     role: config
     default:
-      darwin: "~/.cobona/config.yaml"
-      linux: "~/.cobona/config.yaml"
+      darwin: "~/.example-tool/config.yaml"
+      linux: "~/.example-tool/config.yaml"
   user-info:
     role: config
     default:
-      darwin: "~/.cobona/user-info.json"
-      linux: "~/.cobona/user-info.json"
+      darwin: "~/.example-tool/user-info.json"
+      linux: "~/.example-tool/user-info.json"
 
 settings:
   user.email:
     artifactType: structured
     resources:
-      - cobona-config-email
+      - example-tool-config-email
   user-info:
     artifactType: file
     resources:
-      - cobona-user-info-file
+      - example-tool-user-info-file
 
 resources:
-  cobona-config-email:
+  example-tool-config-email:
     driver: yaml-file
     source:
       location: config
@@ -1727,7 +1763,7 @@ resources:
       includePaths:
         - user.email
 
-  cobona-user-info-file:
+  example-tool-user-info-file:
     driver: file
     source:
       location: user-info
@@ -1736,23 +1772,23 @@ resources:
 Internal URI equivalents:
 
 ```text
-target://cobona
-target://cobona/user.email
-target://cobona/user-info
+target://example-tool
+target://example-tool/user.email
+target://example-tool/user-info
 
-desired://user/leon/targets/cobona/settings#user.email
-desired://shared/-/targets/cobona/artifacts/user-info.json
+desired://user/leon/targets/example-tool/settings#user.email
+desired://shared/-/targets/example-tool/artifacts/user-info.json
 
-recipe://cobona
-recipe://cobona/resources/cobona-config-email
+recipe://example-tool
+recipe://example-tool/resources/example-tool-config-email
 ```
 
 Important distinction:
 
-- `cobona:user.email` is the public logical setting reference;
-- `~/.cobona/config.yaml` is the native source/destination path owned by the
+- `example-tool:user.email` is the public logical setting reference;
+- `~/.example-tool/config.yaml` is the native source/destination path owned by the
   recipe's `config` named location;
-- `desired://user/leon/targets/cobona/settings#user.email` is the internal
+- `desired://user/leon/targets/example-tool/settings#user.email` is the internal
   desired-state reference.
 
 Do not use those three forms interchangeably in user-facing docs.
@@ -1763,11 +1799,11 @@ The ledger and backups should live outside the repository by default, for
 example under an XDG or platform-appropriate local state directory:
 
 ```text
-state://ledger/current/targets/cobona/save/<run-id>
-state://backup/current/targets/cobona/apply/<run-id>/config.yaml
-state://observed/current/targets/cobona/save/<run-id>/config.yaml
-state://cache/current/targets/cobona/discovery/<run-id>
-temp://<run-id>/cobona/rendered-inputs/config.yaml
+state://ledger/current/targets/example-tool/save/<run-id>
+state://backup/current/targets/example-tool/apply/<run-id>/config.yaml
+state://observed/current/targets/example-tool/save/<run-id>/config.yaml
+state://cache/current/targets/example-tool/discovery/<run-id>
+temp://<run-id>/example-tool/rendered-inputs/config.yaml
 ```
 
 The local state area may contain sensitive current-machine material, including
@@ -1918,7 +1954,9 @@ resolved profile visible.
 
 ### Target
 
-A target is the canonical thing being managed. Examples:
+A target is the canonical thing being managed. The examples below include current,
+planned/candidate, and illustrative target IDs; support status must be stated by
+recipe/spec issue, not inferred from this vocabulary list.
 
 ```text
 git
@@ -2560,12 +2598,15 @@ resources:
 
 ### Neovim recipe sketch
 
+This is a planned/candidate recipe sketch until the Neovim bundled recipe issue
+ships.
+
 ```yaml
 schemaVersion: 1
 id: nvim
 displayName: Neovim
 kind: cli
-supportLevel: stable
+supportLevel: candidate
 
 commands:
     - name: nvim
@@ -2758,15 +2799,16 @@ sync  = guided conflict-aware save/apply/skip decision
 ```
 
 Lifecycle handling should be visible but not scary. If a target may overwrite
-settings while running, the user-facing prompt should be concrete:
+settings while running, the user-facing prompt should be concrete. This
+lifecycle example uses the illustrative-only `example-tool` target:
 
 ```text
-Cobona must be closed before applying cobona:user-info.
+Example Tool must be closed before applying example-tool:user-info.
 
 Choices:
-  1. Ask Cobona to quit, apply, then reopen it
+  1. Ask Example Tool to quit, apply, then reopen it
   2. I will quit it myself and retry
-  3. Skip Cobona
+  3. Skip Example Tool
 ```
 
 The tool should not silently kill or restart apps. Recipes may support
@@ -2779,7 +2821,8 @@ Some apps already expose their own settings export/import flow. Recipes should
 model this as a first-class native capability rather than as raw file scraping.
 The transport can vary by app: reviewed code, a fixed CLI argv invocation, a
 local API, a supported app command flow, or another deterministic adapter. The
-normal CLI should stay the same:
+normal CLI should stay the same. The following Raycast commands are a candidate
+native-app example until issue #112 verifies current export/import support:
 
 ```bash
 dotfiles-manager status raycast
@@ -2863,7 +2906,7 @@ Opaque `portable-export` contract:
 - partial apply is allowed only if the native app exposes declared categories and
   the recipe can verify them.
 
-Example opaque diff output:
+Example opaque diff output for a candidate native target:
 
 ```text
 $ dotfiles-manager diff raycast
@@ -2881,8 +2924,10 @@ Current machine export:
   exported: just now from this machine
   sha256: d430...
 
-Use `dotfiles-manager save raycast` to save this machine's Raycast settings.
-Use `dotfiles-manager apply raycast` to apply the saved Raycast settings.
+Use `dotfiles-manager save raycast` to save this machine's Raycast settings
+only after Raycast native support is verified and shipped.
+Use `dotfiles-manager apply raycast` to apply the saved Raycast settings only
+after Raycast native support is verified and shipped.
 ```
 
 ### Guided sync
@@ -2892,7 +2937,7 @@ turns detected differences into explicit choices. The recommended action should
 come first, but the user must still choose before writes happen.
 
 ```text
-raycast differs
+raycast differs  # candidate native target until verified
 
 Recommended: save snippets and quicklinks from this machine.
 
@@ -3391,10 +3436,13 @@ Parity acceptance tests before defaulting to v2:
 
 ## Raycast and GUI app guidance
 
-Raycast is a good example of native app import/export support rather than raw
-file reverse engineering.
+Raycast is a candidate native-app example until current export/import commands or
+APIs are verified. It is useful for describing native app import/export support
+rather than raw file reverse engineering, but this section must not be read as
+shipped Raycast support.
 
-Normal users should see the same simple flow as for any supported app:
+If a native app such as Raycast is later supported, normal users should see the
+same simple flow as for any supported app:
 
 ```bash
 dotfiles-manager add raycast
@@ -3544,7 +3592,7 @@ Build:
 - macos-defaults-readonly driver for selected read-only defaults;
 - constrained native import/export capability for bundled, reviewed app support.
 
-Initial bundled recipes:
+Planned initial recipe set:
 
 - `git` — selected `~/.gitconfig` sections, excluding credentials;
 - `zsh` — `~/.zshrc`, `~/.zprofile`, optional `~/.zshenv` with warnings;
@@ -3553,8 +3601,9 @@ Initial bundled recipes:
 - `ssh` — `~/.ssh/config` only, never keys;
 - `starship` — `~/.config/starship.toml`;
 - `custom.files` — legacy file/file-tree resources;
-- `raycast` — native snippets/quicklinks when diffable; optional opaque
-  `.rayconfig` only with explicit encrypted-bundle opt-in;
+- `raycast` — candidate native snippets/quicklinks when diffable; optional opaque
+  `.rayconfig` only after current support is verified and with explicit
+  encrypted-bundle opt-in;
 - `iTerm2` — experimental/read-only preferences;
 - `macos.finder` and `macos.dock` — selected read-only defaults first.
 
@@ -3640,7 +3689,7 @@ new engine.
 - Implement secret detection/redaction pass.
 
 Success criterion: git, starship, tmux, nvim, and simple plist-backed apps are
-manageable without custom code.
+manageable without custom code after their planned driver/recipe issues ship.
 
 ### Phase 4: bundled recipes
 
