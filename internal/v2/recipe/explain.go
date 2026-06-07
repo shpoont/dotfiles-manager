@@ -196,24 +196,17 @@ func Explain(opts ExplainOptions) (*ExplainReport, error) {
 		return errorExplainReport(report, explainErr, target, ""), explainErr
 	}
 
-	if bundled, ok := bundledExplain(target); ok {
+	if bundledTarget, ok := LookupBundledTarget(target); ok {
+		bundled, _ := bundledExplain(bundledTarget.ID)
 		report.RecipeExplain = bundled
-		if localPath := localRecipePath(repoRoot, target); fileExists(localPath) {
-			report.RecipeExplain.Diagnostics = append(report.RecipeExplain.Diagnostics, ExplainDiagnostic{
-				Code:     ExplainCodeLocalRecipeShadowed,
-				Severity: ExplainSeverityWarning,
-				Message:  "local recipe with same target is ignored because bundled recipe precedence is required for this MVP",
-				Ref:      target,
-				Source:   "local",
-				Path:     safeRelOrBase(repoRoot, localPath),
-			})
-		}
+		report.RecipeExplain.Diagnostics = appendLocalRecipeCollisionDiagnostics(report.RecipeExplain.Diagnostics, repoRoot, bundledTarget)
 		return finishExplainReport(report), nil
 	}
 
 	localPath := localRecipePath(repoRoot, target)
 	if !fileExists(localPath) {
-		explainErr := &ExplainError{Code: ExplainCodeUnknownTarget, Message: fmt.Sprintf("unknown recipe target: %s", target), Exit: 2, Details: map[string]any{"target": target}}
+		knownTargets := KnownBundledTargetIDs()
+		explainErr := &ExplainError{Code: ExplainCodeUnknownTarget, Message: fmt.Sprintf("unknown recipe target: %s (known bundled targets: %s)", target, strings.Join(knownTargets, ", ")), Exit: 2, Details: map[string]any{"target": target, "knownTargets": knownTargets}}
 		return errorExplainReport(report, explainErr, target, ""), explainErr
 	}
 
@@ -395,6 +388,25 @@ func appendValidationExplainDiagnostics(report *ExplainReport, diagnostics []Val
 	sortDiagnostics(report.RecipeExplain.Diagnostics)
 }
 
+func appendLocalRecipeCollisionDiagnostics(diagnostics []ExplainDiagnostic, repoRoot string, target BundledTarget) []ExplainDiagnostic {
+	if strings.TrimSpace(repoRoot) == "" {
+		return diagnostics
+	}
+	for _, collisionID := range target.LocalCollisionIDs() {
+		if localPath := localRecipePath(repoRoot, collisionID); fileExists(localPath) {
+			diagnostics = append(diagnostics, ExplainDiagnostic{
+				Code:     ExplainCodeLocalRecipeShadowed,
+				Severity: ExplainSeverityWarning,
+				Message:  "local recipe with bundled target or alias id is ignored because bundled recipe precedence is required for this MVP",
+				Ref:      target.ID,
+				Source:   "local",
+				Path:     safeRelOrBase(repoRoot, localPath),
+			})
+		}
+	}
+	return diagnostics
+}
+
 func validateExplainTargetRef(target string) error {
 	if target == "" {
 		return &ExplainError{Code: ExplainCodeInvalidRef, Message: "target ref is required", Exit: 2}
@@ -417,14 +429,37 @@ func normalizeExplainRepoRoot(repoRoot string) (string, error) {
 }
 
 func bundledExplain(target string) (RecipeExplain, bool) {
-	switch target {
+	bundledTarget, ok := LookupBundledTarget(target)
+	if !ok {
+		return RecipeExplain{}, false
+	}
+	switch bundledTarget.ID {
 	case CustomFilesTarget:
-		return bundledCustomFilesExplain(), true
+		explain := bundledCustomFilesExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	case GitTarget:
-		return bundledGitExplain(), true
+		explain := bundledGitExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	default:
 		return RecipeExplain{}, false
 	}
+}
+
+func applyBundledTargetMetadata(explain *RecipeExplain, target BundledTarget) {
+	if explain == nil {
+		return
+	}
+	explain.Target.Ref = target.ID
+	explain.Target.DisplayName = target.DisplayName
+	explain.Target.SupportLevel = target.SupportLevel
+	explain.Target.Capability = target.Capability
+	explain.Target.PlatformSupport = target.PlatformSupport
+	explain.Recipe.Source = target.Source
+	explain.Recipe.RecipeRef = target.RecipeRef
+	explain.Recipe.TrustStatus = target.TrustStatus
+	explain.Recipe.Version = target.Version
 }
 
 func bundledCustomFilesExplain() RecipeExplain {

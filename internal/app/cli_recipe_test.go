@@ -97,6 +97,67 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	require.Contains(t, out, "driver=file-tree")
 }
 
+func TestRecipeListTextAndJSON(t *testing.T) {
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "list"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	out := stdout.String()
+	require.Contains(t, out, "recipe list")
+	require.Contains(t, out, "custom.files source=bundled")
+	require.Contains(t, out, "git source=bundled")
+	require.Contains(t, out, "aliases=gitconfig")
+
+	cmd = NewRootCmd()
+	stdout.Reset()
+	stderr.Reset()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "list", "--json"})
+
+	err = cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "recipe.list", payload["command"])
+	recipeList := payload["recipeList"].(map[string]any)
+	targets := recipeList["targets"].([]any)
+	require.Len(t, targets, 2)
+	require.Equal(t, "custom.files", targets[0].(map[string]any)["id"])
+	require.Equal(t, "git", targets[1].(map[string]any)["id"])
+	require.Equal(t, "bundled", targets[1].(map[string]any)["source"])
+	require.Equal(t, "trusted", targets[1].(map[string]any)["trustStatus"])
+}
+
+func TestRecipeExplainBundledAliasJSON(t *testing.T) {
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "explain", "gitconfig", "--json"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	recipeExplain := payload["recipeExplain"].(map[string]any)
+	target := recipeExplain["target"].(map[string]any)
+	require.Equal(t, "git", target["ref"])
+	recipeObj := recipeExplain["recipe"].(map[string]any)
+	require.Equal(t, "recipe://bundled/git", recipeObj["recipeRef"])
+}
+
 func TestRecipeExplainLocalRecipeJSON(t *testing.T) {
 	tempDir := t.TempDir()
 	oldWD, err := os.Getwd()

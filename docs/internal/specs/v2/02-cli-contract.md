@@ -85,6 +85,7 @@ The MVP command set is:
 Advanced commands may exist outside the normal path:
 
 ```text
+dotfiles-manager recipe list
 dotfiles-manager recipe explain <target>
 dotfiles-manager app create <target>
 dotfiles-manager app edit <target>
@@ -92,13 +93,45 @@ dotfiles-manager app validate <target>
 dotfiles-manager app test <target> --roundtrip
 ```
 
-`recipe explain <target>` is included in the MVP as a read-only advanced command.
-It explains target support, selected settings, settings groups, resources,
-drivers, lifecycle policy, redaction behavior, support levels, and capability
-limits without reading live target state.
+`recipe list` and `recipe explain <target>` are included in the MVP as read-only
+advanced commands. `recipe list` shows static bundled target metadata and does
+not resolve active profile selection. `recipe explain` explains target support,
+selected settings, settings groups, resources, drivers, lifecycle policy,
+redaction behavior, support levels, and capability limits without reading live
+target state.
 
 Mutating authoring commands such as `app create`, `app edit`, `app validate`,
 and `app test` need their own later contract before implementation.
+
+### `recipe list` read-only contract
+
+`recipe list` emits static bundled registry metadata only. It must not inspect
+live apps, desired artifacts, profile selection, app installation state, or
+native export/import commands. User-local recipe IDs that collide with bundled
+canonical IDs or aliases may produce warning diagnostics, but bundled registry
+metadata remains authoritative for the bundled entry.
+
+Text output must include deterministic target rows with target ID, source,
+trust status, support level, capability, platform support, and aliases.
+
+JSON output uses `command: recipe.list` and a command-specific object:
+
+```yaml
+recipeList:
+  targets:
+    - id: git
+      displayName: Git
+      aliases: [gitconfig]
+      source: bundled
+      recipeRef: recipe://bundled/git
+      trustStatus: trusted
+      version: "1"
+      supportLevel: experimental
+      capability: read-write
+      platformSupport: unknown
+      summary: sketch
+  diagnostics: []
+```
 
 ### `recipe explain <target>` read-only contract
 
