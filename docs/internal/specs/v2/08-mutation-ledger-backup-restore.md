@@ -216,7 +216,7 @@ run-123
 applied:
   git:user.email
 blocked:
-  cobona:user-info    app must be closed before write
+  example-tool:user-info    app must be closed before write  # illustrative-only
 exit: 6
 ```
 

@@ -30,6 +30,15 @@ implementation-authoritative until promoted through `README.md`.
 
 Current v1 behavior remains governed by the existing v1 specs and contracts.
 
+## Example support labels
+
+Examples in v2 docs must say whether they are current/implemented,
+planned/candidate, or illustrative-only. Target names such as `zsh`, `nvim`,
+`tmux`, `ssh`, `starship`, and native-app candidates such as `raycast` are
+planned/candidate examples until their recipe or native-support issues ship.
+The neutral `example-tool` target is illustrative-only and must not be read as a
+bundled app.
+
 ## Source map and extraction notes
 
 Extracted from the concept sections covering:
@@ -69,10 +78,10 @@ A user-facing thing the manager can manage.
 Examples:
 
 - `git`
-- `nvim`
-- `raycast`
 - `custom.files`
-- `cobona`
+- `nvim` (planned/candidate)
+- `raycast` (native-app candidate until verified)
+- `example-tool` (illustrative-only)
 
 A target may contain one or more settings and one or more internal resources.
 Users should normally choose targets by name, not by resource path.
@@ -84,10 +93,10 @@ A named manageable piece of target state.
 Examples:
 
 - `git:user.email`
-- `nvim:config`
-- `raycast:snippets`
-- `cobona:user.email`
-- `cobona:user-info`
+- `nvim:config` (planned/candidate)
+- `raycast:snippets` (native-app candidate until verified)
+- `example-tool:user.email` (illustrative-only)
+- `example-tool:user-info` (illustrative-only)
 
 A setting may be a single scalar value, a structured object, a file, a file tree,
 or a portable native export. A setting is the normal unit for status, diff, save,
@@ -115,13 +124,13 @@ Examples:
 
 - `git`
 - `git:user.email`
-- `nvim:config`
-- `raycast:quicklinks`
-- `visual-studio-code:settings`
-- `cobona:user-info`
+- `nvim:config` (planned/candidate)
+- `raycast:quicklinks` (native-app candidate until verified)
+- `visual-studio-code:settings` (planned/candidate unless implemented)
+- `example-tool:user-info` (illustrative-only)
 
 Internal URI form is separate. Public refs are not URI strings. For example,
-public `cobona:user.email` may map to internal `target://cobona/user.email` when
+public `example-tool:user.email` may map to internal `target://example-tool/user.email` when
 URI form is needed. Groups, resources, drivers, profile layers, and artifact
 paths are not public refs in the MVP normal command surface.
 
@@ -182,8 +191,8 @@ A recipe-defined logical path root with a default and optional user override.
 Examples:
 
 - `home`: `~`
-- `config`: `~/.config/cobona`
-- `support`: `~/Library/Application Support/Raycast`
+- `config`: `~/.config/example-tool` (illustrative-only)
+- `support`: `~/Library/Application Support/Raycast` (native-app candidate until verified)
 
 Named locations prevent recipes from embedding unvalidated arbitrary paths.
 
@@ -372,11 +381,14 @@ resource: ~/.gitconfig [user] email
 driver: ini-file
 ```
 
-### Cobona mixed scopes
+### Illustrative-only mixed scopes
+
+`example-tool` is not a bundled target; it exists here only to show how one
+target can combine a per-user selected value with a shared artifact.
 
 ```text
-cobona:user.email    scope=user         resource=~/.cobona/config.yaml user.email
-cobona:user-info     scope=shared       resource=~/.cobona/user-info.json
+example-tool:user.email    scope=user         resource=~/.example-tool/config.yaml user.email
+example-tool:user-info     scope=shared       resource=~/.example-tool/user-info.json
 ```
 
 ## Errors, blockers, and partial-result behavior

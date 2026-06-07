@@ -328,10 +328,10 @@ spec promotes them.
 desired/user/leon/targets/git/settings.yaml
 ```
 
-### Shared Cobona user info
+### Illustrative-only shared Example Tool user info
 
 ```text
-desired/shared/-/targets/cobona/artifacts/user-info.json
+desired/shared/-/targets/example-tool/artifacts/user-info.json  # illustrative-only
 ```
 
 ### Machine-user override
