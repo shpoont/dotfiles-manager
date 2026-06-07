@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
+	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/spf13/cobra"
 )
 
@@ -59,6 +60,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newImportCmd(opts))
 	rootCmd.AddCommand(newDiffCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))
+	rootCmd.AddCommand(newRecipeCmd(opts))
 
 	return rootCmd
 }
@@ -178,6 +180,31 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for diff (validation error)")
 	_ = cmd.Flags().MarkHidden("dry-run")
 
+	return cmd
+}
+
+func newRecipeCmd(opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "recipe",
+		Short: "Inspect v2 recipe metadata",
+	}
+	cmd.AddCommand(newRecipeExplainCmd(opts))
+	return cmd
+}
+
+func newRecipeExplainCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "explain <target>",
+		Short: "Explain read-only v2 recipe metadata for a target",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRecipeExplainCommand(cmd, opts, args[0], jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -459,6 +486,53 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	commandLogger.Info("command.complete")
 	return nil
+}
+
+func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
+	repoRoot, err := recipeExplainRepoRoot(opts)
+	if err != nil {
+		explainErr := &v2recipe.ExplainError{Code: v2recipe.ExplainCodeInternalError, Message: err.Error(), Exit: 1}
+		report := &v2recipe.ExplainReport{
+			Schema:        v2recipe.ExplainSchema,
+			SchemaVersion: v2recipe.SupportedVersion,
+			Command:       v2recipe.ExplainCommand,
+			RunID:         v2recipe.ExplainRunID,
+			Summary:       v2recipe.ExplainSummary{Status: "error"},
+			Items:         []any{},
+			Error:         &v2recipe.ExplainErrorObject{Code: explainErr.Code, Message: explainErr.Message},
+		}
+		_ = emitRecipeExplainReport(cmd.OutOrStdout(), report, jsonOutput)
+		return explainErr
+	}
+	report, err := v2recipe.Explain(v2recipe.ExplainOptions{Target: target, RepoRoot: repoRoot})
+	if emitErr := emitRecipeExplainReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func recipeExplainRepoRoot(opts *rootOptions) (string, error) {
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		abs, err := filepath.Abs(strings.TrimSpace(opts.configPath))
+		if err != nil {
+			return "", err
+		}
+		return filepath.Dir(abs), nil
+	}
+	return os.Getwd()
+}
+
+func emitRecipeExplainReport(stdout io.Writer, report *v2recipe.ExplainReport, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2recipe.ExplainJSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2recipe.ExplainText(report))
+	return err
 }
 
 func runMigrateCommand(cmd *cobra.Command, opts *rootOptions, dryRun bool, jsonOutput bool) error {
@@ -1169,6 +1243,9 @@ func Execute() int {
 		if parserErr, ok := classifyParserError(err); ok {
 			parserCtx := parserErrorContextFromArgs(os.Args[1:])
 			emitParserError(cmd.OutOrStdout(), cmd.ErrOrStderr(), parserCtx, parserErr)
+		}
+		if exitErr, ok := err.(interface{ ExitCode() int }); ok {
+			return exitErr.ExitCode()
 		}
 		return 1
 	}
