@@ -106,6 +106,43 @@ resources:
 	require.Contains(t, ExplainText(report), "local recipe is untrusted")
 }
 
+func TestExplainLocalSelectedPathRecipeMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		target   string
+		driver   string
+		path     string
+		norm     string
+		driverTx string
+	}{
+		{name: "json", target: "test.json", driver: JSONFileDriverID, path: "config.json", norm: "selected JSON scalar", driverTx: "JSON selected path"},
+		{name: "yaml", target: "test.yaml", driver: YAMLFileDriverID, path: "config.yaml", norm: "selected YAML scalar", driverTx: "YAML selected path"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, tc.target, validSelectedPathRecipe(tc.target, tc.driver, tc.path))
+
+			report, err := Explain(ExplainOptions{Target: tc.target, RepoRoot: root})
+			require.NoError(t, err)
+			require.Equal(t, tc.driver, report.RecipeExplain.Resources[0].DriverID)
+			require.Equal(t, "selected-path", report.RecipeExplain.Resources[0].DiffMode)
+			require.Equal(t, tc.norm, report.RecipeExplain.Resources[0].Normalization)
+			require.Equal(t, []string{"user", "email"}, report.RecipeExplain.Resources[0].Selector.Path)
+			require.Equal(t, "user.email", report.RecipeExplain.Resources[0].Selector.Summary)
+			require.Equal(t, tc.driver, report.RecipeExplain.Drivers[0].ID)
+			require.Contains(t, report.RecipeExplain.Drivers[0].Summary, tc.driverTx)
+			require.Equal(t, "scalar", report.RecipeExplain.Settings[0].ArtifactForm)
+			require.Contains(t, ExplainText(report), "selector=user.email")
+		})
+	}
+}
+
 func TestExplainErrorsAndExitCodes(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +188,15 @@ resources:
 	require.Equal(t, ExplainCodeInvalidRecipe, report.Error.Code)
 	require.Equal(t, 2, err.(*ExplainError).ExitCode())
 	requireDiagnosticCodeInRecipe(t, report, ExplainCodeInvalidRecipe)
+	requireDiagnosticCodeInRecipe(t, report, "setting.resource.unknown")
+	validationDiagnostics, ok := report.Error.Details["diagnostics"].([]ValidationDiagnostic)
+	require.True(t, ok)
+	require.NotEmpty(t, validationDiagnostics)
+	require.Equal(t, "setting.resource.unknown", validationDiagnostics[0].Code)
+	payload, err := ExplainJSON(report)
+	require.NoError(t, err)
+	require.Contains(t, payload, `"diagnostics"`)
+	require.Contains(t, payload, `"setting.resource.unknown"`)
 
 	require.Equal(t, "", (*ExplainError)(nil).Error())
 	require.Equal(t, 1, (*ExplainError)(nil).ExitCode())
