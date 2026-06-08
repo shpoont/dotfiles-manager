@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -333,6 +334,10 @@ func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
 	}
 	if err != nil {
 		block(plan, driverDiagnostic("selectedvalue.location.resolve", err, plan))
+		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+	if err := validateGitINIIdentityCaseSafety(req.Recipe, resource, path); err != nil {
+		block(plan, driverDiagnostic("selectedvalue.driver.git-case-safety", err, plan))
 		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
 	switch resource.Driver {
@@ -765,6 +770,98 @@ func yamlRequest(ctx context) yamldriver.Request {
 		DuplicatePolicy: yamldriver.DuplicatePolicy(defaultString(selector.DuplicatePolicy, string(yamldriver.DuplicatePolicyReject))),
 		DeleteKey:       yamldriver.DeletePolicy(defaultString(selector.DeleteKey, string(yamldriver.DeletePolicyReject))),
 	}}
+}
+
+func validateGitINIIdentityCaseSafety(rec *recipe.Recipe, resource recipe.Resource, path string) error {
+	if rec == nil || rec.Target != recipe.GitTarget || resource.Driver != recipe.IniFileDriverID || resource.Path != ".gitconfig" || resource.Selector == nil {
+		return nil
+	}
+	selector := resource.Selector
+	if selector.Section != "user" || (selector.Key != "email" && selector.Key != "name") {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return nil
+	}
+	if err := checkGitINIIdentityCase(data, selector.Key); err != nil {
+		return &filedriver.Error{Code: filedriver.CodeInvalidSelector, Op: "gitCaseSafety", Path: path, Err: err}
+	}
+	return nil
+}
+
+func checkGitINIIdentityCase(data []byte, key string) error {
+	lines := strings.Split(string(data), "\n")
+	inUserSection := false
+	userSections := 0
+	keyMatches := 0
+	for _, rawLine := range lines {
+		line := strings.TrimSuffix(rawLine, "\r")
+		if sectionName, ok := parseGitCaseGuardSection(line); ok {
+			inUserSection = false
+			if strings.EqualFold(sectionName, "user") {
+				userSections++
+				if sectionName != "user" {
+					return fmt.Errorf("git [user] identity section must use canonical lowercase spelling")
+				}
+				if userSections > 1 {
+					return fmt.Errorf("git [user] identity section is duplicated case-insensitively")
+				}
+				inUserSection = true
+			}
+			continue
+		}
+		if !inUserSection {
+			continue
+		}
+		keyName, ok := parseGitCaseGuardKey(line)
+		if !ok || !strings.EqualFold(keyName, key) {
+			continue
+		}
+		keyMatches++
+		if keyName != key {
+			return fmt.Errorf("git [user] %s key must use canonical lowercase spelling", key)
+		}
+		if keyMatches > 1 {
+			return fmt.Errorf("git [user] %s key is duplicated case-insensitively", key)
+		}
+	}
+	return nil
+}
+
+func parseGitCaseGuardSection(content string) (string, bool) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") || !strings.HasPrefix(trimmed, "[") {
+		return "", false
+	}
+	closeIdx := strings.Index(trimmed, "]")
+	if closeIdx < 0 {
+		return "", false
+	}
+	name := strings.TrimSpace(trimmed[1:closeIdx])
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+func parseGitCaseGuardKey(content string) (string, bool) {
+	trimmedLeft := strings.TrimLeft(content, " \t")
+	if trimmedLeft == "" || strings.HasPrefix(trimmedLeft, "#") || strings.HasPrefix(trimmedLeft, ";") || strings.HasPrefix(trimmedLeft, "[") {
+		return "", false
+	}
+	eq := strings.Index(content, "=")
+	if eq < 0 {
+		return "", false
+	}
+	key := strings.TrimSpace(content[:eq])
+	if key == "" {
+		return "", false
+	}
+	return key, true
 }
 
 func selectorInfo(resource recipe.Resource) SelectorInfo {

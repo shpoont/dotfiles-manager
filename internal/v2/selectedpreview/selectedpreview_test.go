@@ -85,10 +85,10 @@ func TestBuildDistinguishesUnmanagedDesiredFromMissing(t *testing.T) {
 	require.Contains(t, item.Message, "intentionally unmanaged")
 }
 
-func TestBuildKeepsBundledRuntimeUnsupportedUntilBundledRecipeIssue(t *testing.T) {
+func TestBuildKeepsUnsupportedBundledRuntimeExplicitForNonExecutableTargets(t *testing.T) {
 	t.Parallel()
 
-	fixture := setupFixtureForTarget(t, "git", "user.email")
+	fixture := setupFixtureForTarget(t, recipe.CustomFilesTarget, "file")
 	report, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, UserID: "leon"})
 	require.NoError(t, err)
 	require.Equal(t, SummaryBlocked, report.Summary.Status)
@@ -97,6 +97,49 @@ func TestBuildKeepsBundledRuntimeUnsupportedUntilBundledRecipeIssue(t *testing.T
 	require.Equal(t, recipe.RecipeSourceBundled, item.Recipe.Source)
 	require.Equal(t, v2status.StateUnsupported, item.State)
 	requireDiagnostic(t, item, "selectedpreview.recipe.bundledRuntimeUnavailable")
+}
+
+func TestBuildUsesBundledGitRuntimeForSelectedIdentitySettings(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureForTarget(t, recipe.GitTarget, "user.email")
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".gitconfig"), "[credential]\n\thelper = store-secret-helper\n[user]\n\temail = current@example.com\n")
+	fixture.writeDesiredSetFor(recipe.GitTarget, "user.email", "desired@example.com")
+	roots := map[string]map[string]string{recipe.GitTarget: {"home": home}}
+
+	for _, command := range []string{CommandStatus, CommandDiff, CommandSave, CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "git:user.email", UserID: "leon", DryRun: command == CommandSave || command == CommandApply, LocationRoots: roots})
+			require.NoError(t, err)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, recipe.RecipeSourceBundled, item.Recipe.Source)
+			require.Equal(t, "recipe://bundled/git", item.Recipe.RecipeRef)
+			require.Equal(t, recipe.TrustStatusTrusted, item.Recipe.TrustStatus)
+			switch command {
+			case CommandSave:
+				require.Equal(t, v2status.StateChangedCurrent, item.State)
+			case CommandApply:
+				require.Equal(t, v2status.StateReadyToApply, item.State)
+			default:
+				require.Equal(t, v2status.StateUnknown, item.State)
+				require.True(t, item.NoBaseline)
+			}
+			require.True(t, item.Current.Exists)
+			require.Equal(t, ".gitconfig", item.Resource.RelPath)
+			require.Equal(t, "[user] email", item.Selector.Summary)
+			if command == CommandDiff {
+				require.NotNil(t, item.Diff)
+				require.Equal(t, "metadata-only", item.Diff.Mode)
+			}
+			payload := mustJSON(t, report)
+			require.NotContains(t, payload, "current@example.com")
+			require.NotContains(t, payload, "desired@example.com")
+			require.NotContains(t, payload, "store-secret-helper")
+			require.NotContains(t, Text(report), "current@example.com")
+		})
+	}
 }
 
 func TestBuildRejectsRefsAndMissingMatches(t *testing.T) {
@@ -148,7 +191,7 @@ func setupFixtureForTarget(t *testing.T, target string, settingID string) fixtur
 	stateRoot := t.TempDir()
 	writeV2Root(t, repoRoot, target, settingID)
 	var rec *recipe.Recipe
-	if target != recipe.GitTarget {
+	if target != recipe.GitTarget && target != recipe.CustomFilesTarget {
 		body := selectedRecipeBody(target, liveRoot)
 		writeFile(t, repoRoot+"/recipes/local/"+target+"/recipe.yaml", body)
 		rec = decodeRecipe(t, body)
@@ -161,7 +204,11 @@ func (f fixture) writeLiveYAML(email string) {
 }
 
 func (f fixture) writeDesiredSet(email string) {
-	writeFile(f.t, f.repoRoot+"/desired/user/leon/targets/test.app/settings.yaml", "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  identity.email:\n    intent: set\n    kind: string\n    value: "+email+"\n")
+	f.writeDesiredSetFor("test.app", "identity.email", email)
+}
+
+func (f fixture) writeDesiredSetFor(target string, setting string, value string) {
+	writeFile(f.t, f.repoRoot+"/desired/user/leon/targets/"+target+"/settings.yaml", "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  "+setting+":\n    intent: set\n    kind: string\n    value: "+value+"\n")
 }
 
 func (f fixture) writeDesiredUnmanaged() {

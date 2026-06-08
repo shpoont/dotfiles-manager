@@ -2,6 +2,7 @@ package recipe
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -516,6 +517,64 @@ func TestLoadGitRecipeAcceptsSelectedIdentitySettingsOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "user-email", emailResourceID)
 	requireGitINIResource(t, emailResource, "email")
+}
+
+func TestLoadRuntimeUsesBundledGitAndIgnoresLocalGitShadow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, GitTarget, strings.Replace(validGitRecipe(), "  user.email:\n", "  credential.helper:\n", 1))
+
+	runtime, err := LoadRuntime(root, GitTarget)
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/git", runtime.RecipeRef)
+	require.Equal(t, TrustStatusTrusted, runtime.TrustStatus)
+	require.NotNil(t, runtime.Recipe)
+	require.NoError(t, runtime.Recipe.ValidateGit())
+	require.Contains(t, runtime.Recipe.Settings, "user.email")
+	require.NotContains(t, runtime.Recipe.Settings, "credential.helper")
+
+	eval, err := EvaluateRecipeTrust(root, t.TempDir(), runtime.Source, runtime.Recipe)
+	require.NoError(t, err)
+	require.Equal(t, TrustStatusTrusted, eval.Status)
+	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
+}
+
+func TestLoadRuntimeKeepsBundledRuntimeUnavailableExplicitForNonExecutableTargets(t *testing.T) {
+	t.Parallel()
+
+	runtime, err := LoadRuntime(t.TempDir(), CustomFilesTarget)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrBundledRuntimeUnavailable))
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/custom.files", runtime.RecipeRef)
+	require.Nil(t, runtime.Recipe)
+}
+
+func TestLoadRuntimeLocalAndInvalidBranches(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, "test.ini", validINIRecipe())
+
+	runtime, err := LoadRuntime(root, "test.ini")
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceLocal, runtime.Source)
+	require.Equal(t, "recipe://local/test.ini", runtime.RecipeRef)
+	require.NotNil(t, runtime.Recipe)
+	require.Equal(t, "test.ini", runtime.Recipe.Target)
+
+	_, err = LoadRuntime(root, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "target is required")
+
+	runtime, err = LoadRuntime(root, "missing")
+	require.Error(t, err)
+	require.Equal(t, RecipeSourceLocal, runtime.Source)
+	require.Equal(t, "recipe://local/missing", runtime.RecipeRef)
+	require.Nil(t, runtime.Recipe)
+	require.True(t, errors.Is(err, os.ErrNotExist))
 }
 
 func TestGitRecipeRejectsCredentialAndBroadConfigDeclarations(t *testing.T) {

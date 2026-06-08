@@ -308,6 +308,54 @@ func TestPlanReadBlocksUnsupportedDriverAndDriverUnsafeCases(t *testing.T) {
 	})
 }
 
+func TestBundledGitCaseSafetyBlocksAmbiguousIdentityKeysBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "mixed case user section", content: "[User]\n\temail = old@example.com\n"},
+		{name: "mixed case email key", content: "[user]\n\tEmail = old@example.com\n"},
+		{name: "case duplicate user section", content: "[user]\n\temail = old@example.com\n[USER]\n\temail = other@example.com\n"},
+		{name: "case duplicate email key", content: "[user]\n\temail = old@example.com\n\tEMAIL = other@example.com\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			home := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"), []byte(tc.content), 0o644))
+			rec := recipe.BundledGitRecipe()
+			roots := map[string]string{"home": home}
+			ctx := recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled, Trusted: true}
+
+			plan, err := PlanRead(Request{Recipe: rec, SettingRef: "git:user.email", LocationRoots: roots})
+			require.Error(t, err)
+			require.Equal(t, StatusBlocked, plan.Status)
+			requireDiagnosticCode(t, plan, "selectedvalue.driver.invalid-selector")
+
+			backupCalled := false
+			result, err := ApplyWithBackup(PreviewRequest{
+				Request:            Request{Recipe: rec, SettingRef: "git:user.email", LocationRoots: roots},
+				Desired:            SetString("new@example.com"),
+				WriteSafetyContext: ctx,
+			}, ApplyOptions{
+				BackupHook: func(req BackupRequest) (BackupResult, error) {
+					backupCalled = true
+					return BackupResult{ID: "backup", Before: req.Before}, nil
+				},
+			})
+			require.Error(t, err)
+			require.False(t, backupCalled)
+			require.NotNil(t, result.Plan)
+			requireDiagnosticCode(t, result.Plan, "selectedvalue.driver.invalid-selector")
+			require.NotContains(t, readSelectedValueFile(t, filepath.Join(home, ".gitconfig")), "new@example.com")
+		})
+	}
+}
+
 func TestDesiredMarshalJSONDoesNotLeakRawValue(t *testing.T) {
 	t.Parallel()
 
@@ -1025,6 +1073,23 @@ func TestSelectedValueInternalHelperAdditionalBranches(t *testing.T) {
 	require.Nil(t, jsonBackupHook(&Plan{}, nil, nil))
 	require.Nil(t, yamlBackupHook(&Plan{}, nil, nil))
 
+	require.NoError(t, checkGitINIIdentityCase([]byte("# comment\n[core]\n\tEmail = ignored\n[user]\n\temail = ok@example.com\n"), "email"))
+	section, ok := parseGitCaseGuardSection("  [user]  ")
+	require.True(t, ok)
+	require.Equal(t, "user", section)
+	_, ok = parseGitCaseGuardSection("; comment")
+	require.False(t, ok)
+	_, ok = parseGitCaseGuardSection("[")
+	require.False(t, ok)
+	key, ok := parseGitCaseGuardKey("  email = ok@example.com")
+	require.True(t, ok)
+	require.Equal(t, "email", key)
+	_, ok = parseGitCaseGuardKey("  # comment")
+	require.False(t, ok)
+	_, ok = parseGitCaseGuardKey("no-equals")
+	require.False(t, ok)
+	require.NoError(t, validateGitINIIdentityCaseSafety(recipe.BundledGitRecipe(), recipe.Resource{Driver: recipe.JSONFileDriverID}, filepath.Join(t.TempDir(), "missing")))
+
 	backupPlan := &Plan{SettingRef: "test.app:identity.email", ResourceID: "config-email", DriverID: recipe.IniFileDriverID}
 	var captured *BackupResult
 	iniHook := iniBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
@@ -1057,4 +1122,11 @@ func TestSelectedValueInternalHelperAdditionalBranches(t *testing.T) {
 	_, err = yamlHook(yamldriver.BackupRequest{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "safe yaml backup failure")
+}
+
+func readSelectedValueFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(data)
 }
