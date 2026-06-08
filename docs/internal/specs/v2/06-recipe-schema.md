@@ -206,7 +206,10 @@ Capabilities:
 ### Trust
 
 Bundled recipes are trusted by distribution. User-local recipes require explicit
-trust before write-capable behavior. Downloaded recipe catalog support is
+external local-state trust before write-capable behavior. A caller-provided
+`Trusted: true` flag is not enough for local recipes; write safety must use
+private evaluated trust evidence whose current recipe and write-surface
+fingerprints are rechecked at use. Downloaded recipe catalog support is
 post-MVP and requires signed review/update policy before use.
 
 ## Derived schema boundaries, not final schemas
@@ -223,7 +226,7 @@ Persisted objects:
 | Named location | yes | `recipes/local/<recipe-id>/recipe.yaml#/locations` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Defaults and override permission. |
 | Resource declaration | partial | `recipes/local/<recipe-id>/recipe.yaml#/resources` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Driver spec owns operation semantics. |
 | Native operation | partial | `recipes/local/<recipe-id>/recipe.yaml#/nativeOperations` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Security spec owns command safety. |
-| Trust record | no | `trust/trust-record.yaml` local state | `schemas/v2/trust-record.schema.json` | Security spec owns trust persistence. |
+| Trust record | no | `<state-root>/trust/trust-record.yaml` local state outside the repository | `schemas/v2/trust-record.schema.json` | Security spec owns trust persistence and invalidation. |
 
 The recipe schema uses the fully qualified identifier
 `dotfiles-manager.v2.recipe` and has its own version context independent from

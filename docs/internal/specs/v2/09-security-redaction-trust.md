@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-07
 canonical-source: docs/internal/specs/v2/09-security-redaction-trust.md
 source-concept-sections:
   - Security/privacy/trust model
@@ -45,7 +45,7 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- exact trust-record invalidation rules are deferred;
+- exact interactive trust-prompt UI is deferred;
 - exact secret-detection implementation is deferred.
 
 ## Terms owned by this spec
@@ -118,8 +118,9 @@ explicitly trusted before write-capable behavior. Untrusted recipes may be
 inspect-only or blocked.
 
 Write planning must receive an explicit recipe source context. Empty or unknown
-source context fails closed before writes. `local` requires explicit trust;
-`bundled` is trusted by the release process.
+source context fails closed before writes. `bundled` is trusted by the release
+process. `local` requires evaluated trust evidence from an external local-state
+trust record; caller-set booleans or hashes are not sufficient.
 
 Recipe changes that broaden write scope, add native operations, change
 sensitivity, or change lifecycle behavior must require review before writes.
@@ -142,10 +143,11 @@ code `5`.
 
 ### Trust-record storage
 
-Trust records are local-only state, not repository desired data:
+Trust records are local-only state, not repository desired data. They live under
+the platform local state root from `01-repository-layout.md`:
 
 ```text
-trust/trust-record.yaml
+<state-root>/trust/trust-record.yaml
 ```
 
 `trust-record.yaml` carries:
@@ -153,11 +155,62 @@ trust/trust-record.yaml
 ```yaml
 schema: dotfiles-manager.v2.trust-record
 schemaVersion: 1
+localRecipes:
+  <target-id>:
+    source: local
+    target: <target-id>
+    schemaVersion: 1
+    contentSHA256: <canonical validated recipe hash>
+    writeSurfaceSHA256: <canonical write-safety surface hash>
+    writeSurface:
+      target: <target-id>
+      schemaVersion: 1
+      capability: read-write
+      locations: []
+      settings: []
+      resources: []
+      nativeOperations:
+        supported: false
+        count: 0
+        summary: none-declared-current-schema
+    reviewedNativeOperations: false
 ```
 
 The canonical schema file is `schemas/v2/trust-record.schema.json`. The record
-must not be written inside `desired/`, profile files, recipe files, or desired
-artifact payloads.
+must not be written inside the repository, `desired/`, profile files, recipe
+files, or desired artifact payloads. The MVP trust evaluator must reject a
+state root that resolves inside the repository. It must also reject symlinked
+trust state paths when reading or writing trust records, including symlinked
+state roots, `trust/` directories, and `trust-record.yaml` files. A future
+in-repo local-state override, if ever supported, requires a separate opt-in
+design and must still be ignored by normal synced repository content.
+
+Trust-record fingerprints are metadata-only:
+
+- `contentSHA256` covers the canonical validated recipe object;
+- `writeSurfaceSHA256` covers the write-relevant declaration surface only:
+  target/schema version, effective write-capable settings/resources,
+  capabilities, named locations and defaults, paths, selectors, include/exclude
+  globs, sensitivity, redaction, lifecycle, artifact form, scope default, and
+  native-operation summary;
+- no live files, desired values, raw captures, app data, command output, or
+  secrets are read or stored.
+
+Local trust evidence used by write safety must be produced by external
+local-state evaluation. `ValidateWriteSafety` must recompute the current recipe
+and write-surface fingerprints for the recipe being used and compare them to
+private evaluated trust evidence. Naked `Trusted: true`, caller-set hashes, or
+evidence from another recipe must fail closed.
+
+Invalidation rules:
+
+- missing local trust record -> `review-required`;
+- content hash mismatch -> `review-required`;
+- write-surface hash mismatch -> `review-required`;
+- new or broadened write-capable metadata -> `review-required` and a broadened
+  write-surface diagnostic;
+- corrupt or invalid trust record -> blocked;
+- unreviewed native operations -> blocked or review-required before writes.
 
 ### Command execution boundary
 

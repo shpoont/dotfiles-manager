@@ -151,6 +151,7 @@ type WriteSafetyContext struct {
 	AllowSensitive          bool
 	AllowUnknownSensitivity bool
 	HandlesLifecycleActions bool
+	localTrustEvidence      *localTrustEvidence
 }
 
 func (e *ValidationError) Error() string {

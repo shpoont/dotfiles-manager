@@ -83,6 +83,8 @@ func (r *Recipe) WriteSafetyDiagnostics(ctx WriteSafetyContext) []ValidationDiag
 		case RecipeSourceLocal:
 			if !ctx.Trusted {
 				add("writeSafety.trust.untrusted", "$", "local write-capable recipes require explicit trust before write planning")
+			} else {
+				diagnostics = append(diagnostics, validateLocalTrustEvidence(r, ctx)...)
 			}
 		case RecipeSourceBundled:
 		default:

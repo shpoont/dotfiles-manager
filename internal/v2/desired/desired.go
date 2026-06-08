@@ -728,6 +728,11 @@ func validateWriteSafety(resolved ResolvedURI, value SelectedValue, decision *Wr
 	add := func(code string, path string, message string) {
 		diagnostics = append(diagnostics, diagnostic(code, path, message))
 	}
+	if safetyErr := decision.Recipe.ValidateWriteSafety(decision.Context); safetyErr != nil {
+		for _, recipeDiagnostic := range recipe.ValidationDiagnostics(safetyErr) {
+			add(recipeDiagnostic.Code, recipeDiagnostic.Path, recipeDiagnostic.Message)
+		}
+	}
 	if !isSelectedValueDriver(resource.Driver) {
 		add("desired.writeSafety.driverUnsupported", "$.resources."+resourceID+".driver", fmt.Sprintf("resource %s driver is not a selected-value driver", resourceID))
 	} else if !desiredValueCompatibleWithDriver(resource.Driver, value) {

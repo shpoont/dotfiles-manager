@@ -260,6 +260,10 @@ runs/<run-id>/captures/...
 trust/trust-record.yaml
 ```
 
+`trust/trust-record.yaml` is relative to the local state root above, not to the
+synced repository root. Trust records authorize user-local recipe writes and
+must not be read from or written to versioned repository content by default.
+
 Cache subpaths:
 
 ```text
@@ -311,7 +315,7 @@ This spec owns layout boundaries for these persisted objects:
 | Backup metadata | local state | `backups/<run-id>/backup.yaml` | mutation/ledger spec | `schemas/v2/backup-metadata.schema.json` |
 | Preview | local state | `runs/<run-id>/preview.json` | CLI and mutation specs | `schemas/v2/preview.schema.json` |
 | Raw capture | local temp/state | `runs/<run-id>/captures/...` | driver and security specs | recorded by run/preview metadata |
-| Trust record | local state | `trust/trust-record.yaml` | security spec | `schemas/v2/trust-record.schema.json` |
+| Trust record | local state outside repository | `<state-root>/trust/trust-record.yaml` | security spec | `schemas/v2/trust-record.schema.json` |
 | Migration plan | repository | `migrations/v1-to-v2/<run-id>/migration-plan.yaml` | migration spec | `schemas/v2/migration-plan.schema.json` |
 
 Fields shown in examples are sketches unless the owning spec promotes them.
