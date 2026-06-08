@@ -13,6 +13,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
@@ -27,19 +28,20 @@ const (
 )
 
 type Options struct {
-	Command       string
-	RepoRoot      string
-	StateRoot     string
-	Ref           string
-	MachineID     string
-	UserID        string
-	ExtraLayers   []string
-	DryRun        bool
-	Confirmed     bool
-	RunID         string
-	Now           func() time.Time
-	LocationRoots map[string]map[string]string
-	AfterApply    func(*selectedvalue.Plan) error
+	Command             string
+	RepoRoot            string
+	StateRoot           string
+	Ref                 string
+	MachineID           string
+	UserID              string
+	ExtraLayers         []string
+	DryRun              bool
+	Confirmed           bool
+	RunID               string
+	Now                 func() time.Time
+	LocationRoots       map[string]map[string]string
+	AfterApply          func(*selectedvalue.Plan) error
+	MacOSDefaultsRunner macosdefaultsdriver.Runner
 }
 
 type Result struct {
@@ -56,15 +58,16 @@ func Run(opts Options) (*Result, error) {
 		return &Result{Report: report}, &selectedpreview.Error{Code: "selectedlive.command.invalid", Message: err.Error(), Exit: 2}
 	}
 	report, err := selectedpreview.Build(selectedpreview.Options{
-		Command:       command,
-		RepoRoot:      opts.RepoRoot,
-		StateRoot:     opts.StateRoot,
-		Ref:           opts.Ref,
-		MachineID:     opts.MachineID,
-		UserID:        opts.UserID,
-		ExtraLayers:   opts.ExtraLayers,
-		DryRun:        opts.DryRun,
-		LocationRoots: opts.LocationRoots,
+		Command:             command,
+		RepoRoot:            opts.RepoRoot,
+		StateRoot:           opts.StateRoot,
+		Ref:                 opts.Ref,
+		MachineID:           opts.MachineID,
+		UserID:              opts.UserID,
+		ExtraLayers:         opts.ExtraLayers,
+		DryRun:              opts.DryRun,
+		LocationRoots:       opts.LocationRoots,
+		MacOSDefaultsRunner: opts.MacOSDefaultsRunner,
 	})
 	if err != nil || opts.DryRun {
 		return &Result{Report: report}, err
@@ -194,6 +197,9 @@ func Run(opts Options) (*Result, error) {
 }
 
 func executeSave(repoRoot string, runID string, setting resolution.ResolvedSetting, rec *recipe.Recipe, trustContext recipe.WriteSafetyContext, resourceID string, resource recipe.Resource, roots map[string]string, preItem selectedpreview.Item) v2ledger.ItemRecord {
+	if resource.Driver == recipe.MacOSDefaultsReadOnlyDriverID {
+		return failedItemRecord(selectedpreview.CommandSave, runID, setting, resourceID, resource, preItem, readOnlyDiagnostic(preItem), nil)
+	}
 	beforeRead, _ := desired.ReadSelectedValueForSetting(repoRoot, setting)
 	beforeSnapshot := selectedValueDesiredSnapshot(rec, setting, roots, beforeRead, trustContext)
 	current, err := selectedvalue.ReadCurrentDesired(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots})
@@ -244,6 +250,9 @@ func executeSave(repoRoot string, runID string, setting resolution.ResolvedSetti
 }
 
 func executeApply(repoRoot string, runID string, started time.Time, store *v2ledger.Store, setting resolution.ResolvedSetting, rec *recipe.Recipe, trustContext recipe.WriteSafetyContext, resourceID string, resource recipe.Resource, roots map[string]string, preItem selectedpreview.Item, afterApply func(*selectedvalue.Plan) error) v2ledger.ItemRecord {
+	if resource.Driver == recipe.MacOSDefaultsReadOnlyDriverID {
+		return failedItemRecord(selectedpreview.CommandApply, runID, setting, resourceID, resource, preItem, readOnlyDiagnostic(preItem), nil)
+	}
 	read, err := desired.ReadSelectedValueForSetting(repoRoot, setting)
 	if err != nil {
 		return failedItemRecord(selectedpreview.CommandApply, runID, setting, resourceID, resource, preItem, safeDiagnostic("selectedlive.apply.desiredRead", err, setting.DesiredRelPath), nil)
@@ -541,6 +550,10 @@ func desiredSafetyDiagnostic(fallbackCode string, err error, path string) v2ledg
 		return v2ledger.Diagnostic{Code: diagnostic.Code, Message: diagnostic.Message, Path: diagnostic.Path}
 	}
 	return safeDiagnostic(fallbackCode, err, path)
+}
+
+func readOnlyDiagnostic(item selectedpreview.Item) v2ledger.Diagnostic {
+	return v2ledger.Diagnostic{Code: "selectedlive.driver.readOnly", Message: "macOS defaults selected values are read-only; live save/apply are unsupported", Path: item.Resource.Path}
 }
 
 func safeDiagnostic(code string, err error, path string) v2ledger.Diagnostic {

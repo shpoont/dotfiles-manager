@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
@@ -45,15 +46,16 @@ const (
 )
 
 type Options struct {
-	Command       string
-	RepoRoot      string
-	StateRoot     string
-	Ref           string
-	MachineID     string
-	UserID        string
-	ExtraLayers   []string
-	DryRun        bool
-	LocationRoots map[string]map[string]string
+	Command             string
+	RepoRoot            string
+	StateRoot           string
+	Ref                 string
+	MachineID           string
+	UserID              string
+	ExtraLayers         []string
+	DryRun              bool
+	LocationRoots       map[string]map[string]string
+	MacOSDefaultsRunner macosdefaultsdriver.Runner
 }
 
 type Report struct {
@@ -149,6 +151,7 @@ type Snapshot struct {
 type PreviewInfo struct {
 	ChangeKind string `json:"changeKind"`
 	Intent     string `json:"intent,omitempty"`
+	ReadOnly   bool   `json:"readOnly,omitempty"`
 }
 
 type DiffInfo struct {
@@ -240,7 +243,7 @@ func Build(opts Options) (*Report, error) {
 
 	report := baseReport(command, commandDryRun(command, opts.DryRun), profile.Layers)
 	for _, setting := range settings {
-		report.Items = append(report.Items, buildItem(profile.RepoRoot, opts.StateRoot, command, report.DryRun, setting, opts.LocationRoots))
+		report.Items = append(report.Items, buildItem(profile.RepoRoot, opts.StateRoot, command, report.DryRun, setting, opts.LocationRoots, opts.MacOSDefaultsRunner))
 	}
 	finishReport(report)
 	return report, nil
@@ -290,6 +293,9 @@ func Text(report *Report) string {
 		lines = append(lines, line)
 		if item.Resource.DriverID != "" {
 			lines = append(lines, fmt.Sprintf("    resource=%s driver=%s selector=%s", item.Resource.ID, item.Resource.DriverID, item.Selector.Summary))
+		}
+		if item.Preview != nil && item.Preview.ReadOnly {
+			lines = append(lines, "    mode=read-only (save/apply unsupported)")
 		}
 		if item.Diff != nil {
 			lines = append(lines, fmt.Sprintf("    diff=%s mode=%s redaction=%s", item.Diff.Kind, item.Diff.Mode, item.Diff.Redaction))
@@ -412,7 +418,7 @@ func filterSettings(settings []resolution.ResolvedSetting, ref parsedRef) []reso
 	return out
 }
 
-func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, setting resolution.ResolvedSetting, roots map[string]map[string]string) Item {
+func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, setting resolution.ResolvedSetting, roots map[string]map[string]string, defaultsRunner macosdefaultsdriver.Runner) Item {
 	item := Item{TargetRef: setting.TargetID, SettingRef: setting.Ref(), Scope: setting.Scope, Subject: setting.Subject, SourceLayer: setting.SourceLayer, DesiredURI: setting.DesiredURI, DesiredRelPath: filepath.ToSlash(setting.DesiredRelPath), State: v2status.StateUnknown, DryRun: dryRun, Mutated: false, Diagnostics: []Diagnostic{}}
 
 	runtime, blocked := loadRuntimeRecipe(repoRoot, setting.TargetID)
@@ -482,7 +488,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	}
 
 	if read.Status == desired.StatusMissing {
-		return buildMissingDesiredItem(repoRoot, item, rec, setting, locationRoots, command, trustContext)
+		return buildMissingDesiredItem(repoRoot, item, rec, setting, locationRoots, command, trustContext, defaultsRunner)
 	}
 
 	if read.Desired == nil {
@@ -490,12 +496,20 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		return finishBlocked(item, v2status.StateBlockedSafety, "Desired selected-value entry is invalid.")
 	}
 	if command == CommandApply {
+		if isMacOSDefaultsReadOnlyDriver(resource.Driver) {
+			item.Diagnostics = append(item.Diagnostics, readOnlyDiagnostic(item))
+			return finishBlocked(item, v2status.StateUnsupported, "macOS defaults selected values are read-only; apply is not supported.")
+		}
 		if err := validateExistingDesiredForPlanning(repoRoot, read, rec, setting, trustContext); err != nil {
 			appendDesiredDiagnostics(&item, err)
 			return finishBlocked(item, v2status.StateBlockedSafety, "Desired selected-value entry is blocked by write-safety policy.")
 		}
 	}
 	if command == CommandSave {
+		if isMacOSDefaultsReadOnlyDriver(resource.Driver) {
+			item.Diagnostics = append(item.Diagnostics, readOnlyDiagnostic(item))
+			return finishBlocked(item, v2status.StateUnsupported, "macOS defaults selected values are read-only; save is not supported.")
+		}
 		if err := validateCurrentForSavePlanning(repoRoot, rec, setting, locationRoots, trustContext); err != nil {
 			if planErr, ok := err.(*selectedvalue.PlanError); ok {
 				appendPlanDiagnostics(&item, &selectedvalue.Plan{Diagnostics: planErr.Diagnostics})
@@ -506,7 +520,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 	}
 
-	plan, err := selectedvalue.PlanPreview(selectedvalue.PreviewRequest{Request: selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: locationRoots}, Desired: *read.Desired, WriteSafetyContext: trustContext})
+	plan, err := selectedvalue.PlanPreview(selectedvalue.PreviewRequest{Request: selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: locationRoots, MacOSDefaultsRunner: defaultsRunner}, Desired: *read.Desired, WriteSafetyContext: trustContext})
 	if err != nil {
 		appendPlanDiagnostics(&item, plan)
 		return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver preview is blocked.")
@@ -564,7 +578,11 @@ func evaluateTrust(repoRoot string, stateRoot string, source string, rec *recipe
 	return eval, eval.WriteSafetyContext(recipe.WriteSafetyContext{})
 }
 
-func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, command string, trustContext recipe.WriteSafetyContext) Item {
+func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, command string, trustContext recipe.WriteSafetyContext, defaultsRunner macosdefaultsdriver.Runner) Item {
+	if isMacOSDefaultsReadOnlyDriver(item.Resource.DriverID) && (command == CommandSave || command == CommandApply) {
+		item.Diagnostics = append(item.Diagnostics, readOnlyDiagnostic(item))
+		return finishBlocked(item, v2status.StateUnsupported, "macOS defaults selected values are read-only; save/apply are not supported.")
+	}
 	if command == CommandApply {
 		item.State = v2status.StateMissingDesired
 		item.Message = "Selected setting has no desired artifact; apply dry-run cannot change live state."
@@ -572,14 +590,14 @@ func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, set
 		item.PlannedAction = PlannedActionBlockedMissingDesired
 		return item
 	}
-	plan, err := selectedvalue.PlanRead(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots})
+	plan, err := selectedvalue.PlanRead(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots, MacOSDefaultsRunner: defaultsRunner})
 	if err != nil {
 		appendPlanDiagnostics(&item, plan)
 		return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver read is blocked.")
 	}
 	applyReadPlanToItem(&item, plan)
 	if command == CommandSave {
-		current, err := selectedvalue.ReadCurrentDesired(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots})
+		current, err := selectedvalue.ReadCurrentDesired(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots, MacOSDefaultsRunner: defaultsRunner})
 		if err != nil {
 			appendPlanDiagnostics(&item, current.Plan)
 			return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver read is blocked.")
@@ -622,7 +640,7 @@ func applyPlanToItem(item *Item, plan *selectedvalue.Plan) {
 	if plan.Desired != nil {
 		item.Desired.Snapshot = fromSnapshot(*plan.Desired)
 	}
-	item.Preview = &PreviewInfo{ChangeKind: plan.ChangeKind, Intent: plan.Intent}
+	item.Preview = &PreviewInfo{ChangeKind: plan.ChangeKind, Intent: plan.Intent, ReadOnly: plan.ReadOnly}
 	appendPlanDiagnostics(item, plan)
 }
 
@@ -776,6 +794,8 @@ func selectorFromRecipe(resource recipe.Resource) SelectorInfo {
 		return SelectorInfo{Kind: "selected-path", Summary: strings.Join(resource.Selector.Path, "."), Path: append([]string(nil), resource.Selector.Path...)}
 	case recipe.PlistFileDriverID:
 		return SelectorInfo{Kind: "selected-path", Summary: quotedPathSummary(resource.Selector.Path), Path: append([]string(nil), resource.Selector.Path...)}
+	case recipe.MacOSDefaultsReadOnlyDriverID:
+		return SelectorInfo{Kind: "macos-defaults-key", Summary: macosdefaultsdriver.SelectorSummary(resource.Path, resource.Selector.Key), Key: resource.Selector.Key}
 	default:
 		return SelectorInfo{Kind: "unsupported"}
 	}
@@ -783,11 +803,15 @@ func selectorFromRecipe(resource recipe.Resource) SelectorInfo {
 
 func isSelectedValueDriver(driver string) bool {
 	switch driver {
-	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
+	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID, recipe.MacOSDefaultsReadOnlyDriverID:
 		return true
 	default:
 		return false
 	}
+}
+
+func isMacOSDefaultsReadOnlyDriver(driver string) bool {
+	return driver == recipe.MacOSDefaultsReadOnlyDriverID
 }
 
 func quotedPathSummary(path []string) string {
@@ -910,6 +934,10 @@ func diagnostic(code string, severity string, message string, ref string) Diagno
 		severity = SeverityError
 	}
 	return Diagnostic{Code: code, Severity: severity, Message: message, Ref: ref}
+}
+
+func readOnlyDiagnostic(item Item) Diagnostic {
+	return Diagnostic{Code: "selectedpreview.driver.readOnly", Severity: SeverityError, Message: "macOS defaults selected values are read-only; status and diff are available, but save/apply are unsupported.", Ref: item.SettingRef, ResourceID: item.Resource.ID, DriverID: item.Resource.DriverID, Path: item.Resource.Path}
 }
 
 func (d Diagnostic) withRef(ref string) Diagnostic {

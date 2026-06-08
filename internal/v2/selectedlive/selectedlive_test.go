@@ -1,8 +1,10 @@
 package selectedlive
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
@@ -800,4 +803,80 @@ func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {
 	require.Equal(t, 1, finish.Summary.Applied)
 	require.Equal(t, 1, finish.Summary.Saved)
 	require.Equal(t, 1, finish.Summary.Blocked)
+}
+
+func TestMacOSDefaultsReadOnlyRunBlocksSaveApplyBeforeLiveExecution(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{selectedpreview.CommandSave, selectedpreview.CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			stateRoot := t.TempDir()
+			writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+			writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+			writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  test.defaults:\n    settings:\n      show-hidden-files:\n        scope: user\n")
+			body := liveDefaultsRecipeBody()
+			writeLiveFile(t, filepath.Join(repoRoot, "recipes", "local", "test.defaults", "recipe.yaml"), body)
+			rec, err := recipe.Decode("defaults.yaml", strings.NewReader(body))
+			require.NoError(t, err)
+			_, err = recipe.RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+			require.NoError(t, err)
+			writeLiveFile(t, filepath.Join(repoRoot, "desired", "user", "leon", "targets", "test.defaults", "settings.yaml"), "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  show-hidden-files:\n    intent: set\n    kind: bool\n    value: true\n")
+			runner := &liveDefaultsRunner{}
+
+			result, err := Run(Options{Command: command, RepoRoot: repoRoot, StateRoot: stateRoot, Ref: "test.defaults:show-hidden-files", UserID: "leon", Confirmed: true, RunID: "run-defaults-" + command, MacOSDefaultsRunner: runner})
+			require.Error(t, err)
+			var previewErr *selectedpreview.Error
+			require.True(t, errors.As(err, &previewErr))
+			require.Equal(t, CodePlanBlocked, previewErr.Code)
+			require.NotNil(t, result.Report)
+			require.Equal(t, selectedpreview.SummaryError, result.Report.Summary.Status)
+			require.Empty(t, runner.calls)
+			require.NoDirExists(t, filepath.Join(stateRoot, "ledger"))
+			require.NoDirExists(t, filepath.Join(stateRoot, "backups"))
+			require.Equal(t, "selectedpreview.driver.readOnly", result.Report.Items[0].Diagnostics[0].Code)
+		})
+	}
+}
+
+type liveDefaultsRunner struct{ calls []string }
+
+func (r *liveDefaultsRunner) Export(ctx context.Context, domain string, limits macosdefaultsdriver.OutputLimits) (macosdefaultsdriver.ExportResult, error) {
+	r.calls = append(r.calls, domain)
+	return macosdefaultsdriver.ExportResult{}, fmt.Errorf("defaults export should not be called during live save/apply planning")
+}
+
+func liveDefaultsRecipeBody() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.defaults
+displayName: Test Defaults
+supportLevel: experimental
+capability: read-only
+locations:
+  macos-defaults:
+    default: macos-defaults://current-user
+settings:
+  show-hidden-files:
+    label: Show hidden files
+    supportLevel: experimental
+    capability: read-only
+    artifactForm: scalar
+    sensitivity: low
+    redaction: known-safe
+    lifecycle: allowed
+    scopeDefault: user
+    resource: finder-show-hidden
+resources:
+  finder-show-hidden:
+    driver: macos-defaults-readonly
+    location: macos-defaults
+    path: com.apple.finder
+    capability: read-only
+    sensitivity: low
+    redaction: known-safe
+    lifecycle: allowed
+    selector:
+      key: AppleShowAllFiles
+`
 }
