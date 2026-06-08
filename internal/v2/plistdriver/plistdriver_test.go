@@ -809,10 +809,3 @@ func min(a, b int) int {
 	}
 	return b
 }
-
-func requireContainsNormalized(t *testing.T, path string, want string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Contains(t, strings.ReplaceAll(string(data), "\r\n", "\n"), want)
-}
