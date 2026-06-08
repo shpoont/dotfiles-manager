@@ -36,6 +36,14 @@ const (
 	SeverityInfo    = "info"
 )
 
+const (
+	PlannedActionNone                  = "none"
+	PlannedActionWouldSave             = "would-save"
+	PlannedActionWouldPromote          = "would-promote"
+	PlannedActionWouldApply            = "would-apply"
+	PlannedActionBlockedMissingDesired = "blocked-missing-desired"
+)
+
 type Options struct {
 	Command       string
 	RepoRoot      string
@@ -561,7 +569,7 @@ func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, set
 		item.State = v2status.StateMissingDesired
 		item.Message = "Selected setting has no desired artifact; apply dry-run cannot change live state."
 		item.AllowedActions = []v2status.Action{v2status.ActionSave, v2status.ActionCreate}
-		item.PlannedAction = "blocked-missing-desired"
+		item.PlannedAction = PlannedActionBlockedMissingDesired
 		return item
 	}
 	plan, err := selectedvalue.PlanRead(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots})
@@ -592,8 +600,11 @@ func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, set
 	item.Message = stateItem.Message
 	item.AllowedActions = stateItem.Actions
 	if command == CommandSave {
-		item.PlannedAction = "would-save"
+		item.PlannedAction = plannedSaveActionForMissingDesired(item)
 		item.Preview = &PreviewInfo{ChangeKind: "create", Intent: saveIntent(item.Current)}
+		if item.PlannedAction == PlannedActionWouldPromote {
+			item.Message = "Existing live selected value can be promoted into desired state with save --yes; raw value remains redacted in output."
+		}
 	}
 	if command == CommandDiff {
 		item.Diff = diffInfo("missing-desired")
@@ -784,16 +795,27 @@ func plannedAction(command string, item Item) string {
 	switch command {
 	case CommandSave:
 		if item.State == v2status.StateUnchanged {
-			return "none"
+			return PlannedActionNone
 		}
-		return "would-save"
+		return PlannedActionWouldSave
 	case CommandApply:
 		if item.State == v2status.StateUnchanged {
-			return "none"
+			return PlannedActionNone
 		}
-		return "would-apply"
+		return PlannedActionWouldApply
 	}
 	return ""
+}
+
+func plannedSaveActionForMissingDesired(item Item) string {
+	if item.Current.Exists {
+		return PlannedActionWouldPromote
+	}
+	return PlannedActionWouldSave
+}
+
+func IsSavePlannedAction(action string) bool {
+	return action == PlannedActionWouldSave || action == PlannedActionWouldPromote
 }
 
 func saveIntent(current Snapshot) string {
@@ -857,10 +879,10 @@ func finishReport(report *Report) {
 		default:
 			report.Summary.Changed++
 		}
-		if report.Command == CommandSave && item.PlannedAction == "would-save" {
+		if report.Command == CommandSave && IsSavePlannedAction(item.PlannedAction) {
 			report.Summary.Saved++
 		}
-		if report.Command == CommandApply && item.PlannedAction == "would-apply" {
+		if report.Command == CommandApply && item.PlannedAction == PlannedActionWouldApply {
 			report.Summary.Applied++
 		}
 	}

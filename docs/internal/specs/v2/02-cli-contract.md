@@ -71,7 +71,7 @@ The MVP command set is:
 | `list` | Show managed selections in the active resolved profile. | no |
 | `status [ref]` | Compare desired, current, and last-applied state. | no |
 | `diff [ref]` | Show readable diffs or opaque metadata. | no |
-| `save [ref]` | Save changed selected settings to desired artifacts. | repo |
+| `save [ref]` | Save or promote changed selected settings to desired artifacts. | repo |
 | `apply [ref]` | Apply desired artifacts to live state after preview/backup. | live |
 | `sync` | Guided save/apply/skip choices. | chosen |
 | `backup list` | List local backups. | no |
@@ -390,9 +390,36 @@ dotfiles-manager save --yes --user-id leon git:user.email
 For the current MVP tranche, `git:user.email` and `git:user.name` are selected
 through profile YAML before the user-facing `add` command is implemented. The
 bundled Git runtime manages only `~/.gitconfig` `[user] email` and `[user] name`.
-Credential helpers, tokens, signing keys, includes, aliases, and
-repository-local `.git/config` remain unsupported and must fail closed if
-selected explicitly.
+`save --yes` is the supported import/promotion command for selected Git identity
+values: after an explicit selection and `save --dry-run`, it writes the current
+safe live value into the desired settings artifact. If the desired artifact is
+missing and the live selected value exists, `save --dry-run` must report
+`plannedAction: would-promote` and count the item under the existing save summary
+category.
+
+The desired artifact path for a user-scoped Git setting is:
+
+```text
+desired/user/<user>/targets/git/settings.yaml
+```
+
+For example, `--user-id leon` writes
+`desired/user/leon/targets/git/settings.yaml`.
+
+The desired artifact stores the raw safe identity value because later apply
+needs an actual desired value. Normal text output, JSON previews, reports,
+ledgers, and backup metadata must not print raw selected values. Credential
+helpers, tokens, signing keys, includes, URL credential rewrites, aliases,
+arbitrary sections/keys, and repository-local `.git/config` remain unsupported
+and must fail closed if selected explicitly.
+
+If no desired artifact exists and no live selected value exists,
+`save --dry-run` must not report `would-promote`; promotion is only for an
+existing live selected value. Promotion applies only to the selected safe Git
+identity key, so a user must repeat the preview-and-save flow for both
+`git:user.email` and `git:user.name` when managing both values. Git
+case-insensitive ambiguity such as `[User]` or `Email` must block before
+promotion, desired writes, backups, or live mutation.
 
 ### Command-neutral status with no baseline
 
