@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadCustomFilesRecipeAcceptsSingleFileResourceUnderNamedLocation(t *testing.T) {
@@ -555,6 +556,55 @@ func TestLoadRuntimeUsesBundledGitAndIgnoresLocalGitShadow(t *testing.T) {
 	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
 }
 
+func TestBundledStarshipRecipeAcceptsSelectedPromptSettingsOnly(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledStarshipRecipe()
+	require.NoError(t, rec.ValidateStarship())
+	require.Equal(t, StarshipTarget, rec.Target)
+	require.Equal(t, "Starship", rec.DisplayName)
+	require.Equal(t, "read-write", rec.Capability)
+	require.Equal(t, "~/.config", rec.Locations["config"].Default)
+	require.Len(t, rec.Settings, 4)
+	require.Len(t, rec.Resources, 4)
+
+	for _, settingID := range starshipSettingIDs() {
+		setting, ok := rec.Settings[settingID]
+		require.True(t, ok, "setting %s", settingID)
+		require.Equal(t, settingID, setting.Resource)
+		require.Equal(t, "experimental", setting.SupportLevel)
+		require.Equal(t, "read-write", setting.Capability)
+		require.Equal(t, "scalar", setting.ArtifactForm)
+		require.Equal(t, SensitivityLow, setting.Sensitivity)
+		require.Equal(t, RedactionKnownSafe, setting.Redaction)
+		require.Equal(t, LifecycleAllowed, setting.Lifecycle)
+		require.Equal(t, "user", setting.ScopeDefault)
+		requireStarshipTOMLResource(t, rec.Resources[setting.Resource], settingID)
+	}
+}
+
+func TestLoadRuntimeUsesBundledStarshipAndIgnoresLocalShadow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, StarshipTarget, strings.Replace(validSelectedPathRecipe(StarshipTarget, JSONFileDriverID, "config.json"), "  identity.email:\n", "  unsupported.secret:\n", 1))
+
+	runtime, err := LoadRuntime(root, StarshipTarget)
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/starship", runtime.RecipeRef)
+	require.Equal(t, TrustStatusTrusted, runtime.TrustStatus)
+	require.NotNil(t, runtime.Recipe)
+	require.NoError(t, runtime.Recipe.ValidateStarship())
+	require.Contains(t, runtime.Recipe.Settings, "add_newline")
+	require.NotContains(t, runtime.Recipe.Settings, "unsupported.secret")
+
+	eval, err := EvaluateRecipeTrust(root, t.TempDir(), runtime.Source, runtime.Recipe)
+	require.NoError(t, err)
+	require.Equal(t, TrustStatusTrusted, eval.Status)
+	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
+}
+
 func TestLoadRuntimeKeepsBundledRuntimeUnavailableExplicitForNonExecutableTargets(t *testing.T) {
 	t.Parallel()
 
@@ -703,6 +753,99 @@ func TestGitRecipeRejectsCredentialAndBroadConfigDeclarations(t *testing.T) {
 			root := t.TempDir()
 			writeNamedRecipe(t, root, GitTarget, tc.body)
 			_, err := LoadGit(root)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Recipe)
+		wantErr string
+	}{
+		{name: "wrong target", mutate: func(r *Recipe) { r.Target = "starship.extra" }, wantErr: "target must be"},
+		{name: "read only capability", mutate: func(r *Recipe) { r.Capability = "read-only" }, wantErr: "capability must be read-write"},
+		{name: "extra location", mutate: func(r *Recipe) { r.Locations["home"] = Location{Default: "~"} }, wantErr: "only the config location"},
+		{name: "missing config location", mutate: func(r *Recipe) {
+			r.Locations = map[string]Location{"home": {Default: "~"}}
+			for id, resource := range r.Resources {
+				resource.Location = "home"
+				r.Resources[id] = resource
+			}
+		}, wantErr: "must declare config location"},
+		{name: "wrong config default", mutate: func(r *Recipe) { r.Locations["config"] = Location{Default: "~"} }, wantErr: "config location default must be ~/.config"},
+		{name: "extra setting", mutate: func(r *Recipe) { r.Settings["format"] = r.Settings["add_newline"] }, wantErr: "only supported prompt-wide settings"},
+		{name: "extra resource", mutate: func(r *Recipe) {
+			r.Resources["format"] = Resource{Driver: FileDriverID, Location: "config", Path: "starship.toml"}
+		}, wantErr: "exactly one selected TOML resource"},
+		{name: "setting support metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.SupportLevel = "stable"
+			r.Settings["add_newline"] = setting
+		}, wantErr: "supportLevel must be experimental"},
+		{name: "setting safety metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.Sensitivity = SensitivityPersonal
+			r.Settings["add_newline"] = setting
+		}, wantErr: "sensitivity must be low"},
+		{name: "setting redaction metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.Redaction = RedactionRedactedForDisplay
+			r.Settings["add_newline"] = setting
+		}, wantErr: "redaction must be known-safe"},
+		{name: "setting lifecycle metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.Lifecycle = LifecycleWarn
+			r.Settings["add_newline"] = setting
+		}, wantErr: "lifecycle must be allowed"},
+		{name: "setting resource id", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.Resource = "scan_timeout"
+			r.Settings["add_newline"] = setting
+		}, wantErr: "resource must be add_newline"},
+		{name: "wrong resource driver", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Driver = JSONFileDriverID
+			r.Resources["add_newline"] = resource
+		}, wantErr: "driver must be"},
+		{name: "wrong resource path", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Path = "other.toml"
+			r.Resources["add_newline"] = resource
+		}, wantErr: "path must be starship.toml"},
+		{name: "wrong selector path", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Selector.Path = []string{"format"}
+			r.Resources["add_newline"] = resource
+		}, wantErr: "must select root TOML key add_newline"},
+		{name: "wrong create policy", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Selector.CreateMissing = "reject"
+			r.Resources["add_newline"] = resource
+		}, wantErr: "createMissing must be create"},
+		{name: "wrong duplicate policy", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Selector.DuplicatePolicy = "last"
+			r.Resources["add_newline"] = resource
+		}, wantErr: "unsupported selector duplicatePolicy"},
+		{name: "wrong delete policy", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Selector.DeleteKey = "reject"
+			r.Resources["add_newline"] = resource
+		}, wantErr: "deleteKey must be allow"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := cloneBundledStarshipRecipe(t)
+			tc.mutate(rec)
+			err := rec.ValidateStarship()
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantErr)
 		})
@@ -862,6 +1005,33 @@ func requireGitINIResource(t *testing.T, resource Resource, key string) {
 	require.Equal(t, "create", resource.Selector.MissingKey)
 	require.Equal(t, "reject", selectorDuplicatePolicy(resource.Selector))
 	require.Equal(t, "reject", selectorDeleteKey(resource.Selector))
+}
+
+func requireStarshipTOMLResource(t *testing.T, resource Resource, key string) {
+	t.Helper()
+	require.Equal(t, TOMLFileDriverID, resource.Driver)
+	require.Equal(t, "config", resource.Location)
+	require.Equal(t, "starship.toml", resource.Path)
+	require.Equal(t, "read-write", resource.Capability)
+	require.Equal(t, SensitivityLow, resource.Sensitivity)
+	require.Equal(t, RedactionKnownSafe, resource.Redaction)
+	require.Equal(t, LifecycleAllowed, resource.Lifecycle)
+	require.Empty(t, resource.Include)
+	require.Empty(t, resource.Exclude)
+	require.NotNil(t, resource.Selector)
+	require.Equal(t, []string{key}, resource.Selector.Path)
+	require.Equal(t, "create", selectorCreatePolicy(resource.Selector))
+	require.Equal(t, "reject", selectorDuplicatePolicy(resource.Selector))
+	require.Equal(t, "allow", selectorDeleteKey(resource.Selector))
+}
+
+func cloneBundledStarshipRecipe(t *testing.T) *Recipe {
+	t.Helper()
+	data, err := yaml.Marshal(BundledStarshipRecipe())
+	require.NoError(t, err)
+	rec, err := Decode("starship.yaml", strings.NewReader(string(data)))
+	require.NoError(t, err)
+	return rec
 }
 
 func validCustomFileTreeRecipe(resourcePath string, include []string, exclude []string) string {

@@ -268,6 +268,172 @@ func TestV2BundledGitPromotionBlocksOnCaseAmbiguousConfig(t *testing.T) {
 	require.NotContains(t, stdout, "raw-case@example.com")
 }
 
+func TestV2BundledStarshipSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
+	fixture := setupCLIV2BundledStarshipFixture(t, "add_newline")
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "starship", "settings.yaml")
+	starshipPath := filepath.Join(fixture.homeDir, ".config", "starship.toml")
+	secretFormat := "SECRET-LIKE-STARSHIP-FORMAT"
+	writeCLIFile(t, starshipPath, "format = '"+secretFormat+"'\nadd_newline = true\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, "status", payload["command"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "starship:add_newline", item["settingRef"])
+	recipeInfo := item["recipe"].(map[string]any)
+	require.Equal(t, "bundled", recipeInfo["source"])
+	require.Equal(t, "recipe://bundled/starship", recipeInfo["recipeRef"])
+	require.NotContains(t, stdout, secretFormat)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, "save", payload["command"])
+	require.Equal(t, true, payload["dryRun"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "changed", summary["status"])
+	require.Equal(t, float64(1), summary["saved"])
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	require.Equal(t, "would-promote", item["plannedAction"])
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, secretFormat)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, "save", payload["command"])
+	require.FileExists(t, desiredPath)
+	desiredBody := string(mustReadCLIFile(t, desiredPath))
+	require.Contains(t, desiredBody, "add_newline:")
+	require.Contains(t, desiredBody, "kind: bool")
+	require.Contains(t, desiredBody, "value: true")
+	require.NotContains(t, stdout, secretFormat)
+
+	writeCLIFile(t, starshipPath, "format = '"+secretFormat+"'\nadd_newline = false\n")
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"diff", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, "diff", payload["command"])
+	items = payload["items"].([]any)
+	diffInfo := items[0].(map[string]any)["diff"].(map[string]any)
+	require.Equal(t, "metadata-only", diffInfo["mode"])
+	require.NotContains(t, stdout, secretFormat)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	require.Contains(t, string(mustReadCLIFile(t, starshipPath)), "add_newline = false")
+	require.NotContains(t, stdout, secretFormat)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, "apply", payload["command"])
+	liveBody := string(mustReadCLIFile(t, starshipPath))
+	require.Contains(t, liveBody, "add_newline = true")
+	require.Contains(t, liveBody, secretFormat)
+	require.NotContains(t, stdout, secretFormat)
+}
+
+func TestV2BundledStarshipUnsupportedSelectionIsBlocked(t *testing.T) {
+	fixture := setupCLIV2BundledStarshipFixture(t, "custom.command")
+	setCWD(t, fixture.repoRoot)
+	secretFormat := "SECRET-LIKE-UNSUPPORTED"
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".config", "starship.toml"), "format = '"+secretFormat+"'\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "starship:custom.command"})
+	require.NoError(t, err)
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "blocked", summary["status"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "unsupported", item["state"])
+	diagnostics := item["diagnostics"].([]any)
+	require.Equal(t, "selectedpreview.resource.unknown", diagnostics[0].(map[string]any)["code"])
+	require.NotContains(t, stdout, secretFormat)
+}
+
+func TestV2BundledStarshipTypeSafetyBlocksCLIPlanningWithoutMutation(t *testing.T) {
+	t.Run("wrong live bool blocks status and save", func(t *testing.T) {
+		fixture := setupCLIV2BundledStarshipFixture(t, "add_newline")
+		setCWD(t, fixture.repoRoot)
+		desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "starship", "settings.yaml")
+		raw := "WRONG-LIVE-BOOL"
+		writeCLIFile(t, filepath.Join(fixture.homeDir, ".config", "starship.toml"), "add_newline = '"+raw+"'\n")
+
+		payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "starship:add_newline"})
+		require.NoError(t, err)
+		summary := payload["summary"].(map[string]any)
+		require.Equal(t, "blocked", summary["status"])
+		items := payload["items"].([]any)
+		diagnostics := items[0].(map[string]any)["diagnostics"].([]any)
+		require.Equal(t, "selectedvalue.starship.boolTypeUnsupported", diagnostics[0].(map[string]any)["code"])
+		require.NotContains(t, stdout, raw)
+
+		payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "starship:add_newline"})
+		require.Error(t, err)
+		errorObj := payload["error"].(map[string]any)
+		require.Equal(t, "selectedlive.planBlocked", errorObj["code"])
+		require.NoFileExists(t, desiredPath)
+		require.NotContains(t, stdout, raw)
+	})
+
+	t.Run("wrong desired bool blocks apply before mutation", func(t *testing.T) {
+		fixture := setupCLIV2BundledStarshipFixture(t, "add_newline")
+		setCWD(t, fixture.repoRoot)
+		starshipPath := filepath.Join(fixture.homeDir, ".config", "starship.toml")
+		raw := "WRONG-DESIRED-BOOL"
+		writeCLIFile(t, starshipPath, "add_newline = true\n")
+		writeCLIFile(t, filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "starship", "settings.yaml"), "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  add_newline:\n    intent: set\n    kind: string\n    value: "+raw+"\n")
+
+		payload, stdout, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "starship:add_newline"})
+		require.Error(t, err)
+		errorObj := payload["error"].(map[string]any)
+		require.Equal(t, "selectedlive.planBlocked", errorObj["code"])
+		items := payload["items"].([]any)
+		diagnostics := items[0].(map[string]any)["diagnostics"].([]any)
+		require.Equal(t, "selectedvalue.starship.boolTypeUnsupported", diagnostics[0].(map[string]any)["code"])
+		require.Equal(t, "add_newline = true\n", string(mustReadCLIFile(t, starshipPath)))
+		require.NotContains(t, stdout, raw)
+	})
+
+	t.Run("wrong desired integer blocks apply before mutation", func(t *testing.T) {
+		fixture := setupCLIV2BundledStarshipFixture(t, "scan_timeout")
+		setCWD(t, fixture.repoRoot)
+		starshipPath := filepath.Join(fixture.homeDir, ".config", "starship.toml")
+		writeCLIFile(t, starshipPath, "scan_timeout = 30\n")
+		writeCLIFile(t, filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "starship", "settings.yaml"), "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  scan_timeout:\n    intent: set\n    kind: number\n    value: \"1.5\"\n")
+
+		payload, stdout, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "starship:scan_timeout"})
+		require.Error(t, err)
+		errorObj := payload["error"].(map[string]any)
+		require.Equal(t, "selectedlive.planBlocked", errorObj["code"])
+		items := payload["items"].([]any)
+		diagnostics := items[0].(map[string]any)["diagnostics"].([]any)
+		require.Equal(t, "selectedvalue.starship.integerTypeUnsupported", diagnostics[0].(map[string]any)["code"])
+		require.Equal(t, "scan_timeout = 30\n", string(mustReadCLIFile(t, starshipPath)))
+		require.NotContains(t, stdout, "1.5")
+	})
+}
+
+func TestV2BundledStarshipDeleteIntentAppliesSelectedKeyOnly(t *testing.T) {
+	fixture := setupCLIV2BundledStarshipFixture(t, "add_newline")
+	setCWD(t, fixture.repoRoot)
+	starshipPath := filepath.Join(fixture.homeDir, ".config", "starship.toml")
+	secretFormat := "SECRET-LIKE-DELETE-FORMAT"
+	writeCLIFile(t, starshipPath, "format = '"+secretFormat+"'\nadd_newline = true\n")
+	writeCLIFile(t, filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "starship", "settings.yaml"), "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  add_newline:\n    intent: delete\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "starship:add_newline"})
+	require.NoError(t, err)
+	require.Equal(t, "apply", payload["command"])
+	liveBody := string(mustReadCLIFile(t, starshipPath))
+	require.NotContains(t, liveBody, "add_newline")
+	require.Contains(t, liveBody, secretFormat)
+	require.NotContains(t, stdout, secretFormat)
+}
+
 type cliV2SelectedPreviewFixture struct {
 	repoRoot string
 	liveRoot string
@@ -306,6 +472,16 @@ func setupCLIV2BundledGitFixture(t *testing.T) cliV2SelectedPreviewFixture {
 	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
 	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
 	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  git:\n    settings:\n      user.email:\n        scope: user\n")
+	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
+}
+
+func setupCLIV2BundledStarshipFixture(t *testing.T, settingID string) cliV2SelectedPreviewFixture {
+	t.Helper()
+	homeDir := setTempHome(t)
+	repoRoot := t.TempDir()
+	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  starship:\n    settings:\n      "+settingID+":\n        scope: user\n")
 	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
 }
 

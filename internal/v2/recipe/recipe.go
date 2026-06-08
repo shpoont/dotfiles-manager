@@ -23,6 +23,7 @@ const (
 	SupportedVersion              = 1
 	CustomFilesTarget             = "custom.files"
 	GitTarget                     = "git"
+	StarshipTarget                = "starship"
 	FileDriverID                  = "file"
 	FileTreeDriverID              = "file-tree"
 	IniFileDriverID               = "ini-file"
@@ -430,6 +431,112 @@ func (r *Recipe) ValidateGit() error {
 	return nil
 }
 
+func (r *Recipe) ValidateStarship() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Target != StarshipTarget {
+		return fmt.Errorf("starship recipe target must be %q, got %q", StarshipTarget, r.Target)
+	}
+	if r.Capability != "read-write" {
+		return fmt.Errorf("starship recipe capability must be read-write, got %s", r.Capability)
+	}
+	if len(r.Locations) != 1 {
+		return fmt.Errorf("starship recipe must declare only the config location")
+	}
+	location, ok := r.Locations["config"]
+	if !ok {
+		return fmt.Errorf("starship recipe must declare config location")
+	}
+	if strings.TrimSpace(location.Default) != "~/.config" {
+		return fmt.Errorf("starship config location default must be ~/.config")
+	}
+	if len(r.Settings) != len(starshipSettingIDs()) {
+		return fmt.Errorf("starship recipe must declare only supported prompt-wide settings")
+	}
+	if len(r.Resources) != len(starshipSettingIDs()) {
+		return fmt.Errorf("starship recipe must declare exactly one selected TOML resource per supported setting")
+	}
+	for _, settingID := range starshipSettingIDs() {
+		if err := r.validateStarshipSetting(settingID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Recipe) validateStarshipSetting(settingID string) error {
+	setting, ok := r.Settings[settingID]
+	if !ok {
+		return fmt.Errorf("starship recipe missing setting %s", settingID)
+	}
+	if setting.ScopeDefault != "user" {
+		return fmt.Errorf("starship setting %s scopeDefault must be user", settingID)
+	}
+	if setting.SupportLevel != "experimental" {
+		return fmt.Errorf("starship setting %s supportLevel must be experimental", settingID)
+	}
+	if setting.Capability != "read-write" {
+		return fmt.Errorf("starship setting %s capability must be read-write", settingID)
+	}
+	if setting.ArtifactForm != "scalar" {
+		return fmt.Errorf("starship setting %s artifactForm must be scalar", settingID)
+	}
+	if setting.Sensitivity != SensitivityLow {
+		return fmt.Errorf("starship setting %s sensitivity must be %s", settingID, SensitivityLow)
+	}
+	if setting.Redaction != RedactionKnownSafe {
+		return fmt.Errorf("starship setting %s redaction must be %s", settingID, RedactionKnownSafe)
+	}
+	if setting.Lifecycle != LifecycleAllowed {
+		return fmt.Errorf("starship setting %s lifecycle must be %s", settingID, LifecycleAllowed)
+	}
+	if setting.Resource != settingID {
+		return fmt.Errorf("starship setting %s resource must be %s", settingID, settingID)
+	}
+	resource, ok := r.Resources[setting.Resource]
+	if !ok {
+		return fmt.Errorf("starship setting %s references unknown resource %s", settingID, setting.Resource)
+	}
+	if resource.Driver != TOMLFileDriverID {
+		return fmt.Errorf("starship setting %s driver must be %q, got %q", settingID, TOMLFileDriverID, resource.Driver)
+	}
+	if resource.Location != "config" {
+		return fmt.Errorf("starship setting %s location must be config", settingID)
+	}
+	if resource.Path != "starship.toml" {
+		return fmt.Errorf("starship setting %s path must be starship.toml", settingID)
+	}
+	if resource.Capability != "read-write" {
+		return fmt.Errorf("starship resource %s capability must be read-write", settingID)
+	}
+	if resource.Sensitivity != SensitivityLow {
+		return fmt.Errorf("starship resource %s sensitivity must be %s", settingID, SensitivityLow)
+	}
+	if resource.Redaction != RedactionKnownSafe {
+		return fmt.Errorf("starship resource %s redaction must be %s", settingID, RedactionKnownSafe)
+	}
+	if resource.Lifecycle != LifecycleAllowed {
+		return fmt.Errorf("starship resource %s lifecycle must be %s", settingID, LifecycleAllowed)
+	}
+	if resource.Selector == nil {
+		return fmt.Errorf("starship setting %s requires a TOML selector", settingID)
+	}
+	if len(resource.Selector.Path) != 1 || resource.Selector.Path[0] != settingID {
+		return fmt.Errorf("starship setting %s must select root TOML key %s", settingID, settingID)
+	}
+	if selectorCreatePolicy(resource.Selector) != "create" {
+		return fmt.Errorf("starship setting %s createMissing must be create", settingID)
+	}
+	if selectorDuplicatePolicy(resource.Selector) != "reject" {
+		return fmt.Errorf("starship setting %s duplicatePolicy must be reject", settingID)
+	}
+	if selectorDeleteKey(resource.Selector) != "allow" {
+		return fmt.Errorf("starship setting %s deleteKey must be allow", settingID)
+	}
+	return nil
+}
+
 func (r *Recipe) validateGitSetting(settingID string, key string) error {
 	setting, ok := r.Settings[settingID]
 	if !ok {
@@ -470,6 +577,10 @@ func (r *Recipe) validateGitSetting(settingID string, key string) error {
 		return fmt.Errorf("git setting %s deleteKey must be %q", settingID, inidriver.DeletePolicyReject)
 	}
 	return nil
+}
+
+func starshipSettingIDs() []string {
+	return []string{"add_newline", "command_timeout", "follow_symlinks", "scan_timeout"}
 }
 
 func (r *Recipe) ValidateCustomFiles() error {

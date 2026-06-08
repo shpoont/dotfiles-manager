@@ -312,6 +312,58 @@ backup, write, and verification. The backup is a local whole-file pre-apply
 backup under the manager's local state directory; normal output, ledgers, and
 backup metadata do not show raw Git config values.
 
+## v2 selected settings: Starship prompt options example
+
+The bundled `starship` recipe manages a small selected-key slice of
+`~/.config/starship.toml`:
+
+- `starship:add_newline` (`bool`)
+- `starship:follow_symlinks` (`bool`)
+- `starship:scan_timeout` (non-negative integer)
+- `starship:command_timeout` (non-negative integer)
+
+Until the v2 `add` command ships, select Starship in a profile layer:
+
+```yaml
+# profiles/layers/global.yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  starship:
+    settings:
+      add_newline:
+        scope: user
+```
+
+Then use the same selected-value workflow:
+
+```bash
+dotfiles-manager recipe explain starship
+dotfiles-manager status --user-id leon starship:add_newline
+dotfiles-manager save --dry-run --user-id leon starship:add_newline
+dotfiles-manager save --yes --user-id leon starship:add_newline
+dotfiles-manager diff --user-id leon starship:add_newline
+dotfiles-manager apply --dry-run --user-id leon starship:add_newline
+dotfiles-manager apply --yes --user-id leon starship:add_newline
+```
+
+For user-scoped Starship settings, `save --yes` writes desired state to:
+
+```text
+desired/user/<user>/targets/starship/settings.yaml
+```
+
+For example, `--user-id leon` writes
+`desired/user/leon/targets/starship/settings.yaml`.
+
+This slice manages only the four root-level TOML keys above. It does not yet
+auto-discover `STARSHIP_CONFIG` non-default locations, manage shell init,
+install Starship, or manage full-file Starship configuration with comments,
+palettes, modules, presets, custom commands, or formatting. TOML selected-key
+apply may canonicalize/reformat the file and may not preserve comments. Use
+`custom.files` for whole-file management until broader app file resources are
+implemented.
+
 ## `[path]` scoping
 
 `[path]` can be absolute, `~`-based, or relative.

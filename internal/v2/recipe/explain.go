@@ -126,6 +126,7 @@ type ExplainSelector struct {
 	Path            []string `json:"path,omitempty"`
 	MissingSection  string   `json:"missingSection,omitempty"`
 	MissingKey      string   `json:"missingKey,omitempty"`
+	CreateMissing   string   `json:"createMissing,omitempty"`
 	DuplicatePolicy string   `json:"duplicatePolicy,omitempty"`
 	DeleteKey       string   `json:"deleteKey,omitempty"`
 	Summary         string   `json:"summary"`
@@ -442,6 +443,10 @@ func bundledExplain(target string) (RecipeExplain, bool) {
 		explain := bundledGitExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
+	case StarshipTarget:
+		explain := bundledStarshipExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	default:
 		return RecipeExplain{}, false
 	}
@@ -514,6 +519,72 @@ func bundledGitExplain() RecipeExplain {
 	return explain
 }
 
+func bundledStarshipExplain() RecipeExplain {
+	explain := RecipeExplain{
+		Target:           ExplainTarget{Ref: StarshipTarget, DisplayName: "Starship", SupportLevel: "experimental", Capability: "read-write", PlatformSupport: "unknown"},
+		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/starship", TrustStatus: "trusted", Version: "1"},
+		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
+		SettingGroups:    []any{},
+		NativeOperations: []any{},
+		Safety: ExplainSafety{
+			RedactionSummary: "metadata-only explanation; selected Starship scalar values are low sensitivity but live and desired values are not emitted by normal output",
+			LifecycleSummary: "Starship reads configuration during prompt rendering; the manager does not stop or restart applications for these selected keys",
+			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
+			DoNotManage:      []string{"full starship.toml files with comments or formatting", "custom modules and command output", "palettes, presets, prompts, and arbitrary Starship modules", "STARSHIP_CONFIG non-default locations", "shell initialization and Starship installation", "cache, logs, and secret-bearing custom command configuration"},
+		},
+	}
+	for _, id := range starshipSettingIDs() {
+		explain.Settings = append(explain.Settings, ExplainSetting{
+			Ref:             StarshipTarget + ":" + id,
+			ID:              id,
+			Label:           starshipSettingLabel(id),
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			DefaultScope:    "user",
+			ArtifactForm:    "scalar",
+			SelectionStatus: "unknown",
+			Sensitivity:     SensitivityLow,
+			Lifecycle:       "not-required",
+			ResourceID:      id,
+			Driver:          TOMLFileDriverID,
+			DiffLimitations: []string{"selected root TOML scalar diff only"},
+			ApplyLimitations: []string{
+				"writes only selected root-level Starship keys",
+				"bool settings require bool values; timeout settings require non-negative integer values",
+				"TOML writes may canonicalize formatting and comments",
+			},
+		})
+		explain.Resources = append(explain.Resources, ExplainResource{
+			ID:            id,
+			LocationID:    "config",
+			Path:          "starship.toml",
+			DriverID:      TOMLFileDriverID,
+			Selector:      selectedPathExplainSelector([]string{id}, "create", "reject", "allow"),
+			SupportedOps:  []string{"read", "diff", "preview", "backup", "apply", "verify"},
+			BackupRestore: "whole-file pre-apply backup in local state; metadata output stays redacted",
+			Normalization: "selected TOML scalar",
+			DiffMode:      "selected-path",
+		})
+	}
+	explain.Drivers = driverExplains(TOMLFileDriverID)
+	return explain
+}
+
+func starshipSettingLabel(id string) string {
+	switch id {
+	case "add_newline":
+		return "Add newline"
+	case "command_timeout":
+		return "Command timeout"
+	case "follow_symlinks":
+		return "Follow symlinks"
+	case "scan_timeout":
+		return "Scan timeout"
+	default:
+		return fallbackLabel(id)
+	}
+}
+
 func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus string) RecipeExplain {
 	explain := RecipeExplain{
 		Target:           ExplainTarget{Ref: rec.Target, DisplayName: rec.DisplayName, SupportLevel: rec.SupportLevel, Capability: rec.Capability, PlatformSupport: "unknown"},
@@ -559,17 +630,35 @@ func explainResource(resourceID string, resource Resource) ExplainResource {
 		explained.Normalization = "selected JSON scalar"
 		explained.DiffMode = "selected-path"
 		if resource.Selector != nil {
-			explained.Selector = &ExplainSelector{Path: append([]string(nil), resource.Selector.Path...), DuplicatePolicy: selectorDuplicatePolicy(resource.Selector), DeleteKey: selectorDeleteKey(resource.Selector), Summary: strings.Join(resource.Selector.Path, ".")}
+			explained.Selector = selectedPathExplainSelector(resource.Selector.Path, selectorCreatePolicy(resource.Selector), selectorDuplicatePolicy(resource.Selector), selectorDeleteKey(resource.Selector))
 		}
 	case YAMLFileDriverID:
 		explained.BackupRestore = "not-implemented"
 		explained.Normalization = "selected YAML scalar"
 		explained.DiffMode = "selected-path"
 		if resource.Selector != nil {
-			explained.Selector = &ExplainSelector{Path: append([]string(nil), resource.Selector.Path...), DuplicatePolicy: selectorDuplicatePolicy(resource.Selector), DeleteKey: selectorDeleteKey(resource.Selector), Summary: strings.Join(resource.Selector.Path, ".")}
+			explained.Selector = selectedPathExplainSelector(resource.Selector.Path, selectorCreatePolicy(resource.Selector), selectorDuplicatePolicy(resource.Selector), selectorDeleteKey(resource.Selector))
+		}
+	case TOMLFileDriverID:
+		explained.BackupRestore = "not-implemented"
+		explained.Normalization = "selected TOML scalar"
+		explained.DiffMode = "selected-path"
+		if resource.Selector != nil {
+			explained.Selector = selectedPathExplainSelector(resource.Selector.Path, selectorCreatePolicy(resource.Selector), selectorDuplicatePolicy(resource.Selector), selectorDeleteKey(resource.Selector))
+		}
+	case PlistFileDriverID:
+		explained.BackupRestore = "not-implemented"
+		explained.Normalization = "selected plist scalar"
+		explained.DiffMode = "selected-path"
+		if resource.Selector != nil {
+			explained.Selector = selectedPathExplainSelector(resource.Selector.Path, selectorCreatePolicy(resource.Selector), selectorDuplicatePolicy(resource.Selector), selectorDeleteKey(resource.Selector))
 		}
 	}
 	return explained
+}
+
+func selectedPathExplainSelector(path []string, createMissing string, duplicatePolicy string, deleteKey string) *ExplainSelector {
+	return &ExplainSelector{Path: append([]string(nil), path...), CreateMissing: createMissing, DuplicatePolicy: duplicatePolicy, DeleteKey: deleteKey, Summary: strings.Join(path, ".")}
 }
 
 func driverExplains(ids ...string) []ExplainDriver {
@@ -591,6 +680,10 @@ func driverExplains(ids ...string) []ExplainDriver {
 			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic JSON selected path scalar resources", Operations: []string{"metadata", "future selected-path read/preview/apply"}, Limitations: []string{"no JSONPath expressions", "selected leaf must be scalar"}})
 		case YAMLFileDriverID:
 			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic YAML selected path scalar resources", Operations: []string{"metadata", "future selected-path read/preview/apply"}, Limitations: []string{"no path expressions", "selected leaf must be supported scalar"}})
+		case TOMLFileDriverID:
+			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic TOML selected path scalar resources", Operations: []string{"metadata", "selected-path read/preview/backup/apply/verify"}, Limitations: []string{"no path expressions", "selected leaf must be a supported TOML scalar", "writes may canonicalize formatting and comments"}})
+		case PlistFileDriverID:
+			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic plist selected path scalar resources", Operations: []string{"metadata", "selected-path read/preview/backup/apply/verify"}, Limitations: []string{"no path expressions", "selected leaf must be a supported plist scalar"}})
 		default:
 			out = append(out, ExplainDriver{ID: id, Summary: "unknown driver metadata", Operations: []string{"metadata explanation"}, Limitations: []string{"driver is not bundled"}})
 		}
@@ -613,7 +706,7 @@ func artifactFormForDriver(driver string) string {
 		return "file"
 	case FileTreeDriverID:
 		return "file-tree"
-	case IniFileDriverID, JSONFileDriverID, YAMLFileDriverID:
+	case IniFileDriverID, JSONFileDriverID, YAMLFileDriverID, TOMLFileDriverID, PlistFileDriverID:
 		return "scalar"
 	default:
 		return "unknown"

@@ -281,6 +281,21 @@ func TestSelectedValueWritesEnforceDriverDesiredKindCompatibility(t *testing.T) 
 	require.Equal(t, StatusPresent, read.Status)
 	require.Equal(t, KindBool, read.Kind)
 
+	require.NoError(t, WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetNumber(json.Number("42")), Safety: safeDecision(t, recipe.TOMLFileDriverID)}))
+	read, err = ReadSelectedValue(root, uri)
+	require.NoError(t, err)
+	require.Equal(t, StatusPresent, read.Status)
+	require.Equal(t, KindNumber, read.Kind)
+
+	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetNull(), Safety: safeDecision(t, recipe.TOMLFileDriverID)})
+	requireSafetyCode(t, err, "desired.writeSafety.desiredTypeUnsupported")
+
+	require.NoError(t, WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetBool(false), Safety: safeDecision(t, recipe.PlistFileDriverID)}))
+	read, err = ReadSelectedValue(root, uri)
+	require.NoError(t, err)
+	require.Equal(t, StatusPresent, read.Status)
+	require.Equal(t, KindBool, read.Kind)
+
 	require.NoError(t, MarkSelectedValueUnmanaged(WriteRequest{RepoRoot: root, URI: uri, Safety: safeDecision(t, recipe.IniFileDriverID)}))
 	read, err = ReadSelectedValue(root, uri)
 	require.NoError(t, err)
@@ -556,7 +571,7 @@ func safeRecipe(t *testing.T, driver string, settingID string) *recipe.Recipe {
 	switch driver {
 	case recipe.IniFileDriverID:
 		selector = "      section: user\n      key: email\n      missingSection: create\n      missingKey: create\n      duplicatePolicy: reject\n      deleteKey: allow\n"
-	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID:
+	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
 		selector = "      path: [user, email]\n      createMissing: create\n      duplicatePolicy: reject\n      deleteKey: allow\n"
 	case recipe.FileDriverID:
 		selector = ""

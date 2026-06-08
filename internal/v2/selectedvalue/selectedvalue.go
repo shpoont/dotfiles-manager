@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
@@ -197,6 +198,17 @@ func PlanRead(req Request) (*Plan, error) {
 		block(plan, driverDiagnostic("selectedvalue.driver.read", err, plan))
 		return plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
+	if isStarshipSetting(ctx) {
+		current, err := readCurrentDesired(ctx, plan)
+		if err != nil {
+			blockReadCurrentDesiredError(plan, err)
+			return plan, &PlanError{Diagnostics: plan.Diagnostics}
+		}
+		if err := validateStarshipDesired(ctx, current); err != nil {
+			blockDesiredError(plan, err)
+			return plan, &PlanError{Diagnostics: plan.Diagnostics}
+		}
+	}
 	return plan, nil
 }
 
@@ -219,6 +231,10 @@ func ReadCurrentDesired(req Request) (*CurrentDesired, error) {
 		}
 		return &CurrentDesired{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
 	}
+	if err := validateStarshipDesired(ctx, desired); err != nil {
+		blockDesiredError(plan, err)
+		return &CurrentDesired{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
 	return &CurrentDesired{Desired: desired, Plan: plan}, nil
 }
 
@@ -234,6 +250,14 @@ func PlanPreview(req PreviewRequest) (*Plan, error) {
 		if len(plan.Diagnostics) == 0 {
 			block(plan, Diagnostic{Code: "selectedvalue.writeSafety.blocked", Severity: SeverityError, Message: safetyErr.Error(), Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID})
 		}
+		return plan, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+	if err := validateStarshipDesired(ctx, req.Desired); err != nil {
+		blockDesiredError(plan, err)
+		return plan, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+	if err := validateCurrentStarshipDesired(ctx, plan); err != nil {
+		blockReadCurrentDesiredError(plan, err)
 		return plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
 	if err := previewDesired(ctx, plan, req.Desired); err != nil {
@@ -266,6 +290,14 @@ func ApplyWithBackup(req PreviewRequest, opts ApplyOptions) (*ApplyResult, error
 		}
 		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
 	}
+	if err := validateStarshipDesired(ctx, req.Desired); err != nil {
+		blockDesiredError(plan, err)
+		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+	if err := validateCurrentStarshipDesired(ctx, plan); err != nil {
+		blockReadCurrentDesiredError(plan, err)
+		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
 	result, err := applyDesiredWithBackup(ctx, plan, req.Desired, opts)
 	if err != nil {
 		return result, err
@@ -289,11 +321,30 @@ func desiredError(code string, message string) error {
 	return &DesiredError{Code: code, Message: message}
 }
 
+func blockDesiredError(plan *Plan, err error) {
+	var desiredErr *DesiredError
+	if errors.As(err, &desiredErr) {
+		block(plan, Diagnostic{Code: desiredErr.Code, Severity: SeverityError, Message: desiredErr.Message, Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+		return
+	}
+	block(plan, Diagnostic{Code: "selectedvalue.desired.invalid", Severity: SeverityError, Message: "selected-value desired state is invalid", Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+}
+
+func blockReadCurrentDesiredError(plan *Plan, err error) {
+	var desiredErr *DesiredError
+	if errors.As(err, &desiredErr) {
+		block(plan, Diagnostic{Code: desiredErr.Code, Severity: SeverityError, Message: desiredErr.Message, Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+		return
+	}
+	block(plan, driverDiagnostic("selectedvalue.driver.read", err, plan))
+}
+
 type context struct {
-	req      Request
-	setting  recipe.Setting
-	resource recipe.Resource
-	target   filedriver.Target
+	req       Request
+	settingID string
+	setting   recipe.Setting
+	resource  recipe.Resource
+	target    filedriver.Target
 }
 
 func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
@@ -339,7 +390,7 @@ func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
 			Status:       StatusOK,
 			Diagnostics:  []Diagnostic{},
 		}
-		return context{req: req, setting: setting, resource: resource}, plan, nil
+		return context{req: req, settingID: settingID, setting: setting, resource: resource}, plan, nil
 	}
 	root, err := req.Recipe.LocationRoot(resource.Location, req.LocationRoots)
 	if err != nil {
@@ -384,7 +435,7 @@ func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
 		block(plan, Diagnostic{Code: "selectedvalue.driver.unsupported", Severity: SeverityError, Message: fmt.Sprintf("driver %s is not supported by selected-value planning", resource.Driver), Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
 		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
-	return context{req: req, setting: setting, resource: resource, target: target}, plan, nil
+	return context{req: req, settingID: settingID, setting: setting, resource: resource, target: target}, plan, nil
 }
 
 func resolveSettingRef(rec *recipe.Recipe, ref string) (string, string, error) {
@@ -721,6 +772,67 @@ func applyDesiredWithBackup(ctx context, plan *Plan, desired Desired, opts Apply
 		return result, nil
 	default:
 		return &ApplyResult{Plan: plan}, desiredError("selectedvalue.driver.unsupported", "resource driver is not supported by selected-value live apply")
+	}
+}
+
+func isStarshipSetting(ctx context) bool {
+	return ctx.req.Recipe != nil && ctx.req.Recipe.Target == recipe.StarshipTarget && ctx.resource.Driver == recipe.TOMLFileDriverID
+}
+
+func validateCurrentStarshipDesired(ctx context, plan *Plan) error {
+	if !isStarshipSetting(ctx) {
+		return nil
+	}
+	current, err := readCurrentDesired(ctx, plan)
+	if err != nil {
+		return err
+	}
+	return validateStarshipDesired(ctx, current)
+}
+
+func validateStarshipDesired(ctx context, desired Desired) error {
+	if !isStarshipSetting(ctx) {
+		return nil
+	}
+	switch desired.intent {
+	case IntentDelete:
+		return nil
+	case IntentSet:
+	case "":
+		return desiredError("selectedvalue.desired.intentRequired", "desired intent is required")
+	default:
+		return desiredError("selectedvalue.desired.intentRequired", "desired intent is required")
+	}
+
+	switch ctx.settingID {
+	case "add_newline", "follow_symlinks":
+		if desired.kind != "bool" {
+			return desiredError("selectedvalue.starship.boolTypeUnsupported", fmt.Sprintf("Starship setting %s requires a bool scalar or delete intent", ctx.settingID))
+		}
+		if _, ok := desired.value.(bool); !ok {
+			return desiredError("selectedvalue.desired.invalid", "desired bool value has an invalid internal representation")
+		}
+		return nil
+	case "scan_timeout", "command_timeout":
+		if desired.kind != "number" {
+			return desiredError("selectedvalue.starship.integerTypeUnsupported", fmt.Sprintf("Starship setting %s requires a non-negative integer scalar or delete intent", ctx.settingID))
+		}
+		number, ok := desired.value.(json.Number)
+		if !ok {
+			return desiredError("selectedvalue.desired.invalid", "desired number value has an invalid internal representation")
+		}
+		if _, err := json.Marshal(number); err != nil {
+			return desiredError("selectedvalue.starship.integerTypeUnsupported", fmt.Sprintf("Starship setting %s requires a non-negative integer scalar or delete intent", ctx.settingID))
+		}
+		if strings.HasPrefix(number.String(), "-") {
+			return desiredError("selectedvalue.starship.integerTypeUnsupported", fmt.Sprintf("Starship setting %s requires a non-negative integer scalar or delete intent", ctx.settingID))
+		}
+		if _, err := strconv.ParseInt(number.String(), 10, 64); err != nil {
+			return desiredError("selectedvalue.starship.integerTypeUnsupported", fmt.Sprintf("Starship setting %s requires a non-negative integer scalar or delete intent", ctx.settingID))
+		}
+		return nil
+	default:
+		return desiredError("selectedvalue.starship.settingUnsupported", "Starship selected setting is not supported by bundled type validation")
 	}
 }
 

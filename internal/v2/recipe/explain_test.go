@@ -65,6 +65,30 @@ resources:
 	require.Len(t, custom.RecipeExplain.Resources, 2)
 	require.Equal(t, FileTreeDriverID, custom.RecipeExplain.Resources[1].DriverID)
 	require.Contains(t, ExplainText(custom), "custom.files:file-tree")
+
+	starship, err := Explain(ExplainOptions{Target: StarshipTarget, RepoRoot: root})
+	require.NoError(t, err)
+	require.Equal(t, "recipe://bundled/starship", starship.RecipeExplain.Recipe.RecipeRef)
+	require.Equal(t, StarshipTarget, starship.RecipeExplain.Target.Ref)
+	require.Equal(t, "unknown", starship.RecipeExplain.Target.PlatformSupport)
+	require.Len(t, starship.RecipeExplain.Settings, 4)
+	require.Len(t, starship.RecipeExplain.Resources, 4)
+	for idx, settingID := range starshipSettingIDs() {
+		require.Equal(t, StarshipTarget+":"+settingID, starship.RecipeExplain.Settings[idx].Ref)
+		require.Equal(t, TOMLFileDriverID, starship.RecipeExplain.Settings[idx].Driver)
+		require.Equal(t, SensitivityLow, starship.RecipeExplain.Settings[idx].Sensitivity)
+		require.Equal(t, settingID, starship.RecipeExplain.Resources[idx].ID)
+		require.Equal(t, TOMLFileDriverID, starship.RecipeExplain.Resources[idx].DriverID)
+		require.Equal(t, []string{settingID}, starship.RecipeExplain.Resources[idx].Selector.Path)
+		require.Equal(t, "create", starship.RecipeExplain.Resources[idx].Selector.CreateMissing)
+		require.Equal(t, "allow", starship.RecipeExplain.Resources[idx].Selector.DeleteKey)
+	}
+	starshipText := ExplainText(starship)
+	require.Contains(t, starshipText, "target: starship")
+	require.Contains(t, starshipText, "starship:add_newline")
+	require.Contains(t, starshipText, "selector=add_newline")
+	require.Contains(t, starshipText, "do not manage: STARSHIP_CONFIG non-default locations")
+	require.NotContains(t, starshipText, "secret@example.com")
 }
 
 func TestExplainBundledAliasAndLocalAliasCollision(t *testing.T) {
@@ -152,6 +176,8 @@ func TestExplainLocalSelectedPathRecipeMetadata(t *testing.T) {
 	}{
 		{name: "json", target: "test.json", driver: JSONFileDriverID, path: "config.json", norm: "selected JSON scalar", driverTx: "JSON selected path"},
 		{name: "yaml", target: "test.yaml", driver: YAMLFileDriverID, path: "config.yaml", norm: "selected YAML scalar", driverTx: "YAML selected path"},
+		{name: "toml", target: "test.toml", driver: TOMLFileDriverID, path: "config.toml", norm: "selected TOML scalar", driverTx: "TOML selected path"},
+		{name: "plist", target: "test.plist", driver: PlistFileDriverID, path: "config.plist", norm: "selected plist scalar", driverTx: "plist selected path"},
 	}
 
 	for _, tc := range tests {
@@ -185,7 +211,7 @@ func TestExplainErrorsAndExitCodes(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, ExplainCodeUnknownTarget, report.Error.Code)
 	require.Equal(t, 2, err.(*ExplainError).ExitCode())
-	require.Equal(t, []string{CustomFilesTarget, GitTarget}, report.Error.Details["knownTargets"])
+	require.Equal(t, []string{CustomFilesTarget, GitTarget, StarshipTarget}, report.Error.Details["knownTargets"])
 	require.Contains(t, ExplainText(report), "error[unknown-target]")
 
 	report, err = Explain(ExplainOptions{Target: "git:user.email", RepoRoot: root})

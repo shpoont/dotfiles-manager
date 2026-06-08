@@ -36,6 +36,13 @@ func LoadRuntime(repoRoot string, targetID string) (RuntimeRecipe, error) {
 			}
 			runtime.Recipe = rec
 			return runtime, nil
+		case StarshipTarget:
+			rec := BundledStarshipRecipe()
+			if err := rec.ValidateStarship(); err != nil {
+				return runtime, fmt.Errorf("validate bundled starship recipe: %w", err)
+			}
+			runtime.Recipe = rec
+			return runtime, nil
 		default:
 			return runtime, fmt.Errorf("%w: %s", ErrBundledRuntimeUnavailable, target.ID)
 		}
@@ -120,6 +127,73 @@ func bundledGitResource(key string) Resource {
 			MissingKey:      string(inidriver.MissingPolicyCreate),
 			DuplicatePolicy: string(inidriver.DuplicatePolicyReject),
 			DeleteKey:       string(inidriver.DeletePolicyReject),
+		},
+	}
+}
+
+func BundledStarshipRecipe() *Recipe {
+	return &Recipe{
+		Schema:        Schema,
+		SchemaVersion: SupportedVersion,
+		Target:        StarshipTarget,
+		DisplayName:   "Starship",
+		SupportLevel:  "experimental",
+		Capability:    "read-write",
+		Locations: map[string]Location{
+			"config": {Default: "~/.config"},
+		},
+		SettingsGroups: map[string]SettingsGroup{
+			"prompt": {
+				Label:        "Prompt-wide options",
+				Description:  "Selected root-level Starship prompt configuration values.",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				Settings:     starshipSettingIDs(),
+			},
+		},
+		Settings: map[string]Setting{
+			"add_newline":     bundledStarshipSetting("add_newline", "Add newline"),
+			"command_timeout": bundledStarshipSetting("command_timeout", "Command timeout"),
+			"follow_symlinks": bundledStarshipSetting("follow_symlinks", "Follow symlinks"),
+			"scan_timeout":    bundledStarshipSetting("scan_timeout", "Scan timeout"),
+		},
+		Resources: map[string]Resource{
+			"add_newline":     bundledStarshipResource("add_newline"),
+			"command_timeout": bundledStarshipResource("command_timeout"),
+			"follow_symlinks": bundledStarshipResource("follow_symlinks"),
+			"scan_timeout":    bundledStarshipResource("scan_timeout"),
+		},
+	}
+}
+
+func bundledStarshipSetting(id string, label string) Setting {
+	return Setting{
+		Label:        label,
+		SupportLevel: "experimental",
+		Capability:   "read-write",
+		ArtifactForm: "scalar",
+		Sensitivity:  SensitivityLow,
+		Redaction:    RedactionKnownSafe,
+		Lifecycle:    LifecycleAllowed,
+		ScopeDefault: "user",
+		Resource:     id,
+	}
+}
+
+func bundledStarshipResource(key string) Resource {
+	return Resource{
+		Driver:      TOMLFileDriverID,
+		Location:    "config",
+		Path:        "starship.toml",
+		Capability:  "read-write",
+		Sensitivity: SensitivityLow,
+		Redaction:   RedactionKnownSafe,
+		Lifecycle:   LifecycleAllowed,
+		Selector: &Selector{
+			Path:            []string{key},
+			CreateMissing:   "create",
+			DuplicatePolicy: "reject",
+			DeleteKey:       "allow",
 		},
 	}
 }
