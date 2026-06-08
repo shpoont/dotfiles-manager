@@ -63,6 +63,16 @@ func Delete() Desired {
 	return Desired{intent: IntentDelete}
 }
 
+func (d Desired) Intent() string { return d.intent }
+func (d Desired) Kind() string   { return d.kind }
+
+func (d Desired) Value() (any, bool) {
+	if d.intent != IntentSet {
+		return nil, false
+	}
+	return d.value, true
+}
+
 func (d Desired) String() string {
 	return fmt.Sprintf("Desired{intent:%s kind:%s value:<redacted>}", defaultString(d.intent, "<unset>"), defaultString(d.kind, "<none>"))
 }
@@ -123,6 +133,39 @@ type Diagnostic struct {
 	Path       string `json:"path,omitempty"`
 }
 
+type CurrentDesired struct {
+	Desired Desired
+	Plan    *Plan
+}
+
+type ApplyOptions struct {
+	BackupHook BackupHook
+	AfterApply func(*Plan) error
+}
+
+type ApplyResult struct {
+	Plan     *Plan
+	Mutated  bool
+	Verified bool
+	Backup   *BackupResult
+}
+
+type BackupRequest struct {
+	SettingRef string
+	ResourceID string
+	DriverID   string
+	Path       string
+	Before     Snapshot
+	BeforeFile []byte `json:"-"`
+}
+
+type BackupResult struct {
+	ID     string
+	Before Snapshot
+}
+
+type BackupHook func(BackupRequest) (BackupResult, error)
+
 type PlanError struct {
 	Diagnostics []Diagnostic
 }
@@ -150,6 +193,19 @@ func PlanRead(req Request) (*Plan, error) {
 	return plan, nil
 }
 
+func ReadCurrentDesired(req Request) (*CurrentDesired, error) {
+	ctx, plan, err := buildContext(req, false)
+	if err != nil {
+		return &CurrentDesired{Plan: plan}, err
+	}
+	desired, err := readCurrentDesired(ctx, plan)
+	if err != nil {
+		block(plan, driverDiagnostic("selectedvalue.driver.read", err, plan))
+		return &CurrentDesired{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+	return &CurrentDesired{Desired: desired, Plan: plan}, nil
+}
+
 func PlanPreview(req PreviewRequest) (*Plan, error) {
 	ctx, plan, err := buildContext(req.Request, true)
 	if err != nil {
@@ -174,6 +230,27 @@ func PlanPreview(req PreviewRequest) (*Plan, error) {
 		return plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
 	return plan, nil
+}
+
+func ApplyWithBackup(req PreviewRequest, opts ApplyOptions) (*ApplyResult, error) {
+	ctx, plan, err := buildContext(req.Request, true)
+	if err != nil {
+		return &ApplyResult{Plan: plan}, err
+	}
+	if safetyErr := req.Recipe.ValidateWriteSafety(req.WriteSafetyContext); safetyErr != nil {
+		for _, diagnostic := range recipe.ValidationDiagnostics(safetyErr) {
+			block(plan, Diagnostic{Code: diagnostic.Code, Severity: diagnostic.Severity, Message: diagnostic.Message, Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: diagnostic.Path})
+		}
+		if len(plan.Diagnostics) == 0 {
+			block(plan, Diagnostic{Code: "selectedvalue.writeSafety.blocked", Severity: SeverityError, Message: safetyErr.Error(), Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID})
+		}
+		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+	result, err := applyDesiredWithBackup(ctx, plan, req.Desired, opts)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 type DesiredError struct {
@@ -309,6 +386,37 @@ func readCurrent(ctx context, plan *Plan) error {
 	return nil
 }
 
+func readCurrentDesired(ctx context, plan *Plan) (Desired, error) {
+	switch ctx.resource.Driver {
+	case recipe.IniFileDriverID:
+		state, err := inidriver.Driver{}.ReadCurrent(iniRequest(ctx))
+		if err != nil {
+			return Desired{}, err
+		}
+		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+		if !state.Exists {
+			return Delete(), nil
+		}
+		return SetString(state.Value), nil
+	case recipe.JSONFileDriverID:
+		state, err := jsondriver.Driver{}.ReadCurrent(jsonRequest(ctx))
+		if err != nil {
+			return Desired{}, err
+		}
+		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+		return desiredFromJSONState(state)
+	case recipe.YAMLFileDriverID:
+		state, err := yamldriver.Driver{}.ReadCurrent(yamlRequest(ctx))
+		if err != nil {
+			return Desired{}, err
+		}
+		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+		return desiredFromYAMLState(state)
+	default:
+		return Desired{}, desiredError("selectedvalue.driver.unsupported", "resource driver is not supported by selected-value live reads")
+	}
+}
+
 func previewDesired(ctx context, plan *Plan, desired Desired) error {
 	switch ctx.resource.Driver {
 	case recipe.IniFileDriverID:
@@ -352,6 +460,96 @@ func previewDesired(ctx context, plan *Plan, desired Desired) error {
 		plan.Intent = string(preview.Intent)
 	}
 	return nil
+}
+
+func applyDesiredWithBackup(ctx context, plan *Plan, desired Desired, opts ApplyOptions) (*ApplyResult, error) {
+	if err := previewDesired(ctx, plan, desired); err != nil {
+		var desiredErr *DesiredError
+		if errors.As(err, &desiredErr) {
+			block(plan, Diagnostic{Code: desiredErr.Code, Severity: SeverityError, Message: desiredErr.Message, Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+		} else {
+			block(plan, driverDiagnostic("selectedvalue.driver.preview", err, plan))
+		}
+		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
+
+	var backup *BackupResult
+	switch ctx.resource.Driver {
+	case recipe.IniFileDriverID:
+		state, err := desiredINIState(desired)
+		if err != nil {
+			block(plan, Diagnostic{Code: "selectedvalue.desired.invalid", Severity: SeverityError, Message: "selected-value desired state is invalid", Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+			return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+		}
+		apply, driverBackup, err := inidriver.Driver{}.ApplyWithBackup(iniRequest(ctx), state, iniBackupHook(plan, opts.BackupHook, &backup))
+		result := &ApplyResult{Plan: plan, Mutated: apply.Mutated, Backup: backup}
+		if driverBackup != nil && backup == nil {
+			backup = &BackupResult{ID: driverBackup.ID, Before: Snapshot{Exists: driverBackup.Before.Exists, SHA256: driverBackup.Before.SHA256, Normalizer: inidriver.NormalizerID}}
+			result.Backup = backup
+		}
+		if err != nil {
+			return result, err
+		}
+		if err := runAfterApply(opts.AfterApply, plan); err != nil {
+			return result, err
+		}
+		verify, err := inidriver.Driver{}.Verify(iniRequest(ctx), state)
+		result.Verified = verify.Verified
+		if err != nil {
+			return result, err
+		}
+		return result, nil
+	case recipe.JSONFileDriverID:
+		state, err := desiredJSONState(desired)
+		if err != nil {
+			block(plan, Diagnostic{Code: "selectedvalue.desired.invalid", Severity: SeverityError, Message: "selected-value desired state is invalid", Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+			return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+		}
+		apply, driverBackup, err := jsondriver.Driver{}.ApplyWithBackup(jsonRequest(ctx), state, jsonBackupHook(plan, opts.BackupHook, &backup))
+		result := &ApplyResult{Plan: plan, Mutated: apply.Mutated, Backup: backup}
+		if driverBackup != nil && backup == nil {
+			backup = &BackupResult{ID: driverBackup.ID, Before: Snapshot{Exists: driverBackup.Before.Exists, SHA256: driverBackup.Before.SHA256, Normalizer: jsondriver.NormalizerID}}
+			result.Backup = backup
+		}
+		if err != nil {
+			return result, err
+		}
+		if err := runAfterApply(opts.AfterApply, plan); err != nil {
+			return result, err
+		}
+		verify, err := jsondriver.Driver{}.Verify(jsonRequest(ctx), state)
+		result.Verified = verify.Verified
+		if err != nil {
+			return result, err
+		}
+		return result, nil
+	case recipe.YAMLFileDriverID:
+		state, err := desiredYAMLState(desired)
+		if err != nil {
+			block(plan, Diagnostic{Code: "selectedvalue.desired.invalid", Severity: SeverityError, Message: "selected-value desired state is invalid", Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+			return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+		}
+		apply, driverBackup, err := yamldriver.Driver{}.ApplyWithBackup(yamlRequest(ctx), state, yamlBackupHook(plan, opts.BackupHook, &backup))
+		result := &ApplyResult{Plan: plan, Mutated: apply.Mutated, Backup: backup}
+		if driverBackup != nil && backup == nil {
+			backup = &BackupResult{ID: driverBackup.ID, Before: Snapshot{Exists: driverBackup.Before.Exists, SHA256: driverBackup.Before.SHA256, Normalizer: yamldriver.NormalizerID}}
+			result.Backup = backup
+		}
+		if err != nil {
+			return result, err
+		}
+		if err := runAfterApply(opts.AfterApply, plan); err != nil {
+			return result, err
+		}
+		verify, err := yamldriver.Driver{}.Verify(yamlRequest(ctx), state)
+		result.Verified = verify.Verified
+		if err != nil {
+			return result, err
+		}
+		return result, nil
+	default:
+		return &ApplyResult{Plan: plan}, desiredError("selectedvalue.driver.unsupported", "resource driver is not supported by selected-value live apply")
+	}
 }
 
 func desiredINIState(desired Desired) (inidriver.State, error) {
@@ -430,6 +628,111 @@ func jsonScalarValue(desired Desired) (any, error) {
 	default:
 		return nil, desiredError("selectedvalue.desired.jsonTypeUnsupported", "JSON/YAML selected-value desired set requires a JSON-compatible scalar or delete intent")
 	}
+}
+
+func desiredFromJSONState(state jsondriver.State) (Desired, error) {
+	if !state.Exists {
+		return Delete(), nil
+	}
+	return desiredFromCanonicalJSON(state.Value)
+}
+
+func desiredFromYAMLState(state yamldriver.State) (Desired, error) {
+	if !state.Exists {
+		return Delete(), nil
+	}
+	return desiredFromCanonicalJSON(state.Value)
+}
+
+func desiredFromCanonicalJSON(raw []byte) (Desired, error) {
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return Desired{}, desiredError("selectedvalue.desired.currentInvalid", "current selected scalar could not be decoded")
+	}
+	switch typed := value.(type) {
+	case string:
+		return SetString(typed), nil
+	case bool:
+		return SetBool(typed), nil
+	case json.Number:
+		return SetNumber(typed), nil
+	case nil:
+		return SetNull(), nil
+	default:
+		return Desired{}, desiredError("selectedvalue.desired.currentUnsupported", "current selected value is not a supported scalar")
+	}
+}
+
+func iniBackupHook(plan *Plan, hook BackupHook, captured **BackupResult) inidriver.BackupHook {
+	if hook == nil {
+		return nil
+	}
+	return func(req inidriver.BackupRequest) (inidriver.BackupResult, error) {
+		result, err := hook(BackupRequest{
+			SettingRef: plan.SettingRef,
+			ResourceID: plan.ResourceID,
+			DriverID:   plan.DriverID,
+			Path:       req.Path,
+			Before:     Snapshot{Exists: req.Before.Exists, SHA256: req.Before.SHA256, Normalizer: req.Before.Normalizer},
+			BeforeFile: append([]byte(nil), req.BeforeFile...),
+		})
+		if err != nil {
+			return inidriver.BackupResult{}, err
+		}
+		*captured = &result
+		return inidriver.BackupResult{ID: result.ID, Before: inidriver.Snapshot{Exists: result.Before.Exists, SHA256: result.Before.SHA256}}, nil
+	}
+}
+
+func jsonBackupHook(plan *Plan, hook BackupHook, captured **BackupResult) jsondriver.BackupHook {
+	if hook == nil {
+		return nil
+	}
+	return func(req jsondriver.BackupRequest) (jsondriver.BackupResult, error) {
+		result, err := hook(BackupRequest{
+			SettingRef: plan.SettingRef,
+			ResourceID: plan.ResourceID,
+			DriverID:   plan.DriverID,
+			Path:       req.Path,
+			Before:     Snapshot{Exists: req.Before.Exists, SHA256: req.Before.SHA256, Normalizer: req.Before.Normalizer},
+			BeforeFile: append([]byte(nil), req.BeforeFile...),
+		})
+		if err != nil {
+			return jsondriver.BackupResult{}, err
+		}
+		*captured = &result
+		return jsondriver.BackupResult{ID: result.ID, Before: jsondriver.Snapshot{Exists: result.Before.Exists, SHA256: result.Before.SHA256}}, nil
+	}
+}
+
+func yamlBackupHook(plan *Plan, hook BackupHook, captured **BackupResult) yamldriver.BackupHook {
+	if hook == nil {
+		return nil
+	}
+	return func(req yamldriver.BackupRequest) (yamldriver.BackupResult, error) {
+		result, err := hook(BackupRequest{
+			SettingRef: plan.SettingRef,
+			ResourceID: plan.ResourceID,
+			DriverID:   plan.DriverID,
+			Path:       req.Path,
+			Before:     Snapshot{Exists: req.Before.Exists, SHA256: req.Before.SHA256, Normalizer: req.Before.Normalizer},
+			BeforeFile: append([]byte(nil), req.BeforeFile...),
+		})
+		if err != nil {
+			return yamldriver.BackupResult{}, err
+		}
+		*captured = &result
+		return yamldriver.BackupResult{ID: result.ID, Before: yamldriver.Snapshot{Exists: result.Before.Exists, SHA256: result.Before.SHA256}}, nil
+	}
+}
+
+func runAfterApply(hook func(*Plan) error, plan *Plan) error {
+	if hook == nil {
+		return nil
+	}
+	return hook(plan)
 }
 
 func iniRequest(ctx context) inidriver.Request {

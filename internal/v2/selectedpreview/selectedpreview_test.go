@@ -1,6 +1,7 @@
 package selectedpreview
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
+	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
+	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
 	v2status "github.com/shpoont/dotfiles-manager/internal/v2/status"
 	"github.com/stretchr/testify/require"
 )
@@ -308,6 +311,43 @@ func TestBuildBlocksWriteSafetyBeforeLiveRead(t *testing.T) {
 	require.NotContains(t, mustJSON(t, report), "secret-live@example.com")
 }
 
+func TestBuildSaveApplyBlockSecretRuntimeValuesBeforeLiveWrites(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save current secret", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixture(t)
+		secret := "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+		fixture.writeLiveYAML(secret)
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.app:identity.email", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Equal(t, v2status.StateBlockedSafety, report.Items[0].State)
+		requireDiagnostic(t, report.Items[0], "desired.writeSafety.secretDetected")
+		require.NotContains(t, mustJSON(t, report), secret)
+	})
+
+	t.Run("apply desired secret", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixture(t)
+		secret := "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+		fixture.writeLiveYAML("old@example.com")
+		fixture.writeDesiredSet(secret)
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.app:identity.email", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Equal(t, v2status.StateBlockedSafety, report.Items[0].State)
+		requireDiagnostic(t, report.Items[0], "desired.writeSafety.secretDetected")
+		require.NotContains(t, mustJSON(t, report), secret)
+	})
+}
+
 func TestBuildReportsUnsupportedAndInvalidRecipeShapes(t *testing.T) {
 	t.Parallel()
 
@@ -482,4 +522,132 @@ func TestRemainingHelperBranches(t *testing.T) {
 	_, err = Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.app:identity.email"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "user id required")
+}
+
+func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
+	t.Parallel()
+
+	emptyReport := baseReport(CommandApply, false, nil)
+	require.Contains(t, Text(emptyReport), "items: none")
+
+	richReport := baseReport(CommandApply, true, []string{"global", "user/leon"})
+	richReport.Items = []Item{{
+		SettingRef:    "test.app:identity.email",
+		Scope:         "user",
+		Subject:       "leon",
+		State:         v2status.StateReadyToApply,
+		Desired:       DesiredInfo{Status: desired.StatusPresent},
+		Current:       Snapshot{Exists: true},
+		Resource:      ResourceInfo{ID: "config-email", DriverID: recipe.YAMLFileDriverID},
+		Selector:      SelectorInfo{Summary: "user.email"},
+		Diff:          diffInfo("update"),
+		Message:       "safe message",
+		PlannedAction: "would-apply",
+		Mutation: &MutationInfo{
+			Result:     "verified",
+			RunID:      "run-rich",
+			BackupRefs: []string{"state://backups/run-rich/items/config-email"},
+			Verification: VerificationInfo{
+				Verified: true,
+				Result:   "verified",
+			},
+		},
+		Diagnostics: []Diagnostic{{Severity: SeverityWarning, Code: "safe.warning", Message: "safe diagnostic"}},
+	}}
+	richText := Text(richReport)
+	require.Contains(t, richText, "MODE: DRY RUN")
+	require.Contains(t, richText, "profile: global -> user/leon")
+	require.Contains(t, richText, "backups=state://backups/run-rich/items/config-email")
+	require.Contains(t, richText, "warning[safe.warning]")
+
+	_, err := normalizeRepoRoot(filepath.Join(t.TempDir(), "missing"))
+	require.Error(t, err)
+	report := errorReport(Options{}, "safe.code", "safe message", nil)
+	require.Equal(t, CommandStatus, report.Command)
+
+	_, err = parseRef("test.app:Bad")
+	require.Error(t, err)
+	_, err = parseRef("test.app:")
+	require.Error(t, err)
+	_, err = parseRef("bad/target")
+	require.Error(t, err)
+
+	settings := []resolution.ResolvedSetting{
+		{TargetID: "a", SettingID: "one"},
+		{TargetID: "b", SettingID: "two"},
+	}
+	require.Len(t, filterSettings(settings, parsedRef{Empty: true}), 2)
+	require.Len(t, filterSettings(settings, parsedRef{Target: "a"}), 1)
+	require.Empty(t, filterSettings(settings, parsedRef{Target: "a", Setting: "missing"}))
+
+	appendDesiredDiagnostics(nil, errors.New("safe"))
+	item := Item{SettingRef: "test.app:identity.email", Resource: ResourceInfo{ID: "config-email", DriverID: recipe.YAMLFileDriverID}}
+	appendDesiredDiagnostics(&item, nil)
+	require.Empty(t, item.Diagnostics)
+	appendDesiredDiagnostics(&item, errors.New("safe fallback"))
+	requireDiagnostic(t, item, "selectedpreview.desired.writeSafety")
+
+	err = validateExistingDesiredForPlanning("", desired.ReadResult{}, nil, resolution.ResolvedSetting{}, recipe.WriteSafetyContext{})
+	require.Error(t, err)
+	err = validateCurrentForSavePlanning("", nil, resolution.ResolvedSetting{}, nil, recipe.WriteSafetyContext{})
+	require.Error(t, err)
+
+	_, err = desiredValueFromSelected(selectedvalue.Desired{})
+	require.Error(t, err)
+
+	planItem := Item{}
+	plan := &selectedvalue.Plan{
+		Path:        "/tmp/config.yaml",
+		Selector:    selectedvalue.SelectorInfo{Kind: "selected-path", Summary: "user.email", Path: []string{"user", "email"}},
+		Current:     selectedvalue.Snapshot{Exists: true, SHA256: "current", Normalizer: "yaml-file.selected-scalar.v1"},
+		Desired:     &selectedvalue.Snapshot{Exists: true, SHA256: "desired", Normalizer: "yaml-file.selected-scalar.v1"},
+		ChangeKind:  "update",
+		Intent:      desired.IntentSet,
+		Diagnostics: []selectedvalue.Diagnostic{{Code: "plan.safe", Severity: SeverityInfo, Message: "safe plan", Ref: "test.app:identity.email", Path: "config.yaml", ResourceID: "config-email", DriverID: recipe.YAMLFileDriverID}},
+	}
+	applyPlanToItem(&planItem, plan)
+	require.Equal(t, "/tmp/config.yaml", planItem.Resource.Path)
+	require.Equal(t, "selected-path", planItem.Selector.Kind)
+	require.Equal(t, "desired", planItem.Desired.Snapshot.SHA256)
+	require.NotNil(t, planItem.Preview)
+	requireDiagnostic(t, planItem, "plan.safe")
+
+	readItem := Item{}
+	applyReadPlanToItem(&readItem, plan)
+	require.Equal(t, "current", readItem.Current.SHA256)
+	requireDiagnostic(t, readItem, "plan.safe")
+
+	deleteItem := Item{TargetRef: "test.app", SettingRef: "test.app:identity.email", Current: Snapshot{}, Desired: DesiredInfo{Snapshot: Snapshot{Normalizer: "yaml-file.selected-scalar.v1"}}}
+	deriveItemState(&deleteItem, CommandApply, desired.IntentDelete)
+	require.Equal(t, v2status.StateUnchanged, deleteItem.State)
+	require.Equal(t, v2status.ContextSave, statusContext(CommandSave))
+	require.Equal(t, v2status.ContextApply, statusContext(CommandApply))
+	require.Equal(t, v2status.ContextStatus, statusContext(CommandDiff))
+	require.Equal(t, "hash", normalizedSnapshot(Snapshot{Exists: true, SHA256: "hash", Normalizer: "norm"}).Hash)
+	require.Equal(t, Snapshot{Exists: true, SHA256: "hash", Normalizer: "norm"}, fromSnapshot(selectedvalue.Snapshot{Exists: true, SHA256: "hash", Normalizer: "norm"}))
+	require.Equal(t, SelectorInfo{Kind: "selected-path", Summary: "user.email", Path: []string{"user", "email"}}, selectorInfo(selectedvalue.SelectorInfo{Kind: "selected-path", Summary: "user.email", Path: []string{"user", "email"}}))
+
+	blockedLifecycle := finishBlocked(Item{}, v2status.StateBlockedLifecycle, "app is running")
+	require.Equal(t, v2status.StateBlockedLifecycle, blockedLifecycle.State)
+	require.NotEmpty(t, blockedLifecycle.AllowedActions)
+
+	finishReport(nil)
+	blocked := &Report{Command: CommandSave, Items: []Item{
+		{State: v2status.StateBlockedLifecycle},
+		{State: v2status.StateUnchanged},
+		{State: v2status.StateChangedCurrent, PlannedAction: "would-save"},
+	}}
+	finishReport(blocked)
+	require.Equal(t, SummaryBlocked, blocked.Summary.Status)
+	require.Equal(t, 1, blocked.Summary.Blocked)
+	require.Equal(t, 1, blocked.Summary.Saved)
+
+	changedApply := &Report{Command: CommandApply, Items: []Item{{State: v2status.StateReadyToApply, PlannedAction: "would-apply"}}}
+	finishReport(changedApply)
+	require.Equal(t, SummaryChanged, changedApply.Summary.Status)
+	require.Equal(t, 1, changedApply.Summary.Applied)
+
+	okReport := &Report{Command: CommandStatus, Items: []Item{{State: v2status.StateUnchanged}}}
+	finishReport(okReport)
+	require.Equal(t, SummaryOK, okReport.Summary.Status)
 }

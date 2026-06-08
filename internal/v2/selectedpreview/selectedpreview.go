@@ -98,6 +98,7 @@ type Item struct {
 	PlannedAction  string             `json:"plannedAction,omitempty"`
 	DryRun         bool               `json:"dryRun"`
 	Mutated        bool               `json:"mutated"`
+	Mutation       *MutationInfo      `json:"mutation,omitempty"`
 	Diagnostics    []Diagnostic       `json:"diagnostics"`
 }
 
@@ -158,6 +159,28 @@ type Diagnostic struct {
 	Path       string `json:"path,omitempty"`
 	ResourceID string `json:"resourceId,omitempty"`
 	DriverID   string `json:"driverId,omitempty"`
+}
+
+type MutationInfo struct {
+	Result       string           `json:"result"`
+	RunID        string           `json:"runId,omitempty"`
+	LedgerRef    string           `json:"ledgerRef,omitempty"`
+	BackupRefs   []string         `json:"backupRefs,omitempty"`
+	Verification VerificationInfo `json:"verification"`
+	ArtifactRefs MutationRefs     `json:"artifactRefs,omitempty"`
+}
+
+type VerificationInfo struct {
+	Verified bool   `json:"verified"`
+	Result   string `json:"result"`
+	Message  string `json:"message,omitempty"`
+}
+
+type MutationRefs struct {
+	RunRecord     string `json:"runRecord,omitempty"`
+	Ledger        string `json:"ledger,omitempty"`
+	Backup        string `json:"backup,omitempty"`
+	BackupPayload string `json:"backupPayload,omitempty"`
 }
 
 type Error struct {
@@ -266,6 +289,12 @@ func Text(report *Report) string {
 		if item.Message != "" {
 			lines = append(lines, "    message: "+item.Message)
 		}
+		if item.Mutation != nil {
+			lines = append(lines, fmt.Sprintf("    mutation=%s verified=%t run=%s", item.Mutation.Result, item.Mutation.Verification.Verified, item.Mutation.RunID))
+			if len(item.Mutation.BackupRefs) > 0 {
+				lines = append(lines, "    backups="+strings.Join(item.Mutation.BackupRefs, ","))
+			}
+		}
 		for _, diagnostic := range item.Diagnostics {
 			lines = append(lines, fmt.Sprintf("    %s[%s]: %s", diagnostic.Severity, diagnostic.Code, diagnostic.Message))
 		}
@@ -309,9 +338,6 @@ func normalizeRepoRoot(repoRoot string) (string, error) {
 }
 
 func commandDryRun(command string, dryRun bool) bool {
-	if command == CommandSave || command == CommandApply {
-		return true
-	}
 	return dryRun
 }
 
@@ -446,12 +472,28 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	}
 
 	if read.Status == desired.StatusMissing {
-		return buildMissingDesiredItem(item, rec, setting, locationRoots, command)
+		return buildMissingDesiredItem(repoRoot, item, rec, setting, locationRoots, command, trustContext)
 	}
 
 	if read.Desired == nil {
 		item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.desired.invalid", SeverityError, "desired selected-value entry is present but has no normalized desired state", item.SettingRef))
 		return finishBlocked(item, v2status.StateBlockedSafety, "Desired selected-value entry is invalid.")
+	}
+	if command == CommandApply {
+		if err := validateExistingDesiredForPlanning(repoRoot, read, rec, setting, trustContext); err != nil {
+			appendDesiredDiagnostics(&item, err)
+			return finishBlocked(item, v2status.StateBlockedSafety, "Desired selected-value entry is blocked by write-safety policy.")
+		}
+	}
+	if command == CommandSave {
+		if err := validateCurrentForSavePlanning(repoRoot, rec, setting, locationRoots, trustContext); err != nil {
+			if planErr, ok := err.(*selectedvalue.PlanError); ok {
+				appendPlanDiagnostics(&item, &selectedvalue.Plan{Diagnostics: planErr.Diagnostics})
+			} else {
+				appendDesiredDiagnostics(&item, err)
+			}
+			return finishBlocked(item, v2status.StateBlockedSafety, "Current selected value is blocked by write-safety policy.")
+		}
 	}
 
 	plan, err := selectedvalue.PlanPreview(selectedvalue.PreviewRequest{Request: selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: locationRoots}, Desired: *read.Desired, WriteSafetyContext: trustContext})
@@ -506,7 +548,7 @@ func evaluateTrust(repoRoot string, stateRoot string, source string, rec *recipe
 	return eval, eval.WriteSafetyContext(recipe.WriteSafetyContext{})
 }
 
-func buildMissingDesiredItem(item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, command string) Item {
+func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, command string, trustContext recipe.WriteSafetyContext) Item {
 	if command == CommandApply {
 		item.State = v2status.StateMissingDesired
 		item.Message = "Selected setting has no desired artifact; apply dry-run cannot change live state."
@@ -520,6 +562,22 @@ func buildMissingDesiredItem(item Item, rec *recipe.Recipe, setting resolution.R
 		return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver read is blocked.")
 	}
 	applyReadPlanToItem(&item, plan)
+	if command == CommandSave {
+		current, err := selectedvalue.ReadCurrentDesired(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots})
+		if err != nil {
+			appendPlanDiagnostics(&item, current.Plan)
+			return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver read is blocked.")
+		}
+		saveValue, err := desiredValueFromSelected(current.Desired)
+		if err != nil {
+			item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.current.invalid", SeverityError, "current selected value cannot be represented as desired state", item.SettingRef))
+			return finishBlocked(item, v2status.StateBlockedSafety, "Current selected value is invalid.")
+		}
+		if err := desired.ValidateSelectedValueWriteSafety(desired.WriteRequest{RepoRoot: repoRoot, URI: setting.DesiredURI, Value: saveValue, Safety: &desired.WriteSafetyDecision{Recipe: rec, SettingRef: setting.Ref(), Context: trustContext}}); err != nil {
+			appendDesiredDiagnostics(&item, err)
+			return finishBlocked(item, v2status.StateBlockedSafety, "Current selected value is blocked by write-safety policy.")
+		}
+	}
 	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: v2status.NormalizedState{Exists: false}, Current: normalizedSnapshot(item.Current)})
 	item.State = stateItem.State
 	item.NoBaseline = stateItem.NoBaseline
@@ -565,6 +623,80 @@ func appendPlanDiagnostics(item *Item, plan *selectedvalue.Plan) {
 	}
 	for _, diagnostic := range plan.Diagnostics {
 		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: diagnostic.Code, Severity: diagnostic.Severity, Message: diagnostic.Message, Ref: diagnostic.Ref, Path: diagnostic.Path, ResourceID: diagnostic.ResourceID, DriverID: diagnostic.DriverID})
+	}
+}
+
+func appendDesiredDiagnostics(item *Item, err error) {
+	if item == nil || err == nil {
+		return
+	}
+	var safetyErr *desired.SafetyError
+	if errors.As(err, &safetyErr) {
+		for _, diagnostic := range safetyErr.Diagnostics {
+			item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: diagnostic.Code, Severity: diagnostic.Severity, Message: diagnostic.Message, Ref: item.SettingRef, Path: diagnostic.Path, ResourceID: item.Resource.ID, DriverID: item.Resource.DriverID})
+		}
+		return
+	}
+	item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: "selectedpreview.desired.writeSafety", Severity: SeverityError, Message: "selected-value write-safety policy blocked planning", Ref: item.SettingRef, ResourceID: item.Resource.ID, DriverID: item.Resource.DriverID})
+}
+
+func validateExistingDesiredForPlanning(repoRoot string, read desired.ReadResult, rec *recipe.Recipe, setting resolution.ResolvedSetting, trustContext recipe.WriteSafetyContext) error {
+	if read.Value == nil {
+		return fmt.Errorf("desired selected-value entry is missing raw validation state")
+	}
+	return desired.ValidateSelectedValueWriteSafety(desired.WriteRequest{RepoRoot: repoRoot, URI: setting.DesiredURI, Value: *read.Value, Safety: &desired.WriteSafetyDecision{Recipe: rec, SettingRef: setting.Ref(), Context: trustContext}})
+}
+
+func validateCurrentForSavePlanning(repoRoot string, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, trustContext recipe.WriteSafetyContext) error {
+	current, err := selectedvalue.ReadCurrentDesired(selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots})
+	if err != nil {
+		if current != nil && current.Plan != nil {
+			return &selectedvalue.PlanError{Diagnostics: current.Plan.Diagnostics}
+		}
+		return err
+	}
+	saveValue, err := desiredValueFromSelected(current.Desired)
+	if err != nil {
+		return err
+	}
+	return desired.ValidateSelectedValueWriteSafety(desired.WriteRequest{RepoRoot: repoRoot, URI: setting.DesiredURI, Value: saveValue, Safety: &desired.WriteSafetyDecision{Recipe: rec, SettingRef: setting.Ref(), Context: trustContext}})
+}
+
+func desiredValueFromSelected(value selectedvalue.Desired) (desired.SelectedValue, error) {
+	switch value.Intent() {
+	case selectedvalue.IntentDelete:
+		return desired.Delete(), nil
+	case selectedvalue.IntentSet:
+		raw, ok := value.Value()
+		if !ok {
+			return desired.SelectedValue{}, fmt.Errorf("selected desired value is missing")
+		}
+		switch value.Kind() {
+		case "string":
+			typed, ok := raw.(string)
+			if !ok {
+				return desired.SelectedValue{}, fmt.Errorf("selected desired string has invalid representation")
+			}
+			return desired.SetString(typed), nil
+		case "bool":
+			typed, ok := raw.(bool)
+			if !ok {
+				return desired.SelectedValue{}, fmt.Errorf("selected desired bool has invalid representation")
+			}
+			return desired.SetBool(typed), nil
+		case "number":
+			typed, ok := raw.(json.Number)
+			if !ok {
+				return desired.SelectedValue{}, fmt.Errorf("selected desired number has invalid representation")
+			}
+			return desired.SetNumber(typed), nil
+		case "null":
+			return desired.SetNull(), nil
+		default:
+			return desired.SelectedValue{}, fmt.Errorf("unsupported selected desired kind")
+		}
+	default:
+		return desired.SelectedValue{}, fmt.Errorf("selected desired intent is required")
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	v2resolution "github.com/shpoont/dotfiles-manager/internal/v2/resolution"
+	v2selectedlive "github.com/shpoont/dotfiles-manager/internal/v2/selectedlive"
 	v2selectedpreview "github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
 	"github.com/spf13/cobra"
 )
@@ -197,6 +198,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 func newSaveCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
+	var yes bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
@@ -209,12 +211,14 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 				PathArg:    firstArg(args),
 				JSONOutput: jsonOutput,
 				DryRun:     dryRun,
+				Yes:        yes,
 				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value save without writing desired artifacts")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live save without interactive prompting")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
@@ -223,6 +227,7 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 func newApplyCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
+	var yes bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
@@ -235,12 +240,14 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 				PathArg:    firstArg(args),
 				JSONOutput: jsonOutput,
 				DryRun:     dryRun,
+				Yes:        yes,
 				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value apply without writing live state")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live apply without interactive prompting")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
@@ -351,6 +358,7 @@ type commandOptions struct {
 	PathArg      string
 	JSONOutput   bool
 	DryRun       bool
+	Yes          bool
 	Direction    string
 	ContextLines int
 	IncludePatch bool
@@ -656,15 +664,32 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 	if commandOpts.Name != "save" && commandOpts.Name != "apply" {
 		return fmt.Errorf("unsupported selected-value root command: %s", commandOpts.Name)
 	}
-	if !commandOpts.DryRun {
-		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.liveWritesNotImplemented", fmt.Sprintf("%s requires --dry-run until selected-value live writes are implemented in #96", commandOpts.Name), map[string]any{"requiredFlag": "--dry-run"})
-	}
 
 	repoRoot, err := selectedPreviewRepoRoot(opts)
 	if err != nil {
 		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.root.notFound", err.Error(), nil)
 	}
-	return runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+	if commandOpts.DryRun {
+		return runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+	}
+	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
+	if err != nil {
+		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.stateRoot.default", err.Error(), nil)
+	}
+	result, err := v2selectedlive.Run(v2selectedlive.Options{
+		Command:     commandOpts.Name,
+		RepoRoot:    repoRoot,
+		StateRoot:   stateRoot,
+		Ref:         commandOpts.PathArg,
+		MachineID:   commandOpts.V2.MachineID,
+		UserID:      commandOpts.V2.UserID,
+		ExtraLayers: commandOpts.V2.Profiles,
+		Confirmed:   commandOpts.Yes,
+	})
+	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), result.Report, commandOpts.JSONOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
 }
 
 func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, repoRoot string) error {

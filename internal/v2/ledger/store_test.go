@@ -13,6 +13,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
+	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
 	"github.com/stretchr/testify/require"
 )
 
@@ -651,6 +652,53 @@ func TestBackupUpsertAndPayloadErrorBranches(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestWriteSelectedValueBackupPersistsMetadataAndPayload(t *testing.T) {
+	t.Parallel()
+
+	stateRoot := t.TempDir()
+	store, err := NewStore(stateRoot, WithClock(fixedTime))
+	require.NoError(t, err)
+
+	item, err := store.WriteSelectedValueBackup("run-selected", fixedTime(), SelectedValueBackupRequest{
+		TargetRef:  "test.app",
+		SettingRef: "test.app:identity.email",
+		ResourceID: "config-email",
+		Driver:     recipe.YAMLFileDriverID,
+		LivePath:   filepath.Join(t.TempDir(), "config.yaml"),
+		Before:     NormalizedState{Exists: true, Hash: "abc", Normalizer: "yaml-file.selected-scalar.v1"},
+		BeforeFile: []byte("user:\n  email: old@example.com\n"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "state://backups/run-selected/test.app_identity.email-config-email", item.Ref)
+	require.Equal(t, YAMLFileSelectedDriverVersion, item.DriverVersion)
+	require.Equal(t, "payloads/test.app_identity.email-config-email/before", item.PayloadRelPath)
+	require.Equal(t, "yaml-file.selected-scalar.v1", item.Restore.Normalizer)
+	requireFile(t, filepath.Join(stateRoot, "backups", "run-selected", item.PayloadRelPath), "user:\n  email: old@example.com\n")
+
+	metadata := requireBackupMetadata(t, stateRoot, "run-selected")
+	require.Len(t, metadata.Items, 1)
+	require.NotContains(t, mustMarshalJSON(t, metadata), "old@example.com")
+
+	absent, err := store.WriteSelectedValueBackup("run-selected-absent", fixedTime(), SelectedValueBackupRequest{
+		TargetRef:  "test.app",
+		SettingRef: "test.app:identity.email",
+		ResourceID: "config-email",
+		Driver:     recipe.IniFileDriverID,
+		Before:     NormalizedState{Exists: false},
+	})
+	require.NoError(t, err)
+	require.Empty(t, absent.PayloadRelPath)
+	require.Equal(t, IniFileSelectedDriverVersion, SelectedValueDriverVersion(recipe.IniFileDriverID))
+	require.Equal(t, JSONFileSelectedDriverVersion, SelectedValueDriverVersion(recipe.JSONFileDriverID))
+	require.Equal(t, YAMLFileSelectedDriverVersion, SelectedValueDriverVersion(recipe.YAMLFileDriverID))
+	require.Equal(t, "other", SelectedValueDriverVersion("other"))
+	require.NotEmpty(t, SelectedValueNormalizer(recipe.IniFileDriverID))
+	require.NotEmpty(t, SelectedValueNormalizer(recipe.JSONFileDriverID))
+	require.NotEmpty(t, SelectedValueNormalizer(recipe.YAMLFileDriverID))
+	require.Empty(t, SelectedValueNormalizer("other"))
+	require.Equal(t, NormalizedState{Exists: true, Hash: "h", Normalizer: "n", DriverVersion: YAMLFileSelectedDriverVersion}, SelectedValueState(selectedvalue.Snapshot{Exists: true, SHA256: "h", Normalizer: "n"}, recipe.YAMLFileDriverID))
+}
+
 func TestExecuteAndBackupValidationBranches(t *testing.T) {
 	t.Parallel()
 
@@ -738,4 +786,53 @@ func TestNormalizationDefaultBranches(t *testing.T) {
 	entries := NormalizeLedgerEntries([]LedgerEntry{{RunID: "run", Item: ItemRecord{TargetRef: "b", SettingRef: "b:two"}}, {RunID: "run", Item: ItemRecord{TargetRef: "a", SettingRef: "a:one"}}})
 	require.Equal(t, LedgerEntrySchema, entries[0].Schema)
 	require.Equal(t, "a:one", entries[0].Item.SettingRef)
+}
+
+func mustMarshalJSON(t *testing.T, value any) string {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	require.NoError(t, err)
+	return string(payload)
+}
+
+func TestWriteSelectedValueBackupValidationAndKeyBranches(t *testing.T) {
+	t.Parallel()
+
+	var nilStore *Store
+	_, err := nilStore.WriteSelectedValueBackup("run", fixedTime(), SelectedValueBackupRequest{})
+	require.Error(t, err)
+
+	stateRoot := t.TempDir()
+	store, err := NewStore(stateRoot, WithClock(fixedTime))
+	require.NoError(t, err)
+	_, err = store.WriteSelectedValueBackup("../bad", fixedTime(), SelectedValueBackupRequest{})
+	require.Error(t, err)
+
+	zeroTime, err := store.WriteSelectedValueBackup("run-zero-time", time.Time{}, SelectedValueBackupRequest{
+		TargetRef:  "test.app",
+		SettingRef: "test.app:identity.email",
+		ResourceID: "config-email",
+		Driver:     recipe.JSONFileDriverID,
+		Before:     NormalizedState{Exists: false},
+	})
+	require.NoError(t, err)
+	require.Equal(t, fixedTime().Format(time.RFC3339Nano), zeroTime.CreatedAt)
+
+	key := selectedValueItemKey("test.app:identity.email", "config-email")
+	blockingParent := filepath.Join(stateRoot, "backups", "run-payload-error", "payloads", key)
+	require.NoError(t, os.MkdirAll(filepath.Dir(blockingParent), 0o755))
+	require.NoError(t, os.WriteFile(blockingParent, []byte("not a directory"), 0o644))
+	_, err = store.WriteSelectedValueBackup("run-payload-error", fixedTime(), SelectedValueBackupRequest{
+		TargetRef:  "test.app",
+		SettingRef: "test.app:identity.email",
+		ResourceID: "config-email",
+		Driver:     recipe.YAMLFileDriverID,
+		Before:     NormalizedState{Exists: true, Hash: "abc"},
+		BeforeFile: []byte("payload"),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "write selected-value backup payload")
+
+	require.Equal(t, "item--", selectedValueItemKey("", ""))
+	require.Equal(t, "item-.-", selectedValueItemKey(".", ""))
 }

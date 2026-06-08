@@ -147,6 +147,7 @@ type ReadResult struct {
 	Intent  string                 `json:"intent,omitempty"`
 	Kind    string                 `json:"kind,omitempty"`
 	Desired *selectedvalue.Desired `json:"-"`
+	Value   *SelectedValue         `json:"-"`
 }
 
 type WriteSafetyDecision struct {
@@ -248,6 +249,17 @@ func WriteSelectedValue(req WriteRequest) error {
 	return writeSelectedValue(resolved, req.Value)
 }
 
+func ValidateSelectedValueWriteSafety(req WriteRequest) error {
+	resolved, err := ResolveURI(req.RepoRoot, req.URI)
+	if err != nil {
+		return err
+	}
+	if resolved.Object != ObjectSettings || resolved.SettingID == "" {
+		return fmt.Errorf("selected-value desired validation requires a settings URI with a setting fragment")
+	}
+	return validateWriteSafety(resolved, req.Value, req.Safety)
+}
+
 func MarkSelectedValueUnmanaged(req WriteRequest) error {
 	req.Value = Unmanaged()
 	return WriteSelectedValue(req)
@@ -280,6 +292,8 @@ func readSelectedValue(resolved ResolvedURI) (ReadResult, error) {
 		return ReadResult{}, err
 	}
 	result := ReadResult{URI: resolved, Intent: value.intent, Kind: value.kind}
+	storedValue := value
+	result.Value = &storedValue
 	if !hasDesired {
 		result.Status = StatusUnmanaged
 		return result, nil
