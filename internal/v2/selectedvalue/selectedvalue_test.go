@@ -12,6 +12,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
+	"github.com/shpoont/dotfiles-manager/internal/v2/tomldriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/yamldriver"
 	"github.com/stretchr/testify/require"
 )
@@ -29,6 +30,7 @@ func TestPlanReadSelectedValuesAcrossDrivers(t *testing.T) {
 		{name: "ini", driverID: recipe.IniFileDriverID, relPath: "config.ini", content: "[user]\nemail=secret@example.com\n", normalizer: inidriver.NormalizerID},
 		{name: "json", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"secret@example.com"}}`, normalizer: jsondriver.NormalizerID},
 		{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: secret@example.com\n", normalizer: yamldriver.NormalizerID},
+		{name: "toml", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'secret@example.com'\n", normalizer: tomldriver.NormalizerID},
 	}
 
 	for _, tc := range cases {
@@ -75,8 +77,10 @@ func TestPlanPreviewSelectedValuesAcrossDrivers(t *testing.T) {
 		{name: "ini string", driverID: recipe.IniFileDriverID, relPath: "config.ini", content: "[user]\nemail=old@example.com\n", desired: SetString("new@example.com"), normalizer: inidriver.NormalizerID, intent: "set"},
 		{name: "json string", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`, desired: SetString("new@example.com"), normalizer: jsondriver.NormalizerID, intent: "set"},
 		{name: "yaml string", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: old@example.com\n", desired: SetString("new@example.com"), normalizer: yamldriver.NormalizerID, intent: "set"},
+		{name: "toml string", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'old@example.com'\n", desired: SetString("new@example.com"), normalizer: tomldriver.NormalizerID, intent: "set"},
 		{name: "json bool", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`, desired: SetBool(true), normalizer: jsondriver.NormalizerID, intent: "set"},
 		{name: "yaml number", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: old@example.com\n", desired: SetNumber(json.Number("42")), normalizer: yamldriver.NormalizerID, intent: "set"},
+		{name: "toml number", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'old@example.com'\n", desired: SetNumber(json.Number("42")), normalizer: tomldriver.NormalizerID, intent: "set"},
 		{name: "json null", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`, desired: SetNull(), normalizer: jsondriver.NormalizerID, intent: "set"},
 	}
 
@@ -180,7 +184,7 @@ func TestPlanPreviewRejectsUnsafeDesiredTypeCompatibility(t *testing.T) {
 		requireDiagnosticCode(t, plan, "selectedvalue.desired.iniTypeUnsupported")
 	})
 
-	t.Run("json and yaml require explicit desired intent", func(t *testing.T) {
+	t.Run("json yaml and toml require explicit desired intent", func(t *testing.T) {
 		t.Parallel()
 
 		for _, tc := range []struct {
@@ -191,6 +195,7 @@ func TestPlanPreviewRejectsUnsafeDesiredTypeCompatibility(t *testing.T) {
 		}{
 			{name: "json", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`},
 			{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: old@example.com\n"},
+			{name: "toml", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'old@example.com'\n"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
@@ -226,6 +231,23 @@ func TestPlanPreviewRejectsUnsafeDesiredTypeCompatibility(t *testing.T) {
 		require.Error(t, err)
 		require.Equal(t, StatusBlocked, plan.Status)
 		requireDiagnosticCode(t, plan, "selectedvalue.desired.invalidNumber")
+	})
+
+	t.Run("toml rejects null desired values", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.TOMLFileDriverID, "config.toml")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("[user]\nemail = 'old@example.com'\n"), 0o644))
+
+		plan, err := PlanPreview(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetNull(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		})
+		require.Error(t, err)
+		require.Equal(t, StatusBlocked, plan.Status)
+		requireDiagnosticCode(t, plan, "selectedvalue.desired.tomlNullUnsupported")
 	})
 }
 
@@ -300,6 +322,19 @@ func TestPlanReadBlocksUnsupportedDriverAndDriverUnsafeCases(t *testing.T) {
 		root := t.TempDir()
 		rec := decodeSelectedValueRecipe(t, recipe.YAMLFileDriverID, "config.yaml")
 		require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("user:\n  email:\n    nested: true\n"), 0o644))
+
+		plan, err := PlanRead(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+		require.Error(t, err)
+		require.Equal(t, StatusBlocked, plan.Status)
+		requireDiagnosticCode(t, plan, "selectedvalue.driver.invalid-selector")
+	})
+
+	t.Run("toml non scalar", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.TOMLFileDriverID, "config.toml")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("[user.email]\nnested = true\n"), 0o644))
 
 		plan, err := PlanRead(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
 		require.Error(t, err)
@@ -401,6 +436,7 @@ func TestReadCurrentDesiredAndApplyWithBackupAcrossDrivers(t *testing.T) {
 		{name: "ini", driverID: recipe.IniFileDriverID, relPath: "config.ini", before: "[user]\nemail=old@example.com\n", desired: SetString("new@example.com"), want: "new@example.com"},
 		{name: "json", driverID: recipe.JSONFileDriverID, relPath: "config.json", before: `{"user":{"email":"old@example.com"}}`, desired: SetBool(true), want: `"email": true`},
 		{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", before: "user:\n  email: old@example.com\n", desired: SetNumber(json.Number("42")), want: "email: 42"},
+		{name: "toml", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", before: "[user]\nemail = 'old@example.com'\n", desired: SetNumber(json.Number("42")), want: "email = 42"},
 	}
 
 	for _, tc := range cases {
@@ -468,6 +504,27 @@ func TestReadCurrentDesiredMissingAndJSONScalarKinds(t *testing.T) {
 	raw, ok := stringValue.Desired.Value()
 	require.True(t, ok)
 	require.Equal(t, "person@example.com", raw)
+}
+
+func TestReadCurrentDesiredMissingAndTOMLScalarKinds(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	rec := decodeSelectedValueRecipe(t, recipe.TOMLFileDriverID, "config.toml")
+
+	missing, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+	require.NoError(t, err)
+	require.Equal(t, IntentDelete, missing.Desired.Intent())
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("[user]\nemail = true\n"), 0o644))
+	boolValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+	require.NoError(t, err)
+	require.Equal(t, "bool", boolValue.Desired.Kind())
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("[user]\nemail = 42\n"), 0o644))
+	numberValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+	require.NoError(t, err)
+	require.Equal(t, "number", numberValue.Desired.Kind())
 }
 
 func TestApplyWithBackupNoopAndVerificationFailure(t *testing.T) {
@@ -653,7 +710,7 @@ func selectedValueRecipe(driverID string, relPath string) string {
       duplicatePolicy: reject
       deleteKey: allow
 `
-	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID:
+	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID:
 		selector = `      path: [user, email]
       createMissing: create
       duplicatePolicy: reject
@@ -1017,6 +1074,7 @@ func TestReadCurrentDesiredAdditionalBranches(t *testing.T) {
 			{name: "ini duplicate key", driverID: recipe.IniFileDriverID, relPath: "config.ini", content: "[user]\nemail=a@example.com\nemail=b@example.com\n"},
 			{name: "json non scalar", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":{"nested":true}}}`},
 			{name: "yaml non scalar", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email:\n    nested: true\n"},
+			{name: "toml non scalar", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user.email]\nnested = true\n"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
