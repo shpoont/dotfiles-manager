@@ -14,22 +14,24 @@ import (
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	Schema             = "dotfiles-manager.v2.recipe"
-	SupportedVersion   = 1
-	CustomFilesTarget  = "custom.files"
-	GitTarget          = "git"
-	FileDriverID       = "file"
-	FileTreeDriverID   = "file-tree"
-	IniFileDriverID    = "ini-file"
-	JSONFileDriverID   = "json-file"
-	YAMLFileDriverID   = "yaml-file"
-	TOMLFileDriverID   = "toml-file"
-	PlistFileDriverID  = "plist-file"
-	localRecipeRelRoot = "recipes/local"
+	Schema                        = "dotfiles-manager.v2.recipe"
+	SupportedVersion              = 1
+	CustomFilesTarget             = "custom.files"
+	GitTarget                     = "git"
+	FileDriverID                  = "file"
+	FileTreeDriverID              = "file-tree"
+	IniFileDriverID               = "ini-file"
+	JSONFileDriverID              = "json-file"
+	YAMLFileDriverID              = "yaml-file"
+	TOMLFileDriverID              = "toml-file"
+	PlistFileDriverID             = "plist-file"
+	MacOSDefaultsReadOnlyDriverID = "macos-defaults-readonly"
+	localRecipeRelRoot            = "recipes/local"
 )
 
 const (
@@ -545,12 +547,47 @@ func (r *Recipe) validateResourceDriverShape(resourceID string, resource Resourc
 		return validateINIResource(resourceID, resource)
 	case JSONFileDriverID, YAMLFileDriverID, TOMLFileDriverID, PlistFileDriverID:
 		return validateSelectedPathResource(resourceID, resource)
+	case MacOSDefaultsReadOnlyDriverID:
+		return r.validateMacOSDefaultsReadOnlyResource(resourceID, resource)
 	case FileDriverID, FileTreeDriverID:
 		if resource.Selector != nil {
 			return fmt.Errorf("resource %s driver %q must not declare selector", resourceID, resource.Driver)
 		}
 	default:
 		return fmt.Errorf("resource %s unsupported driver %q", resourceID, resource.Driver)
+	}
+	return nil
+}
+
+func (r *Recipe) validateMacOSDefaultsReadOnlyResource(resourceID string, resource Resource) error {
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("resource %s driver %q must not declare include/exclude globs", resourceID, MacOSDefaultsReadOnlyDriverID)
+	}
+	if resource.Location != macosdefaultsdriver.LogicalLocationID {
+		return fmt.Errorf("resource %s driver %q must use location %q", resourceID, MacOSDefaultsReadOnlyDriverID, macosdefaultsdriver.LogicalLocationID)
+	}
+	location, ok := r.Locations[resource.Location]
+	if !ok {
+		return fmt.Errorf("resource %s driver %q references missing synthetic location %q", resourceID, MacOSDefaultsReadOnlyDriverID, macosdefaultsdriver.LogicalLocationID)
+	}
+	if location.Default != macosdefaultsdriver.LogicalLocationURI {
+		return fmt.Errorf("resource %s driver %q location %q default must be %q", resourceID, MacOSDefaultsReadOnlyDriverID, macosdefaultsdriver.LogicalLocationID, macosdefaultsdriver.LogicalLocationURI)
+	}
+	if resource.Capability != "read-only" {
+		return fmt.Errorf("resource %s driver %q capability must be read-only", resourceID, MacOSDefaultsReadOnlyDriverID)
+	}
+	if err := macosdefaultsdriver.ValidateDomain(resource.Path); err != nil {
+		return fmt.Errorf("resource %s defaults domain: %w", resourceID, err)
+	}
+	if resource.Selector == nil {
+		return fmt.Errorf("resource %s driver %q requires selector", resourceID, MacOSDefaultsReadOnlyDriverID)
+	}
+	selector := resource.Selector
+	if selector.Section != "" || len(selector.Path) > 0 || selector.MissingSection != "" || selector.MissingKey != "" || selector.CreateMissing != "" || selector.DuplicatePolicy != "" || selector.DeleteKey != "" {
+		return fmt.Errorf("resource %s driver %q supports only selector.key and must not declare file selector policy fields", resourceID, MacOSDefaultsReadOnlyDriverID)
+	}
+	if err := macosdefaultsdriver.ValidateKey(selector.Key); err != nil {
+		return fmt.Errorf("resource %s selector key: %w", resourceID, err)
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package selectedvalue
 
 import (
+	stdcontext "context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,11 +12,13 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/plistdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/tomldriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/yamldriver"
 	"github.com/stretchr/testify/require"
+	"howett.net/plist"
 )
 
 func TestPlanReadSelectedValuesAcrossDrivers(t *testing.T) {
@@ -1352,4 +1355,131 @@ func plistXMLRawValue(valueXML string) string {
 </dict>
 </plist>
 `, valueXML)
+}
+
+func TestMacOSDefaultsReadOnlyPlanReadBypassesFilesystemResolution(t *testing.T) {
+	t.Parallel()
+
+	runner := &selectedValueDefaultsRunner{result: macosdefaultsdriver.ExportResult{Stdout: defaultsExportForSelectedValue(t, map[string]any{"AppleShowAllFiles": true})}}
+	rec := decodeDefaultsSelectedValueRecipe(t)
+	missingOverride := filepath.Join(t.TempDir(), "missing-root")
+
+	plan, err := PlanRead(Request{Recipe: rec, SettingRef: "show-hidden-files", LocationRoots: map[string]string{"macos-defaults": missingOverride}, MacOSDefaultsRunner: runner})
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, plan.Status)
+	require.Equal(t, recipe.MacOSDefaultsReadOnlyDriverID, plan.DriverID)
+	require.True(t, plan.ReadOnly)
+	require.Equal(t, "com.apple.finder", plan.RelPath)
+	require.Equal(t, "defaults://current-user/com.apple.finder/AppleShowAllFiles", plan.Path)
+	require.NotContains(t, plan.Path, missingOverride)
+	require.Equal(t, "macos-defaults-key", plan.Selector.Kind)
+	require.Equal(t, `domain="com.apple.finder" key="AppleShowAllFiles"`, plan.Selector.Summary)
+	require.True(t, plan.Current.Exists)
+	require.Equal(t, macosdefaultsdriver.NormalizerID, plan.Current.Normalizer)
+	require.Len(t, runner.calls, 1)
+}
+
+func TestMacOSDefaultsReadOnlyPreviewAllowsMetadataDiffButBlocksLiveWrites(t *testing.T) {
+	t.Parallel()
+
+	rec := decodeDefaultsSelectedValueRecipe(t)
+	runner := &selectedValueDefaultsRunner{result: macosdefaultsdriver.ExportResult{Stdout: defaultsExportForSelectedValue(t, map[string]any{"AppleShowAllFiles": "old@example.com"})}}
+	plan, err := PlanPreview(PreviewRequest{Request: Request{Recipe: rec, SettingRef: "show-hidden-files", MacOSDefaultsRunner: runner}, Desired: SetString("new@example.com")})
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, plan.Status)
+	require.True(t, plan.ReadOnly)
+	require.Equal(t, string(filedriver.ChangeUpdate), plan.ChangeKind)
+	require.Equal(t, IntentSet, plan.Intent)
+	require.NotNil(t, plan.Desired)
+	require.Equal(t, macosdefaultsdriver.NormalizerID, plan.Desired.Normalizer)
+
+	payload, err := json.Marshal(plan)
+	require.NoError(t, err)
+	require.Contains(t, string(payload), `"readOnly":true`)
+	require.NotContains(t, string(payload), "old@example.com")
+	require.NotContains(t, string(payload), "new@example.com")
+
+	readRunner := &selectedValueDefaultsRunner{result: runner.result}
+	current, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "show-hidden-files", MacOSDefaultsRunner: readRunner})
+	require.Error(t, err)
+	require.NotNil(t, current.Plan)
+	requireDiagnosticCode(t, current.Plan, "selectedvalue.driver.readOnly")
+	require.Empty(t, readRunner.calls, "export-as-desired must be blocked before live defaults read")
+
+	backupCalled := false
+	applyRunner := &selectedValueDefaultsRunner{result: runner.result}
+	result, err := ApplyWithBackup(PreviewRequest{Request: Request{Recipe: rec, SettingRef: "show-hidden-files", MacOSDefaultsRunner: applyRunner}, Desired: SetBool(false)}, ApplyOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+		backupCalled = true
+		return BackupResult{ID: "backup", Before: req.Before}, nil
+	}})
+	require.Error(t, err)
+	require.NotNil(t, result.Plan)
+	requireDiagnosticCode(t, result.Plan, "selectedvalue.driver.readOnly")
+	require.False(t, backupCalled)
+	require.Empty(t, applyRunner.calls, "apply must be blocked before live defaults read or backup")
+}
+
+func TestMacOSDefaultsReadOnlyRejectsNullDesiredValues(t *testing.T) {
+	t.Parallel()
+
+	rec := decodeDefaultsSelectedValueRecipe(t)
+	runner := &selectedValueDefaultsRunner{result: macosdefaultsdriver.ExportResult{Stdout: defaultsExportForSelectedValue(t, map[string]any{"AppleShowAllFiles": true})}}
+	plan, err := PlanPreview(PreviewRequest{Request: Request{Recipe: rec, SettingRef: "show-hidden-files", MacOSDefaultsRunner: runner}, Desired: SetNull()})
+	require.Error(t, err)
+	require.Equal(t, StatusBlocked, plan.Status)
+	requireDiagnosticCode(t, plan, "selectedvalue.desired.defaultsNullUnsupported")
+}
+
+type selectedValueDefaultsRunner struct {
+	result macosdefaultsdriver.ExportResult
+	err    error
+	calls  []string
+}
+
+func (r *selectedValueDefaultsRunner) Export(ctx stdcontext.Context, domain string, limits macosdefaultsdriver.OutputLimits) (macosdefaultsdriver.ExportResult, error) {
+	r.calls = append(r.calls, domain)
+	return r.result, r.err
+}
+
+func decodeDefaultsSelectedValueRecipe(t *testing.T) *recipe.Recipe {
+	t.Helper()
+	rec, err := recipe.Decode("defaults-recipe.yaml", strings.NewReader(`schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.defaults
+displayName: Test Defaults
+supportLevel: experimental
+capability: read-only
+locations:
+  macos-defaults:
+    default: macos-defaults://current-user
+settings:
+  show-hidden-files:
+    label: Show hidden files
+    supportLevel: experimental
+    capability: read-only
+    artifactForm: scalar
+    sensitivity: low
+    redaction: known-safe
+    scopeDefault: user
+    resource: finder-show-hidden
+resources:
+  finder-show-hidden:
+    driver: macos-defaults-readonly
+    location: macos-defaults
+    path: com.apple.finder
+    capability: read-only
+    sensitivity: low
+    redaction: known-safe
+    selector:
+      key: AppleShowAllFiles
+`))
+	require.NoError(t, err)
+	return rec
+}
+
+func defaultsExportForSelectedValue(t *testing.T, value map[string]any) []byte {
+	t.Helper()
+	data, err := plist.Marshal(value, plist.XMLFormat)
+	require.NoError(t, err)
+	return data
 }

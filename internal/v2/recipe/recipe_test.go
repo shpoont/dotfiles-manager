@@ -1026,3 +1026,85 @@ func TestRecipePathAndLocationHelpers(t *testing.T) {
 	_, err = LoadLocal(root, "missing")
 	require.Error(t, err)
 }
+
+func TestRecipeAcceptsMacOSDefaultsReadOnlyResource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, "test.defaults", validMacOSDefaultsReadOnlyRecipe())
+
+	rec, err := LoadLocal(root, "test.defaults")
+	require.NoError(t, err)
+	resourceID, resource, err := rec.ResourceForSetting("show-hidden-files")
+	require.NoError(t, err)
+	require.Equal(t, "finder-show-hidden", resourceID)
+	require.Equal(t, MacOSDefaultsReadOnlyDriverID, resource.Driver)
+	require.Equal(t, "macos-defaults", resource.Location)
+	require.Equal(t, "macos-defaults://current-user", rec.Locations[resource.Location].Default)
+	require.Equal(t, "com.apple.finder", resource.Path)
+	require.Equal(t, "read-only", resource.Capability)
+	require.NotNil(t, resource.Selector)
+	require.Equal(t, "AppleShowAllFiles", resource.Selector.Key)
+}
+
+func TestRecipeRejectsInvalidMacOSDefaultsReadOnlyResourceShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{name: "wrong location id", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "location: macos-defaults", "location: config", 1), wantErr: "must use location"},
+		{name: "wrong location uri", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "macos-defaults://current-user", "/tmp/defaults", 1), wantErr: "default must be"},
+		{name: "write capability", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "capability: read-only\n    sensitivity", "capability: read-write\n    sensitivity", 1), wantErr: "capability must be read-only"},
+		{name: "domain slash", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "path: com.apple.finder", "path: com/apple/finder", 1), wantErr: "defaults domain"},
+		{name: "missing selector", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "    selector:\n      key: AppleShowAllFiles\n", "", 1), wantErr: "requires selector"},
+		{name: "selected path fields", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "key: AppleShowAllFiles", "path: [AppleShowAllFiles]\n      createMissing: create", 1), wantErr: "supports only selector.key"},
+		{name: "blank selector key", body: strings.Replace(validMacOSDefaultsReadOnlyRecipe(), "key: AppleShowAllFiles", "key: ' '", 1), wantErr: "selector key"},
+		{name: "include rejected", body: validMacOSDefaultsReadOnlyRecipe() + "    include:\n      - '**'\n", wantErr: "must not declare include/exclude"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeNamedRecipe(t, root, "test.defaults", tc.body)
+			_, err := LoadLocal(root, "test.defaults")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func validMacOSDefaultsReadOnlyRecipe() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.defaults
+displayName: Test Defaults
+supportLevel: experimental
+capability: read-only
+locations:
+  macos-defaults:
+    default: macos-defaults://current-user
+settings:
+  show-hidden-files:
+    label: Show hidden files
+    supportLevel: experimental
+    capability: read-only
+    artifactForm: scalar
+    scopeDefault: user
+    resource: finder-show-hidden
+resources:
+  finder-show-hidden:
+    driver: macos-defaults-readonly
+    location: macos-defaults
+    path: com.apple.finder
+    capability: read-only
+    sensitivity: low
+    redaction: known-safe
+    selector:
+      key: AppleShowAllFiles
+`
+}

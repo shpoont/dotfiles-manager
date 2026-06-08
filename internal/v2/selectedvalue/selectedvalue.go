@@ -11,6 +11,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/plistdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/tomldriver"
@@ -29,9 +30,10 @@ const (
 )
 
 type Request struct {
-	Recipe        *recipe.Recipe
-	SettingRef    string
-	LocationRoots map[string]string
+	Recipe              *recipe.Recipe
+	SettingRef          string
+	LocationRoots       map[string]string
+	MacOSDefaultsRunner macosdefaultsdriver.Runner
 }
 
 type PreviewRequest struct {
@@ -104,6 +106,7 @@ type Plan struct {
 	Desired      *Snapshot    `json:"desired,omitempty"`
 	ChangeKind   string       `json:"changeKind,omitempty"`
 	Intent       string       `json:"intent,omitempty"`
+	ReadOnly     bool         `json:"readOnly,omitempty"`
 	Status       string       `json:"status"`
 	Diagnostics  []Diagnostic `json:"diagnostics"`
 }
@@ -202,9 +205,18 @@ func ReadCurrentDesired(req Request) (*CurrentDesired, error) {
 	if err != nil {
 		return &CurrentDesired{Plan: plan}, err
 	}
+	if ctx.resource.Driver == recipe.MacOSDefaultsReadOnlyDriverID {
+		block(plan, readOnlyDiagnostic(plan, "macOS defaults selected values cannot be exported as desired artifacts because the driver is read-only."))
+		return &CurrentDesired{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
 	desired, err := readCurrentDesired(ctx, plan)
 	if err != nil {
-		block(plan, driverDiagnostic("selectedvalue.driver.read", err, plan))
+		var desiredErr *DesiredError
+		if errors.As(err, &desiredErr) {
+			block(plan, Diagnostic{Code: desiredErr.Code, Severity: SeverityError, Message: desiredErr.Message, Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+		} else {
+			block(plan, driverDiagnostic("selectedvalue.driver.read", err, plan))
+		}
 		return &CurrentDesired{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
 	}
 	return &CurrentDesired{Desired: desired, Plan: plan}, nil
@@ -240,6 +252,10 @@ func ApplyWithBackup(req PreviewRequest, opts ApplyOptions) (*ApplyResult, error
 	ctx, plan, err := buildContext(req.Request, true)
 	if err != nil {
 		return &ApplyResult{Plan: plan}, err
+	}
+	if ctx.resource.Driver == recipe.MacOSDefaultsReadOnlyDriverID {
+		block(plan, readOnlyDiagnostic(plan, "macOS defaults selected values are read-only; apply, backup, restore, and live save are unsupported."))
+		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
 	}
 	if safetyErr := req.Recipe.ValidateWriteSafety(req.WriteSafetyContext); safetyErr != nil {
 		for _, diagnostic := range recipe.ValidationDiagnostics(safetyErr) {
@@ -307,6 +323,24 @@ func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
 		plan := blockedPlan(req.Recipe.Target, settingRef, settingID, "", "selectedvalue.resource.unknown", err.Error())
 		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
+	if resource.Driver == recipe.MacOSDefaultsReadOnlyDriverID {
+		plan := &Plan{
+			TargetRef:    req.Recipe.Target,
+			SettingRef:   settingRef,
+			SettingID:    settingID,
+			ScopeDefault: setting.ScopeDefault,
+			ResourceID:   resourceID,
+			DriverID:     resource.Driver,
+			LocationID:   resource.Location,
+			RelPath:      resource.Path,
+			Path:         macosdefaultsdriver.LogicalPath(resource.Path, resource.Selector.Key),
+			Selector:     selectorInfo(resource),
+			ReadOnly:     true,
+			Status:       StatusOK,
+			Diagnostics:  []Diagnostic{},
+		}
+		return context{req: req, setting: setting, resource: resource}, plan, nil
+	}
 	root, err := req.Recipe.LocationRoot(resource.Location, req.LocationRoots)
 	if err != nil {
 		plan := blockedPlan(req.Recipe.Target, settingRef, settingID, resourceID, "selectedvalue.location.resolve", err.Error())
@@ -345,6 +379,7 @@ func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
 	}
 	switch resource.Driver {
 	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
+	case recipe.MacOSDefaultsReadOnlyDriverID:
 	default:
 		block(plan, Diagnostic{Code: "selectedvalue.driver.unsupported", Severity: SeverityError, Message: fmt.Sprintf("driver %s is not supported by selected-value planning", resource.Driver), Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
 		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
@@ -402,6 +437,13 @@ func readCurrent(ctx context, plan *Plan) error {
 			return err
 		}
 		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+	case recipe.MacOSDefaultsReadOnlyDriverID:
+		state, err := macosdefaultsdriver.Driver{}.ReadCurrent(defaultsRequest(ctx))
+		if err != nil {
+			return err
+		}
+		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+		plan.ReadOnly = true
 	}
 	return nil
 }
@@ -446,6 +488,8 @@ func readCurrentDesired(ctx context, plan *Plan) (Desired, error) {
 		}
 		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
 		return desiredFromPlistState(state)
+	case recipe.MacOSDefaultsReadOnlyDriverID:
+		return Desired{}, desiredError("selectedvalue.driver.readOnly", "macOS defaults selected values cannot be exported as desired artifacts because the driver is read-only")
 	default:
 		return Desired{}, desiredError("selectedvalue.driver.unsupported", "resource driver is not supported by selected-value live reads")
 	}
@@ -519,11 +563,29 @@ func previewDesired(ctx context, plan *Plan, desired Desired) error {
 		plan.Desired = &Snapshot{Exists: preview.Change.After.Exists, SHA256: preview.Change.After.SHA256, Normalizer: preview.Normalizer}
 		plan.ChangeKind = string(preview.Change.Kind)
 		plan.Intent = string(preview.Intent)
+	case recipe.MacOSDefaultsReadOnlyDriverID:
+		state, err := desiredDefaultsState(desired)
+		if err != nil {
+			return err
+		}
+		preview, err := macosdefaultsdriver.Driver{}.PreviewDiff(defaultsRequest(ctx), state)
+		if err != nil {
+			return err
+		}
+		plan.Current = Snapshot{Exists: preview.Change.Before.Exists, SHA256: preview.Change.Before.SHA256, Normalizer: preview.Normalizer}
+		plan.Desired = &Snapshot{Exists: preview.Change.After.Exists, SHA256: preview.Change.After.SHA256, Normalizer: preview.Normalizer}
+		plan.ChangeKind = string(preview.Change.Kind)
+		plan.Intent = string(preview.Intent)
+		plan.ReadOnly = true
 	}
 	return nil
 }
 
 func applyDesiredWithBackup(ctx context, plan *Plan, desired Desired, opts ApplyOptions) (*ApplyResult, error) {
+	if ctx.resource.Driver == recipe.MacOSDefaultsReadOnlyDriverID {
+		block(plan, readOnlyDiagnostic(plan, "macOS defaults selected values are read-only; apply, backup, restore, and live save are unsupported."))
+		return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+	}
 	if err := previewDesired(ctx, plan, desired); err != nil {
 		var desiredErr *DesiredError
 		if errors.As(err, &desiredErr) {
@@ -740,6 +802,21 @@ func desiredPlistState(desired Desired) (plistdriver.State, error) {
 	}
 }
 
+func desiredDefaultsState(desired Desired) (macosdefaultsdriver.State, error) {
+	switch desired.intent {
+	case IntentDelete:
+		return macosdefaultsdriver.DeleteState(), nil
+	case IntentSet:
+		value, err := defaultsScalarValue(desired)
+		if err != nil {
+			return macosdefaultsdriver.State{}, err
+		}
+		return macosdefaultsdriver.Driver{}.NormalizeValue(value)
+	default:
+		return macosdefaultsdriver.State{}, desiredError("selectedvalue.desired.intentRequired", "desired intent is required")
+	}
+}
+
 func jsonScalarValue(desired Desired) (any, error) {
 	switch desired.kind {
 	case "string":
@@ -792,6 +869,20 @@ func plistScalarValue(desired Desired) (any, error) {
 	if err != nil {
 		if desired.kind == "object" || desired.kind == "array" || desired.kind == "null" {
 			return nil, desiredError("selectedvalue.desired.plistTypeUnsupported", "plist selected-value desired set requires a string, bool, finite number, or delete intent")
+		}
+		return nil, err
+	}
+	return value, nil
+}
+
+func defaultsScalarValue(desired Desired) (any, error) {
+	if desired.kind == "null" {
+		return nil, desiredError("selectedvalue.desired.defaultsNullUnsupported", "macOS defaults selected-value desired set does not support null; use delete intent to remove a key")
+	}
+	value, err := jsonScalarValue(desired)
+	if err != nil {
+		if desired.kind == "object" || desired.kind == "array" || desired.kind == "null" {
+			return nil, desiredError("selectedvalue.desired.defaultsTypeUnsupported", "macOS defaults selected-value desired set requires a string, bool, finite number, or delete intent")
 		}
 		return nil, err
 	}
@@ -1011,6 +1102,10 @@ func plistRequest(ctx context) plistdriver.Request {
 	}}
 }
 
+func defaultsRequest(ctx context) macosdefaultsdriver.Request {
+	return macosdefaultsdriver.Request{Domain: ctx.resource.Path, Key: ctx.resource.Selector.Key, Runner: ctx.req.MacOSDefaultsRunner}
+}
+
 func validateGitINIIdentityCaseSafety(rec *recipe.Recipe, resource recipe.Resource, path string) error {
 	if rec == nil || rec.Target != recipe.GitTarget || resource.Driver != recipe.IniFileDriverID || resource.Path != ".gitconfig" || resource.Selector == nil {
 		return nil
@@ -1114,6 +1209,8 @@ func selectorInfo(resource recipe.Resource) SelectorInfo {
 		return SelectorInfo{Kind: "selected-path", Summary: strings.Join(resource.Selector.Path, "."), Path: append([]string(nil), resource.Selector.Path...), CreateMissing: defaultString(resource.Selector.CreateMissing, "reject"), DuplicatePolicy: defaultString(resource.Selector.DuplicatePolicy, "reject"), DeleteKey: defaultString(resource.Selector.DeleteKey, "reject")}
 	case recipe.PlistFileDriverID:
 		return SelectorInfo{Kind: "selected-path", Summary: quotedPathSummary(resource.Selector.Path), Path: append([]string(nil), resource.Selector.Path...), CreateMissing: defaultString(resource.Selector.CreateMissing, "reject"), DuplicatePolicy: defaultString(resource.Selector.DuplicatePolicy, "reject"), DeleteKey: defaultString(resource.Selector.DeleteKey, "reject")}
+	case recipe.MacOSDefaultsReadOnlyDriverID:
+		return SelectorInfo{Kind: "macos-defaults-key", Summary: macosdefaultsdriver.SelectorSummary(resource.Path, resource.Selector.Key), Key: resource.Selector.Key}
 	default:
 		return SelectorInfo{Kind: "unsupported"}
 	}
@@ -1155,6 +1252,10 @@ func driverDiagnostic(code string, err error, plan *Plan) Diagnostic {
 		}
 	}
 	return diagnostic
+}
+
+func readOnlyDiagnostic(plan *Plan, message string) Diagnostic {
+	return Diagnostic{Code: "selectedvalue.driver.readOnly", Severity: SeverityError, Message: message, Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path}
 }
 
 func defaultString(value string, defaultValue string) string {

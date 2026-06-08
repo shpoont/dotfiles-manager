@@ -1,6 +1,7 @@
 package selectedpreview
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,11 +9,13 @@ import (
 	"testing"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
+	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
 	v2status "github.com/shpoont/dotfiles-manager/internal/v2/status"
 	"github.com/stretchr/testify/require"
+	"howett.net/plist"
 )
 
 func TestBuildStatusDiffAndDryRunReportsSelectedValueWithoutRawValues(t *testing.T) {
@@ -753,4 +756,127 @@ func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
 	okReport := &Report{Command: CommandStatus, Items: []Item{{State: v2status.StateUnchanged}}}
 	finishReport(okReport)
 	require.Equal(t, SummaryOK, okReport.Summary.Status)
+}
+
+func TestBuildMacOSDefaultsReadOnlyStatusAndDiffUseFakeRunner(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "test.defaults", "show-hidden-files", macOSDefaultsPreviewRecipeBody("test.defaults"))
+	fixture.writeDesiredSetFor("test.defaults", "show-hidden-files", "new@example.com")
+	fixture.trustRecipe()
+
+	for _, command := range []string{CommandStatus, CommandDiff} {
+		t.Run(command, func(t *testing.T) {
+			runner := &previewDefaultsRunner{result: macosdefaultsdriver.ExportResult{Stdout: defaultsExportForPreview(t, map[string]any{"AppleShowAllFiles": "old@example.com"})}}
+			report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.defaults:show-hidden-files", UserID: "leon", MachineID: "mbp", MacOSDefaultsRunner: runner})
+			require.NoError(t, err)
+			require.Equal(t, SummaryChanged, report.Summary.Status)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, recipe.MacOSDefaultsReadOnlyDriverID, item.Resource.DriverID)
+			require.Equal(t, "defaults://current-user/com.apple.finder/AppleShowAllFiles", item.Resource.Path)
+			require.Equal(t, "macos-defaults-key", item.Selector.Kind)
+			require.True(t, item.Current.Exists)
+			require.NotNil(t, item.Preview)
+			require.True(t, item.Preview.ReadOnly)
+			require.Len(t, runner.calls, 1)
+			if command == CommandDiff {
+				require.NotNil(t, item.Diff)
+				require.Equal(t, "metadata-only", item.Diff.Mode)
+			}
+			require.NotContains(t, mustJSON(t, report), "old@example.com")
+			require.NotContains(t, mustJSON(t, report), "new@example.com")
+			require.Contains(t, Text(report), "read-only")
+		})
+	}
+}
+
+func TestBuildMacOSDefaultsReadOnlyBlocksSaveApplyBeforeLiveRead(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "test.defaults", "show-hidden-files", macOSDefaultsPreviewRecipeBody("test.defaults"))
+	fixture.writeDesiredSetFor("test.defaults", "show-hidden-files", "new@example.com")
+	fixture.trustRecipe()
+
+	for _, command := range []string{CommandSave, CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			runner := &previewDefaultsRunner{result: macosdefaultsdriver.ExportResult{Stdout: defaultsExportForPreview(t, map[string]any{"AppleShowAllFiles": "old@example.com"})}}
+			report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.defaults:show-hidden-files", UserID: "leon", MachineID: "mbp", DryRun: true, MacOSDefaultsRunner: runner})
+			require.NoError(t, err)
+			require.Equal(t, SummaryBlocked, report.Summary.Status)
+			require.Len(t, report.Items, 1)
+			require.Equal(t, v2status.StateUnsupported, report.Items[0].State)
+			requireDiagnostic(t, report.Items[0], "selectedpreview.driver.readOnly")
+			require.Empty(t, runner.calls, "save/apply must be blocked before a defaults export can synthesize or mutate state")
+			require.NotContains(t, mustJSON(t, report), "old@example.com")
+			require.NotContains(t, mustJSON(t, report), "new@example.com")
+		})
+	}
+}
+
+func TestBuildMacOSDefaultsReadOnlyBlocksSaveWithMissingDesiredBeforeLiveRead(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "test.defaults", "show-hidden-files", macOSDefaultsPreviewRecipeBody("test.defaults"))
+	fixture.trustRecipe()
+	runner := &previewDefaultsRunner{result: macosdefaultsdriver.ExportResult{Stdout: defaultsExportForPreview(t, map[string]any{"AppleShowAllFiles": true})}}
+
+	report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.defaults:show-hidden-files", UserID: "leon", MachineID: "mbp", DryRun: true, MacOSDefaultsRunner: runner})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, report.Summary.Status)
+	requireDiagnostic(t, report.Items[0], "selectedpreview.driver.readOnly")
+	require.Empty(t, runner.calls)
+}
+
+type previewDefaultsRunner struct {
+	result macosdefaultsdriver.ExportResult
+	err    error
+	calls  []string
+}
+
+func (r *previewDefaultsRunner) Export(ctx context.Context, domain string, limits macosdefaultsdriver.OutputLimits) (macosdefaultsdriver.ExportResult, error) {
+	r.calls = append(r.calls, domain)
+	return r.result, r.err
+}
+
+func macOSDefaultsPreviewRecipeBody(target string) string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: ` + target + `
+displayName: Test Defaults
+supportLevel: experimental
+capability: read-only
+locations:
+  macos-defaults:
+    default: macos-defaults://current-user
+settings:
+  show-hidden-files:
+    label: Show hidden files
+    supportLevel: experimental
+    capability: read-only
+    artifactForm: scalar
+    sensitivity: low
+    redaction: known-safe
+    lifecycle: allowed
+    scopeDefault: user
+    resource: finder-show-hidden
+resources:
+  finder-show-hidden:
+    driver: macos-defaults-readonly
+    location: macos-defaults
+    path: com.apple.finder
+    capability: read-only
+    sensitivity: low
+    redaction: known-safe
+    lifecycle: allowed
+    selector:
+      key: AppleShowAllFiles
+`
+}
+
+func defaultsExportForPreview(t *testing.T, value map[string]any) []byte {
+	t.Helper()
+	data, err := plist.Marshal(value, plist.XMLFormat)
+	require.NoError(t, err)
+	return data
 }
