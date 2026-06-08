@@ -568,6 +568,9 @@ func TestRemainingHelperBranches(t *testing.T) {
 	iniSelector := selectorFromRecipe(recipe.Resource{Driver: recipe.IniFileDriverID, Selector: &recipe.Selector{Section: "user", Key: "email"}})
 	require.Equal(t, "ini-key", iniSelector.Kind)
 	require.Equal(t, "[user] email", iniSelector.Summary)
+	tomlSelector := selectorFromRecipe(recipe.Resource{Driver: recipe.TOMLFileDriverID, Selector: &recipe.Selector{Path: []string{"user", "email"}}})
+	require.Equal(t, SelectorInfo{Kind: "selected-path", Summary: "user.email", Path: []string{"user", "email"}}, tomlSelector)
+	require.True(t, isSelectedValueDriver(recipe.TOMLFileDriverID))
 	require.Equal(t, "none", selectorFromRecipe(recipe.Resource{}).Kind)
 	require.Equal(t, "unsupported", selectorFromRecipe(recipe.Resource{Driver: "other", Selector: &recipe.Selector{}}).Kind)
 

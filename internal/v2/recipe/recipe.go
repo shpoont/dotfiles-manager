@@ -27,6 +27,7 @@ const (
 	IniFileDriverID    = "ini-file"
 	JSONFileDriverID   = "json-file"
 	YAMLFileDriverID   = "yaml-file"
+	TOMLFileDriverID   = "toml-file"
 	localRecipeRelRoot = "recipes/local"
 )
 
@@ -541,7 +542,7 @@ func (r *Recipe) validateResourceDriverShape(resourceID string, resource Resourc
 	switch resource.Driver {
 	case IniFileDriverID:
 		return validateINIResource(resourceID, resource)
-	case JSONFileDriverID, YAMLFileDriverID:
+	case JSONFileDriverID, YAMLFileDriverID, TOMLFileDriverID:
 		return validateSelectedPathResource(resourceID, resource)
 	case FileDriverID, FileTreeDriverID:
 		if resource.Selector != nil {

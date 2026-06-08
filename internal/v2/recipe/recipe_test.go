@@ -256,6 +256,13 @@ func TestRecipeAcceptsSettingsGroupsAndSelectedPathResources(t *testing.T) {
 			driver:     YAMLFileDriverID,
 			settingRef: "identity.email",
 		},
+		{
+			name:       "toml selected scalar",
+			recipeID:   "test.toml",
+			body:       validSelectedPathRecipe("test.toml", TOMLFileDriverID, "config.toml"),
+			driver:     TOMLFileDriverID,
+			settingRef: "identity.email",
+		},
 	}
 
 	for _, tc := range tests {
