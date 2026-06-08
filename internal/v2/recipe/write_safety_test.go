@@ -14,7 +14,7 @@ func TestWriteSafetyRequiresMetadataForWriteCapableRecipes(t *testing.T) {
 	rec, err := Decode("recipe.yaml", strings.NewReader(validSelectedPathRecipe("test.json", JSONFileDriverID, "config.json")))
 	require.NoError(t, err)
 
-	err = rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true})
+	err = rec.ValidateWriteSafety(trustedLocalContextForRecipe(t, rec, WriteSafetyContext{}))
 	require.Error(t, err)
 
 	diagnostics := ValidationDiagnostics(err)
@@ -47,7 +47,7 @@ func TestWriteSafetyUsesEffectiveCapabilityOverrides(t *testing.T) {
 	rec, err := Decode("recipe.yaml", strings.NewReader(body))
 	require.NoError(t, err)
 
-	err = rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true})
+	err = rec.ValidateWriteSafety(trustedLocalContextForRecipe(t, rec, WriteSafetyContext{}))
 	require.Error(t, err)
 	requireDiagnosticCodes(t, ValidationDiagnostics(err),
 		"writeSafety.setting.redaction.required",
@@ -73,7 +73,11 @@ func TestWriteSafetyRequiresTrustForLocalWriteCapableRecipes(t *testing.T) {
 	require.Error(t, err)
 	requireDiagnosticCodes(t, ValidationDiagnostics(err), "writeSafety.trust.sourceUnsupported")
 
-	require.NoError(t, rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true}))
+	err = rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true})
+	require.Error(t, err)
+	requireDiagnosticCodes(t, ValidationDiagnostics(err), "writeSafety.trust.evidenceRequired")
+
+	require.NoError(t, rec.ValidateWriteSafety(trustedLocalContextForRecipe(t, rec, WriteSafetyContext{})))
 	require.NoError(t, rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceBundled}))
 }
 
@@ -134,11 +138,11 @@ func TestWriteSafetyBlocksSensitiveOpaqueAndLifecyclePoliciesUntilContextAllowsT
 			rec, err := Decode("recipe.yaml", strings.NewReader(tc.body))
 			require.NoError(t, err)
 
-			err = rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true})
+			err = rec.ValidateWriteSafety(trustedLocalContextForRecipe(t, rec, WriteSafetyContext{}))
 			require.Error(t, err)
 			requireDiagnosticCodes(t, ValidationDiagnostics(err), tc.defaultErr)
 
-			err = rec.ValidateWriteSafety(tc.allowedCtx)
+			err = rec.ValidateWriteSafety(trustedLocalContextForRecipe(t, rec, tc.allowedCtx))
 			if tc.stillErr == "" {
 				require.NoError(t, err)
 				return
@@ -155,10 +159,11 @@ func TestWriteSafetyLifecycleWarnIsNonBlockingDiagnostic(t *testing.T) {
 	rec, err := Decode("recipe.yaml", strings.NewReader(resourceOnlySafetyRecipe(SensitivityPersonal, RedactionKnownSafe, LifecycleWarn)))
 	require.NoError(t, err)
 
-	diagnostics := rec.WriteSafetyDiagnostics(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true})
+	ctx := trustedLocalContextForRecipe(t, rec, WriteSafetyContext{})
+	diagnostics := rec.WriteSafetyDiagnostics(ctx)
 	requireDiagnosticCodes(t, diagnostics, "writeSafety.lifecycle.warn")
 	require.Len(t, warningDiagnostics(diagnostics), 1)
-	require.NoError(t, rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceLocal, Trusted: true}))
+	require.NoError(t, rec.ValidateWriteSafety(ctx))
 }
 
 func TestSafetyValidationDiagnosticsDoNotEchoInvalidSafetyValues(t *testing.T) {
@@ -261,4 +266,16 @@ func warningDiagnostics(diagnostics []ValidationDiagnostic) []ValidationDiagnost
 		}
 	}
 	return warnings
+}
+
+func trustedLocalContextForRecipe(t *testing.T, rec *Recipe, base WriteSafetyContext) WriteSafetyContext {
+	t.Helper()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	_, err := RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+	require.NoError(t, err)
+	eval, err := EvaluateRecipeTrust(repoRoot, stateRoot, RecipeSourceLocal, rec)
+	require.NoError(t, err)
+	require.Equalf(t, TrustStatusTrusted, eval.Status, "diagnostics: %#v", eval.Diagnostics)
+	return eval.WriteSafetyContext(base)
 }

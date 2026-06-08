@@ -91,7 +91,7 @@ func TestPlanPreviewSelectedValuesAcrossDrivers(t *testing.T) {
 			plan, err := PlanPreview(PreviewRequest{
 				Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 				Desired:            tc.desired,
-				WriteSafetyContext: trustedLocalWriteSafety(),
+				WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 			})
 			require.NoError(t, err)
 			require.Equal(t, StatusOK, plan.Status)
@@ -121,7 +121,7 @@ func TestPlanPreviewDeleteIntentIsExplicitAndRedactionSafe(t *testing.T) {
 	plan, err := PlanPreview(PreviewRequest{
 		Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 		Desired:            Delete(),
-		WriteSafetyContext: trustedLocalWriteSafety(),
+		WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 	})
 	require.NoError(t, err)
 	require.Equal(t, StatusOK, plan.Status)
@@ -173,7 +173,7 @@ func TestPlanPreviewRejectsUnsafeDesiredTypeCompatibility(t *testing.T) {
 		plan, err := PlanPreview(PreviewRequest{
 			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 			Desired:            SetBool(true),
-			WriteSafetyContext: trustedLocalWriteSafety(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 		})
 		require.Error(t, err)
 		require.Equal(t, StatusBlocked, plan.Status)
@@ -202,7 +202,7 @@ func TestPlanPreviewRejectsUnsafeDesiredTypeCompatibility(t *testing.T) {
 				plan, err := PlanPreview(PreviewRequest{
 					Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 					Desired:            Desired{},
-					WriteSafetyContext: trustedLocalWriteSafety(),
+					WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 				})
 				require.Error(t, err)
 				require.Equal(t, StatusBlocked, plan.Status)
@@ -221,7 +221,7 @@ func TestPlanPreviewRejectsUnsafeDesiredTypeCompatibility(t *testing.T) {
 		plan, err := PlanPreview(PreviewRequest{
 			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 			Desired:            SetNumber(json.Number("01")),
-			WriteSafetyContext: trustedLocalWriteSafety(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 		})
 		require.Error(t, err)
 		require.Equal(t, StatusBlocked, plan.Status)
@@ -429,8 +429,16 @@ resources:
 ` + selector
 }
 
-func trustedLocalWriteSafety() recipe.WriteSafetyContext {
-	return recipe.WriteSafetyContext{Source: recipe.RecipeSourceLocal, Trusted: true}
+func trustedLocalWriteSafety(t *testing.T, rec *recipe.Recipe) recipe.WriteSafetyContext {
+	t.Helper()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	_, err := recipe.RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+	require.NoError(t, err)
+	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, recipe.RecipeSourceLocal, rec)
+	require.NoError(t, err)
+	require.Equalf(t, recipe.TrustStatusTrusted, eval.Status, "diagnostics: %#v", eval.Diagnostics)
+	return eval.WriteSafetyContext(recipe.WriteSafetyContext{})
 }
 
 func requireDiagnosticCode(t *testing.T, plan *Plan, code string) {
@@ -581,7 +589,7 @@ func TestDesiredCompatibilityAdditionalBranches(t *testing.T) {
 		plan, err := PlanPreview(PreviewRequest{
 			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 			Desired:            Delete(),
-			WriteSafetyContext: trustedLocalWriteSafety(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 		})
 		require.NoError(t, err)
 		require.Equal(t, string(filedriver.ChangeDelete), plan.ChangeKind)
@@ -598,7 +606,7 @@ func TestDesiredCompatibilityAdditionalBranches(t *testing.T) {
 		plan, err := PlanPreview(PreviewRequest{
 			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 			Desired:            Delete(),
-			WriteSafetyContext: trustedLocalWriteSafety(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 		})
 		require.NoError(t, err)
 		require.Equal(t, string(filedriver.ChangeDelete), plan.ChangeKind)
@@ -615,7 +623,7 @@ func TestDesiredCompatibilityAdditionalBranches(t *testing.T) {
 		plan, err := PlanPreview(PreviewRequest{
 			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
 			Desired:            Desired{intent: IntentSet, kind: "object", value: map[string]any{"secret": "secret@example.com"}},
-			WriteSafetyContext: trustedLocalWriteSafety(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
 		})
 		require.Error(t, err)
 		require.Equal(t, StatusBlocked, plan.Status)

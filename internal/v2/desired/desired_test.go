@@ -380,7 +380,7 @@ func TestSelectedValueWritesBlockUnsafeRecipeMetadata(t *testing.T) {
 
 			rec := safeRecipe(t, recipe.IniFileDriverID, "user.email")
 			tc.mut(rec)
-			err := WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("secret@example.com"), Safety: &WriteSafetyDecision{Recipe: rec, SettingRef: "user.email", Context: trustedLocalContext()}})
+			err := WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("secret@example.com"), Safety: &WriteSafetyDecision{Recipe: rec, SettingRef: "user.email", Context: trustedLocalContext(t, rec)}})
 			requireSafetyCode(t, err, tc.code)
 			assertMissing(t, path)
 		})
@@ -400,7 +400,7 @@ func TestSelectedValueWritesAllowExplicitSensitiveAndOpaqueApprovals(t *testing.
 	res := rec.Resources["user-email"]
 	res.Sensitivity = recipe.SensitivityUnknown
 	rec.Resources["user-email"] = res
-	ctx := trustedLocalContext()
+	ctx := trustedLocalContext(t, rec)
 	ctx.AllowSensitive = true
 	ctx.AllowUnknownSensitivity = true
 	ctx.AllowOpaque = true
@@ -445,11 +445,20 @@ func safeDecision(t *testing.T, driver string) *WriteSafetyDecision {
 
 func safeDecisionForSetting(t *testing.T, driver string, settingID string) *WriteSafetyDecision {
 	t.Helper()
-	return &WriteSafetyDecision{Recipe: safeRecipe(t, driver, settingID), SettingRef: settingID, Context: trustedLocalContext()}
+	rec := safeRecipe(t, driver, settingID)
+	return &WriteSafetyDecision{Recipe: rec, SettingRef: settingID, Context: trustedLocalContext(t, rec)}
 }
 
-func trustedLocalContext() recipe.WriteSafetyContext {
-	return recipe.WriteSafetyContext{Source: recipe.RecipeSourceLocal, Trusted: true}
+func trustedLocalContext(t *testing.T, rec *recipe.Recipe) recipe.WriteSafetyContext {
+	t.Helper()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	_, err := recipe.RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+	require.NoError(t, err)
+	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, recipe.RecipeSourceLocal, rec)
+	require.NoError(t, err)
+	require.Equalf(t, recipe.TrustStatusTrusted, eval.Status, "diagnostics: %#v", eval.Diagnostics)
+	return eval.WriteSafetyContext(recipe.WriteSafetyContext{})
 }
 
 func safeRecipe(t *testing.T, driver string, settingID string) *recipe.Recipe {
@@ -691,18 +700,21 @@ func TestWriteSafetyAdditionalBranches(t *testing.T) {
 
 	root := t.TempDir()
 	uri := "desired://user/leon/targets/git/settings#user.email"
-	err := WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{SettingRef: "user.email", Context: trustedLocalContext()}})
+	bundledContext := recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled}
+	err := WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{SettingRef: "user.email", Context: bundledContext}})
 	requireSafetyCode(t, err, "desired.writeSafety.recipeRequired")
 
 	badRecipe := &recipe.Recipe{}
-	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: badRecipe, SettingRef: "user.email", Context: trustedLocalContext()}})
+	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: badRecipe, SettingRef: "user.email", Context: bundledContext}})
 	requireSafetyCode(t, err, "desired.writeSafety.recipeInvalid")
 
-	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: safeRecipe(t, recipe.IniFileDriverID, "user.email"), SettingRef: "", Context: trustedLocalContext()}})
+	safeRec := safeRecipe(t, recipe.IniFileDriverID, "user.email")
+	safeCtx := trustedLocalContext(t, safeRec)
+	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: safeRec, SettingRef: "", Context: safeCtx}})
 	requireSafetyCode(t, err, "desired.writeSafety.settingRefInvalid")
-	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: safeRecipe(t, recipe.IniFileDriverID, "user.email"), SettingRef: "other:user.email", Context: trustedLocalContext()}})
+	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: safeRec, SettingRef: "other:user.email", Context: safeCtx}})
 	requireSafetyCode(t, err, "desired.writeSafety.settingRefInvalid")
-	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: safeRecipe(t, recipe.IniFileDriverID, "user.email"), SettingRef: "git:user:email", Context: trustedLocalContext()}})
+	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: safeRec, SettingRef: "git:user:email", Context: safeCtx}})
 	requireSafetyCode(t, err, "desired.writeSafety.settingRefInvalid")
 
 	unsupported := safeDecision(t, recipe.IniFileDriverID)
@@ -717,6 +729,6 @@ func TestWriteSafetyAdditionalBranches(t *testing.T) {
 	resource := rec.Resources["user-email"]
 	resource.Capability = ""
 	rec.Resources["user-email"] = resource
-	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: rec, SettingRef: "user.email", Context: trustedLocalContext()}})
+	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("x"), Safety: &WriteSafetyDecision{Recipe: rec, SettingRef: "user.email", Context: trustedLocalContext(t, rec)}})
 	require.NoError(t, err)
 }
