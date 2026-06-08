@@ -171,5 +171,13 @@ func defaultBundledTargets() []BundledTarget {
 			PlatformSupport: "unknown",
 			Summary:         "Manage selected non-credential Git identity settings.",
 		},
+		{
+			ID:              StarshipTarget,
+			DisplayName:     "Starship",
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			PlatformSupport: "unknown",
+			Summary:         "Manage selected prompt-wide Starship TOML options.",
+		},
 	}
 }

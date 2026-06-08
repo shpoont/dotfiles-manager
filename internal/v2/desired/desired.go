@@ -863,7 +863,7 @@ func resolveSettingRef(rec *recipe.Recipe, ref string) (string, string, error) {
 
 func isSelectedValueDriver(driver string) bool {
 	switch driver {
-	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID:
+	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
 		return true
 	default:
 		return false
@@ -881,6 +881,13 @@ func desiredValueCompatibleWithDriver(driver string, value SelectedValue) bool {
 		case recipe.JSONFileDriverID, recipe.YAMLFileDriverID:
 			switch value.kind {
 			case KindString, KindBool, KindNumber, KindNull:
+				return true
+			default:
+				return false
+			}
+		case recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
+			switch value.kind {
+			case KindString, KindBool, KindNumber:
 				return true
 			default:
 				return false

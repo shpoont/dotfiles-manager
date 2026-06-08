@@ -25,10 +25,13 @@ func TestBundledRegistryLookupAliasesAndDeterministicList(t *testing.T) {
 	require.Equal(t, GitTarget, target.ID)
 
 	targets := registry.List()
-	require.Len(t, targets, 2)
+	require.Len(t, targets, 3)
 	require.Equal(t, CustomFilesTarget, targets[0].ID)
 	require.Equal(t, GitTarget, targets[1].ID)
-	require.Equal(t, []string{CustomFilesTarget, GitTarget}, KnownBundledTargetIDs())
+	require.Equal(t, StarshipTarget, targets[2].ID)
+	require.Equal(t, "recipe://bundled/starship", targets[2].RecipeRef)
+	require.Equal(t, "unknown", targets[2].PlatformSupport)
+	require.Equal(t, []string{CustomFilesTarget, GitTarget, StarshipTarget}, KnownBundledTargetIDs())
 }
 
 func TestBundledRegistryRejectsUnsafeOrAmbiguousAliases(t *testing.T) {
@@ -96,9 +99,10 @@ func TestRecipeListReportIsStableMetadataOnly(t *testing.T) {
 	report := List(ListOptions{})
 	require.Equal(t, ListCommand, report.Command)
 	require.Equal(t, "ok", report.Summary.Status)
-	require.Len(t, report.RecipeList.Targets, 2)
+	require.Len(t, report.RecipeList.Targets, 3)
 	require.Equal(t, CustomFilesTarget, report.RecipeList.Targets[0].ID)
 	require.Equal(t, GitTarget, report.RecipeList.Targets[1].ID)
+	require.Equal(t, StarshipTarget, report.RecipeList.Targets[2].ID)
 	require.Equal(t, RecipeSourceBundled, report.RecipeList.Targets[1].Source)
 	require.Equal(t, "trusted", report.RecipeList.Targets[1].TrustStatus)
 	require.Equal(t, []string{"gitconfig"}, report.RecipeList.Targets[1].Aliases)
@@ -113,8 +117,10 @@ func TestRecipeListReportIsStableMetadataOnly(t *testing.T) {
 	require.Contains(t, text, "recipe list")
 	require.Contains(t, text, "custom.files source=bundled")
 	require.Contains(t, text, "git source=bundled")
+	require.Contains(t, text, "starship source=bundled")
 	require.Contains(t, text, "aliases=gitconfig")
 	require.True(t, strings.Index(text, "custom.files") < strings.Index(text, "git source=bundled"))
+	require.True(t, strings.Index(text, "git source=bundled") < strings.Index(text, "starship source=bundled"))
 
 	nilJSON, err := ListJSON(nil)
 	require.NoError(t, err)

@@ -3,6 +3,7 @@ package selectedvalue
 import (
 	stdcontext "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -400,6 +401,257 @@ func TestBundledGitCaseSafetyBlocksAmbiguousIdentityKeysBeforeMutation(t *testin
 			require.NotContains(t, readSelectedValueFile(t, filepath.Join(home, ".gitconfig")), "new@example.com")
 		})
 	}
+}
+
+func TestBundledStarshipTypeValidationAcceptsOnlyKnownPromptScalarTypes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	rec := recipe.BundledStarshipRecipe()
+	roots := map[string]string{"config": root}
+	writeSafety := recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled, Trusted: true}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "starship.toml"), []byte("add_newline = true\nscan_timeout = 30\n"), 0o644))
+
+	boolPlan, err := PlanPreview(PreviewRequest{
+		Request:            Request{Recipe: rec, SettingRef: "starship:add_newline", LocationRoots: roots},
+		Desired:            SetBool(false),
+		WriteSafetyContext: writeSafety,
+	})
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, boolPlan.Status)
+	require.Equal(t, "add_newline", boolPlan.Selector.Summary)
+
+	intPlan, err := PlanPreview(PreviewRequest{
+		Request:            Request{Recipe: rec, SettingRef: "starship:scan_timeout", LocationRoots: roots},
+		Desired:            SetNumber(json.Number("10")),
+		WriteSafetyContext: writeSafety,
+	})
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, intPlan.Status)
+	require.Equal(t, "scan_timeout", intPlan.Selector.Summary)
+
+	deletePlan, err := PlanPreview(PreviewRequest{
+		Request:            Request{Recipe: rec, SettingRef: "starship:scan_timeout", LocationRoots: roots},
+		Desired:            Delete(),
+		WriteSafetyContext: writeSafety,
+	})
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, deletePlan.Status)
+	require.Equal(t, IntentDelete, deletePlan.Intent)
+}
+
+func TestBundledStarshipTypeValidationBlocksWrongLiveTypesWithoutRawValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setting  string
+		content  string
+		rawValue string
+		code     string
+	}{
+		{name: "bool setting as string", setting: "starship:add_newline", content: "add_newline = 'WRONG-RAW-BOOL'\n", rawValue: "WRONG-RAW-BOOL", code: "selectedvalue.starship.boolTypeUnsupported"},
+		{name: "integer setting as float", setting: "starship:scan_timeout", content: "scan_timeout = 1.5\n", rawValue: "1.5", code: "selectedvalue.starship.integerTypeUnsupported"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			rec := recipe.BundledStarshipRecipe()
+			roots := map[string]string{"config": root}
+			require.NoError(t, os.WriteFile(filepath.Join(root, "starship.toml"), []byte(tc.content), 0o644))
+
+			plan, err := PlanRead(Request{Recipe: rec, SettingRef: tc.setting, LocationRoots: roots})
+			require.Error(t, err)
+			require.Equal(t, StatusBlocked, plan.Status)
+			requireDiagnosticCode(t, plan, tc.code)
+			payload, marshalErr := json.Marshal(plan)
+			require.NoError(t, marshalErr)
+			require.NotContains(t, string(payload), tc.rawValue)
+
+			current, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: tc.setting, LocationRoots: roots})
+			require.Error(t, err)
+			require.NotNil(t, current.Plan)
+			requireDiagnosticCode(t, current.Plan, tc.code)
+			payload, marshalErr = json.Marshal(current.Plan)
+			require.NoError(t, marshalErr)
+			require.NotContains(t, string(payload), tc.rawValue)
+		})
+	}
+}
+
+func TestBundledStarshipTypeValidationBlocksWrongDesiredOrCurrentBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		setting     string
+		content     string
+		desired     Desired
+		code        string
+		rawNotShown string
+	}{
+		{name: "bool desired as string", setting: "starship:add_newline", content: "add_newline = true\n", desired: SetString("WRONG-RAW-DESIRED"), code: "selectedvalue.starship.boolTypeUnsupported", rawNotShown: "WRONG-RAW-DESIRED"},
+		{name: "integer desired as float", setting: "starship:scan_timeout", content: "scan_timeout = 30\n", desired: SetNumber(json.Number("1.5")), code: "selectedvalue.starship.integerTypeUnsupported", rawNotShown: "1.5"},
+		{name: "current bool as string", setting: "starship:add_newline", content: "add_newline = 'WRONG-RAW-CURRENT'\n", desired: SetBool(false), code: "selectedvalue.starship.boolTypeUnsupported", rawNotShown: "WRONG-RAW-CURRENT"},
+		{name: "current integer as string", setting: "starship:scan_timeout", content: "scan_timeout = 'WRONG-RAW-CURRENT'\n", desired: SetNumber(json.Number("30")), code: "selectedvalue.starship.integerTypeUnsupported", rawNotShown: "WRONG-RAW-CURRENT"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			path := filepath.Join(root, "starship.toml")
+			rec := recipe.BundledStarshipRecipe()
+			roots := map[string]string{"config": root}
+			writeSafety := recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled, Trusted: true}
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o644))
+
+			backupCalled := false
+			result, err := ApplyWithBackup(PreviewRequest{
+				Request:            Request{Recipe: rec, SettingRef: tc.setting, LocationRoots: roots},
+				Desired:            tc.desired,
+				WriteSafetyContext: writeSafety,
+			}, ApplyOptions{
+				BackupHook: func(req BackupRequest) (BackupResult, error) {
+					backupCalled = true
+					return BackupResult{ID: "backup", Before: req.Before}, nil
+				},
+			})
+			require.Error(t, err)
+			require.False(t, backupCalled)
+			require.NotNil(t, result.Plan)
+			requireDiagnosticCode(t, result.Plan, tc.code)
+			require.Equal(t, tc.content, readSelectedValueFile(t, path))
+			payload, marshalErr := json.Marshal(result)
+			require.NoError(t, marshalErr)
+			require.NotContains(t, string(payload), tc.rawNotShown)
+		})
+	}
+}
+
+func TestBundledStarshipTypeValidationAdditionalBranches(t *testing.T) {
+	t.Parallel()
+
+	rec := recipe.BundledStarshipRecipe()
+	starshipCtx := func(settingID string) context {
+		return context{
+			req:       Request{Recipe: rec},
+			settingID: settingID,
+			resource:  recipe.Resource{Driver: recipe.TOMLFileDriverID},
+		}
+	}
+
+	require.NoError(t, validateStarshipDesired(context{req: Request{Recipe: rec}, settingID: "add_newline", resource: recipe.Resource{Driver: recipe.JSONFileDriverID}}, SetString("not-starship-toml")))
+
+	for _, tc := range []struct {
+		name    string
+		setting string
+		desired Desired
+		code    string
+	}{
+		{name: "missing intent", setting: "add_newline", desired: Desired{}, code: "selectedvalue.desired.intentRequired"},
+		{name: "unsupported intent", setting: "add_newline", desired: Desired{intent: "merge"}, code: "selectedvalue.desired.intentRequired"},
+		{name: "bool invalid internal", setting: "add_newline", desired: Desired{intent: IntentSet, kind: "bool", value: "true"}, code: "selectedvalue.desired.invalid"},
+		{name: "number invalid internal", setting: "scan_timeout", desired: Desired{intent: IntentSet, kind: "number", value: 42}, code: "selectedvalue.desired.invalid"},
+		{name: "number invalid json", setting: "scan_timeout", desired: SetNumber(json.Number("01")), code: "selectedvalue.starship.integerTypeUnsupported"},
+		{name: "negative integer", setting: "scan_timeout", desired: SetNumber(json.Number("-1")), code: "selectedvalue.starship.integerTypeUnsupported"},
+		{name: "unsupported setting", setting: "format", desired: SetString("$all"), code: "selectedvalue.starship.settingUnsupported"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateStarshipDesired(starshipCtx(tc.setting), tc.desired)
+			require.Error(t, err)
+			var desiredErr *DesiredError
+			require.True(t, errors.As(err, &desiredErr))
+			require.Equal(t, tc.code, desiredErr.Code)
+			require.NotContains(t, err.Error(), "$all")
+			require.NotContains(t, err.Error(), "true")
+		})
+	}
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "starship.toml"), []byte("add_newline = true\n"), 0o644))
+	plan, err := PlanPreview(PreviewRequest{
+		Request:            Request{Recipe: rec, SettingRef: "starship:add_newline", LocationRoots: map[string]string{"config": root}},
+		Desired:            SetString("WRONG-RAW-PLANPREVIEW"),
+		WriteSafetyContext: recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled, Trusted: true},
+	})
+	require.Error(t, err)
+	require.Equal(t, StatusBlocked, plan.Status)
+	requireDiagnosticCode(t, plan, "selectedvalue.starship.boolTypeUnsupported")
+	payload, marshalErr := json.Marshal(plan)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(payload), "WRONG-RAW-PLANPREVIEW")
+}
+
+func TestBundledStarshipValidatesBothBoolAndIntegerSettingNames(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	rec := recipe.BundledStarshipRecipe()
+	roots := map[string]string{"config": root}
+	writeSafety := recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled, Trusted: true}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "starship.toml"), []byte("add_newline = true\nfollow_symlinks = false\nscan_timeout = 30\ncommand_timeout = 500\n"), 0o644))
+
+	for _, tc := range []struct {
+		setting string
+		desired Desired
+	}{
+		{setting: "starship:add_newline", desired: SetBool(false)},
+		{setting: "starship:follow_symlinks", desired: SetBool(true)},
+		{setting: "starship:scan_timeout", desired: SetNumber(json.Number("31"))},
+		{setting: "starship:command_timeout", desired: SetNumber(json.Number("501"))},
+	} {
+		t.Run(tc.setting, func(t *testing.T) {
+			t.Parallel()
+			plan, err := PlanPreview(PreviewRequest{
+				Request:            Request{Recipe: rec, SettingRef: tc.setting, LocationRoots: roots},
+				Desired:            tc.desired,
+				WriteSafetyContext: writeSafety,
+			})
+			require.NoError(t, err)
+			require.Equal(t, StatusOK, plan.Status)
+		})
+	}
+}
+
+func TestBundledStarshipDeleteIntentRemovesSelectedKeyOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "starship.toml")
+	rec := recipe.BundledStarshipRecipe()
+	roots := map[string]string{"config": root}
+	writeSafety := recipe.WriteSafetyContext{Source: recipe.RecipeSourceBundled, Trusted: true}
+	const unrelated = "SECRET-LIKE-FORMAT"
+	require.NoError(t, os.WriteFile(path, []byte("format = '"+unrelated+"'\nadd_newline = true\n"), 0o644))
+
+	backupCalled := false
+	result, err := ApplyWithBackup(PreviewRequest{
+		Request:            Request{Recipe: rec, SettingRef: "starship:add_newline", LocationRoots: roots},
+		Desired:            Delete(),
+		WriteSafetyContext: writeSafety,
+	}, ApplyOptions{
+		BackupHook: func(req BackupRequest) (BackupResult, error) {
+			backupCalled = true
+			require.Contains(t, string(req.BeforeFile), unrelated)
+			return BackupResult{ID: "backup", Before: req.Before}, nil
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, backupCalled)
+	require.True(t, result.Mutated)
+	require.True(t, result.Verified)
+	after := readSelectedValueFile(t, path)
+	require.NotContains(t, after, "add_newline")
+	require.Contains(t, after, "format")
+	payload, marshalErr := json.Marshal(result)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(payload), unrelated)
 }
 
 func TestDesiredMarshalJSONDoesNotLeakRawValue(t *testing.T) {
