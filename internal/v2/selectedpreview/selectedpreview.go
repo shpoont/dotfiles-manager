@@ -774,6 +774,8 @@ func selectorFromRecipe(resource recipe.Resource) SelectorInfo {
 		return SelectorInfo{Kind: "ini-key", Summary: fmt.Sprintf("[%s] %s", resource.Selector.Section, resource.Selector.Key), Section: resource.Selector.Section, Key: resource.Selector.Key}
 	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID:
 		return SelectorInfo{Kind: "selected-path", Summary: strings.Join(resource.Selector.Path, "."), Path: append([]string(nil), resource.Selector.Path...)}
+	case recipe.PlistFileDriverID:
+		return SelectorInfo{Kind: "selected-path", Summary: quotedPathSummary(resource.Selector.Path), Path: append([]string(nil), resource.Selector.Path...)}
 	default:
 		return SelectorInfo{Kind: "unsupported"}
 	}
@@ -781,11 +783,19 @@ func selectorFromRecipe(resource recipe.Resource) SelectorInfo {
 
 func isSelectedValueDriver(driver string) bool {
 	switch driver {
-	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID:
+	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
 		return true
 	default:
 		return false
 	}
+}
+
+func quotedPathSummary(path []string) string {
+	data, err := json.Marshal(path)
+	if err != nil {
+		return fmt.Sprintf("%q", path)
+	}
+	return string(data)
 }
 
 func plannedAction(command string, item Item) string {

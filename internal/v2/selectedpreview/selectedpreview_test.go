@@ -571,6 +571,9 @@ func TestRemainingHelperBranches(t *testing.T) {
 	tomlSelector := selectorFromRecipe(recipe.Resource{Driver: recipe.TOMLFileDriverID, Selector: &recipe.Selector{Path: []string{"user", "email"}}})
 	require.Equal(t, SelectorInfo{Kind: "selected-path", Summary: "user.email", Path: []string{"user", "email"}}, tomlSelector)
 	require.True(t, isSelectedValueDriver(recipe.TOMLFileDriverID))
+	plistSelector := selectorFromRecipe(recipe.Resource{Driver: recipe.PlistFileDriverID, Selector: &recipe.Selector{Path: []string{"com.example", "enabled"}}})
+	require.Equal(t, SelectorInfo{Kind: "selected-path", Summary: `["com.example","enabled"]`, Path: []string{"com.example", "enabled"}}, plistSelector)
+	require.True(t, isSelectedValueDriver(recipe.PlistFileDriverID))
 	require.Equal(t, "none", selectorFromRecipe(recipe.Resource{}).Kind)
 	require.Equal(t, "unsupported", selectorFromRecipe(recipe.Resource{Driver: "other", Selector: &recipe.Selector{}}).Kind)
 

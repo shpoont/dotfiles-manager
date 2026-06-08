@@ -11,6 +11,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/plistdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/tomldriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/yamldriver"
@@ -97,6 +98,7 @@ type Plan struct {
 	LocationID   string       `json:"locationId"`
 	RelPath      string       `json:"relPath"`
 	Path         string       `json:"path"`
+	Format       string       `json:"format,omitempty"`
 	Selector     SelectorInfo `json:"selector"`
 	Current      Snapshot     `json:"current"`
 	Desired      *Snapshot    `json:"desired,omitempty"`
@@ -342,7 +344,7 @@ func buildContext(req Request, allowMissingRoot bool) (context, *Plan, error) {
 		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
 	}
 	switch resource.Driver {
-	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID:
+	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
 	default:
 		block(plan, Diagnostic{Code: "selectedvalue.driver.unsupported", Severity: SeverityError, Message: fmt.Sprintf("driver %s is not supported by selected-value planning", resource.Driver), Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
 		return context{}, plan, &PlanError{Diagnostics: plan.Diagnostics}
@@ -394,6 +396,12 @@ func readCurrent(ctx context, plan *Plan) error {
 			return err
 		}
 		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+	case recipe.PlistFileDriverID:
+		state, err := plistdriver.Driver{}.ReadCurrent(plistRequest(ctx))
+		if err != nil {
+			return err
+		}
+		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
 	}
 	return nil
 }
@@ -431,6 +439,13 @@ func readCurrentDesired(ctx context, plan *Plan) (Desired, error) {
 		}
 		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
 		return desiredFromTOMLState(state)
+	case recipe.PlistFileDriverID:
+		state, err := plistdriver.Driver{}.ReadCurrent(plistRequest(ctx))
+		if err != nil {
+			return Desired{}, err
+		}
+		plan.Current = Snapshot{Exists: state.Exists, SHA256: state.SHA256, Normalizer: state.Normalizer}
+		return desiredFromPlistState(state)
 	default:
 		return Desired{}, desiredError("selectedvalue.driver.unsupported", "resource driver is not supported by selected-value live reads")
 	}
@@ -486,6 +501,20 @@ func previewDesired(ctx context, plan *Plan, desired Desired) error {
 		if err != nil {
 			return err
 		}
+		plan.Current = Snapshot{Exists: preview.Change.Before.Exists, SHA256: preview.Change.Before.SHA256, Normalizer: preview.Normalizer}
+		plan.Desired = &Snapshot{Exists: preview.Change.After.Exists, SHA256: preview.Change.After.SHA256, Normalizer: preview.Normalizer}
+		plan.ChangeKind = string(preview.Change.Kind)
+		plan.Intent = string(preview.Intent)
+	case recipe.PlistFileDriverID:
+		state, err := desiredPlistState(desired)
+		if err != nil {
+			return err
+		}
+		preview, err := plistdriver.Driver{}.PreviewApply(plistRequest(ctx), state)
+		if err != nil {
+			return err
+		}
+		plan.Format = preview.Format
 		plan.Current = Snapshot{Exists: preview.Change.Before.Exists, SHA256: preview.Change.Before.SHA256, Normalizer: preview.Normalizer}
 		plan.Desired = &Snapshot{Exists: preview.Change.After.Exists, SHA256: preview.Change.After.SHA256, Normalizer: preview.Normalizer}
 		plan.ChangeKind = string(preview.Change.Kind)
@@ -603,6 +632,31 @@ func applyDesiredWithBackup(ctx context, plan *Plan, desired Desired, opts Apply
 			return result, err
 		}
 		return result, nil
+	case recipe.PlistFileDriverID:
+		state, err := desiredPlistState(desired)
+		if err != nil {
+			block(plan, Diagnostic{Code: "selectedvalue.desired.invalid", Severity: SeverityError, Message: "selected-value desired state is invalid", Ref: plan.SettingRef, ResourceID: plan.ResourceID, DriverID: plan.DriverID, Path: plan.Path})
+			return &ApplyResult{Plan: plan}, &PlanError{Diagnostics: plan.Diagnostics}
+		}
+		apply, driverBackup, err := plistdriver.Driver{}.ApplyWithBackup(plistRequest(ctx), state, plistBackupHook(plan, opts.BackupHook, &backup))
+		result := &ApplyResult{Plan: plan, Mutated: apply.Mutated, Backup: backup}
+		plan.Format = apply.Preview.Format
+		if driverBackup != nil && backup == nil {
+			backup = &BackupResult{ID: driverBackup.ID, Before: Snapshot{Exists: driverBackup.Before.Exists, SHA256: driverBackup.Before.SHA256, Normalizer: plistdriver.NormalizerID}}
+			result.Backup = backup
+		}
+		if err != nil {
+			return result, err
+		}
+		if err := runAfterApply(opts.AfterApply, plan); err != nil {
+			return result, err
+		}
+		verify, err := plistdriver.Driver{}.Verify(plistRequest(ctx), state)
+		result.Verified = verify.Verified
+		if err != nil {
+			return result, err
+		}
+		return result, nil
 	default:
 		return &ApplyResult{Plan: plan}, desiredError("selectedvalue.driver.unsupported", "resource driver is not supported by selected-value live apply")
 	}
@@ -671,6 +725,21 @@ func desiredTOMLState(desired Desired) (tomldriver.State, error) {
 	}
 }
 
+func desiredPlistState(desired Desired) (plistdriver.State, error) {
+	switch desired.intent {
+	case IntentDelete:
+		return plistdriver.DeleteState(), nil
+	case IntentSet:
+		value, err := plistScalarValue(desired)
+		if err != nil {
+			return plistdriver.State{}, err
+		}
+		return plistdriver.Driver{}.NormalizeValue(value)
+	default:
+		return plistdriver.State{}, desiredError("selectedvalue.desired.intentRequired", "desired intent is required")
+	}
+}
+
 func jsonScalarValue(desired Desired) (any, error) {
 	switch desired.kind {
 	case "string":
@@ -715,6 +784,20 @@ func tomlScalarValue(desired Desired) (any, error) {
 	return value, nil
 }
 
+func plistScalarValue(desired Desired) (any, error) {
+	if desired.kind == "null" {
+		return nil, desiredError("selectedvalue.desired.plistNullUnsupported", "plist selected-value desired set does not support null; use delete intent to remove a key")
+	}
+	value, err := jsonScalarValue(desired)
+	if err != nil {
+		if desired.kind == "object" || desired.kind == "array" || desired.kind == "null" {
+			return nil, desiredError("selectedvalue.desired.plistTypeUnsupported", "plist selected-value desired set requires a string, bool, finite number, or delete intent")
+		}
+		return nil, err
+	}
+	return value, nil
+}
+
 func desiredFromJSONState(state jsondriver.State) (Desired, error) {
 	if !state.Exists {
 		return Delete(), nil
@@ -730,6 +813,13 @@ func desiredFromYAMLState(state yamldriver.State) (Desired, error) {
 }
 
 func desiredFromTOMLState(state tomldriver.State) (Desired, error) {
+	if !state.Exists {
+		return Delete(), nil
+	}
+	return desiredFromCanonicalJSON(state.Value)
+}
+
+func desiredFromPlistState(state plistdriver.State) (Desired, error) {
 	if !state.Exists {
 		return Delete(), nil
 	}
@@ -841,6 +931,27 @@ func tomlBackupHook(plan *Plan, hook BackupHook, captured **BackupResult) tomldr
 	}
 }
 
+func plistBackupHook(plan *Plan, hook BackupHook, captured **BackupResult) plistdriver.BackupHook {
+	if hook == nil {
+		return nil
+	}
+	return func(req plistdriver.BackupRequest) (plistdriver.BackupResult, error) {
+		result, err := hook(BackupRequest{
+			SettingRef: plan.SettingRef,
+			ResourceID: plan.ResourceID,
+			DriverID:   plan.DriverID,
+			Path:       req.Path,
+			Before:     Snapshot{Exists: req.Before.Exists, SHA256: req.Before.SHA256, Normalizer: req.Before.Normalizer},
+			BeforeFile: append([]byte(nil), req.BeforeFile...),
+		})
+		if err != nil {
+			return plistdriver.BackupResult{}, err
+		}
+		*captured = &result
+		return plistdriver.BackupResult{ID: result.ID, Before: plistdriver.Snapshot{Exists: result.Before.Exists, SHA256: result.Before.SHA256}}, nil
+	}
+}
+
 func runAfterApply(hook func(*Plan) error, plan *Plan) error {
 	if hook == nil {
 		return nil
@@ -887,6 +998,16 @@ func tomlRequest(ctx context) tomldriver.Request {
 		CreateMissing:   tomldriver.CreatePolicy(defaultString(selector.CreateMissing, string(tomldriver.CreatePolicyReject))),
 		DuplicatePolicy: tomldriver.DuplicatePolicy(defaultString(selector.DuplicatePolicy, string(tomldriver.DuplicatePolicyReject))),
 		DeleteKey:       tomldriver.DeletePolicy(defaultString(selector.DeleteKey, string(tomldriver.DeletePolicyReject))),
+	}}
+}
+
+func plistRequest(ctx context) plistdriver.Request {
+	selector := ctx.resource.Selector
+	return plistdriver.Request{Target: ctx.target, Selector: plistdriver.Selector{
+		Path:            append([]string(nil), selector.Path...),
+		CreateMissing:   plistdriver.CreatePolicy(defaultString(selector.CreateMissing, string(plistdriver.CreatePolicyReject))),
+		DuplicatePolicy: plistdriver.DuplicatePolicy(defaultString(selector.DuplicatePolicy, string(plistdriver.DuplicatePolicyReject))),
+		DeleteKey:       plistdriver.DeletePolicy(defaultString(selector.DeleteKey, string(plistdriver.DeletePolicyReject))),
 	}}
 }
 
@@ -991,9 +1112,19 @@ func selectorInfo(resource recipe.Resource) SelectorInfo {
 		return SelectorInfo{Kind: "ini-key", Summary: fmt.Sprintf("[%s] %s", resource.Selector.Section, resource.Selector.Key), Section: resource.Selector.Section, Key: resource.Selector.Key, MissingSection: defaultString(resource.Selector.MissingSection, string(inidriver.MissingPolicyError)), MissingKey: defaultString(resource.Selector.MissingKey, string(inidriver.MissingPolicyError)), DuplicatePolicy: defaultString(resource.Selector.DuplicatePolicy, string(inidriver.DuplicatePolicyReject)), DeleteKey: defaultString(resource.Selector.DeleteKey, string(inidriver.DeletePolicyReject))}
 	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID:
 		return SelectorInfo{Kind: "selected-path", Summary: strings.Join(resource.Selector.Path, "."), Path: append([]string(nil), resource.Selector.Path...), CreateMissing: defaultString(resource.Selector.CreateMissing, "reject"), DuplicatePolicy: defaultString(resource.Selector.DuplicatePolicy, "reject"), DeleteKey: defaultString(resource.Selector.DeleteKey, "reject")}
+	case recipe.PlistFileDriverID:
+		return SelectorInfo{Kind: "selected-path", Summary: quotedPathSummary(resource.Selector.Path), Path: append([]string(nil), resource.Selector.Path...), CreateMissing: defaultString(resource.Selector.CreateMissing, "reject"), DuplicatePolicy: defaultString(resource.Selector.DuplicatePolicy, "reject"), DeleteKey: defaultString(resource.Selector.DeleteKey, "reject")}
 	default:
 		return SelectorInfo{Kind: "unsupported"}
 	}
+}
+
+func quotedPathSummary(path []string) string {
+	data, err := json.Marshal(path)
+	if err != nil {
+		return fmt.Sprintf("%q", path)
+	}
+	return string(data)
 }
 
 func blockedPlan(targetRef string, settingRef string, settingID string, resourceID string, code string, message string) *Plan {

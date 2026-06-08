@@ -11,6 +11,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/plistdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/tomldriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/yamldriver"
@@ -31,6 +32,7 @@ func TestPlanReadSelectedValuesAcrossDrivers(t *testing.T) {
 		{name: "json", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"secret@example.com"}}`, normalizer: jsondriver.NormalizerID},
 		{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: secret@example.com\n", normalizer: yamldriver.NormalizerID},
 		{name: "toml", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'secret@example.com'\n", normalizer: tomldriver.NormalizerID},
+		{name: "plist", driverID: recipe.PlistFileDriverID, relPath: "config.plist", content: plistXMLString("secret@example.com"), normalizer: plistdriver.NormalizerID},
 	}
 
 	for _, tc := range cases {
@@ -73,14 +75,17 @@ func TestPlanPreviewSelectedValuesAcrossDrivers(t *testing.T) {
 		desired    Desired
 		normalizer string
 		intent     string
+		format     string
 	}{
 		{name: "ini string", driverID: recipe.IniFileDriverID, relPath: "config.ini", content: "[user]\nemail=old@example.com\n", desired: SetString("new@example.com"), normalizer: inidriver.NormalizerID, intent: "set"},
 		{name: "json string", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`, desired: SetString("new@example.com"), normalizer: jsondriver.NormalizerID, intent: "set"},
 		{name: "yaml string", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: old@example.com\n", desired: SetString("new@example.com"), normalizer: yamldriver.NormalizerID, intent: "set"},
 		{name: "toml string", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'old@example.com'\n", desired: SetString("new@example.com"), normalizer: tomldriver.NormalizerID, intent: "set"},
+		{name: "plist string", driverID: recipe.PlistFileDriverID, relPath: "config.plist", content: plistXMLString("old@example.com"), desired: SetString("new@example.com"), normalizer: plistdriver.NormalizerID, intent: "set", format: plistdriver.FormatXML},
 		{name: "json bool", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`, desired: SetBool(true), normalizer: jsondriver.NormalizerID, intent: "set"},
 		{name: "yaml number", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email: old@example.com\n", desired: SetNumber(json.Number("42")), normalizer: yamldriver.NormalizerID, intent: "set"},
 		{name: "toml number", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user]\nemail = 'old@example.com'\n", desired: SetNumber(json.Number("42")), normalizer: tomldriver.NormalizerID, intent: "set"},
+		{name: "plist number", driverID: recipe.PlistFileDriverID, relPath: "config.plist", content: plistXMLString("old@example.com"), desired: SetNumber(json.Number("42")), normalizer: plistdriver.NormalizerID, intent: "set", format: plistdriver.FormatXML},
 		{name: "json null", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":"old@example.com"}}`, desired: SetNull(), normalizer: jsondriver.NormalizerID, intent: "set"},
 	}
 
@@ -106,6 +111,9 @@ func TestPlanPreviewSelectedValuesAcrossDrivers(t *testing.T) {
 			require.Equal(t, tc.normalizer, plan.Desired.Normalizer)
 			require.Equal(t, string(filedriver.ChangeUpdate), plan.ChangeKind)
 			require.Equal(t, tc.intent, plan.Intent)
+			if tc.format != "" {
+				require.Equal(t, tc.format, plan.Format)
+			}
 
 			encoded, err := json.Marshal(plan)
 			require.NoError(t, err)
@@ -437,6 +445,7 @@ func TestReadCurrentDesiredAndApplyWithBackupAcrossDrivers(t *testing.T) {
 		{name: "json", driverID: recipe.JSONFileDriverID, relPath: "config.json", before: `{"user":{"email":"old@example.com"}}`, desired: SetBool(true), want: `"email": true`},
 		{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", before: "user:\n  email: old@example.com\n", desired: SetNumber(json.Number("42")), want: "email: 42"},
 		{name: "toml", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", before: "[user]\nemail = 'old@example.com'\n", desired: SetNumber(json.Number("42")), want: "email = 42"},
+		{name: "plist", driverID: recipe.PlistFileDriverID, relPath: "config.plist", before: plistXMLString("old@example.com"), desired: SetNumber(json.Number("42")), want: "<integer>42</integer>"},
 	}
 
 	for _, tc := range cases {
@@ -710,7 +719,7 @@ func selectedValueRecipe(driverID string, relPath string) string {
       duplicatePolicy: reject
       deleteKey: allow
 `
-	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID:
+	case recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID:
 		selector = `      path: [user, email]
       createMissing: create
       duplicatePolicy: reject
@@ -950,6 +959,24 @@ func TestDesiredCompatibilityAdditionalBranches(t *testing.T) {
 		require.Equal(t, IntentDelete, plan.Intent)
 	})
 
+	t.Run("plist delete succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.PlistFileDriverID, "config.plist")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.plist"), []byte(plistXMLString("old@example.com")), 0o644))
+
+		plan, err := PlanPreview(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            Delete(),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		})
+		require.NoError(t, err)
+		require.Equal(t, string(filedriver.ChangeDelete), plan.ChangeKind)
+		require.Equal(t, IntentDelete, plan.Intent)
+		require.Equal(t, plistdriver.FormatXML, plan.Format)
+	})
+
 	t.Run("json yaml unsupported scalar kind", func(t *testing.T) {
 		t.Parallel()
 
@@ -970,6 +997,40 @@ func TestDesiredCompatibilityAdditionalBranches(t *testing.T) {
 		require.NotContains(t, string(encoded), "secret@example.com")
 	})
 
+	t.Run("plist null and container desired kinds are blocked", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			name    string
+			desired Desired
+			code    string
+		}{
+			{name: "null", desired: SetNull(), code: "selectedvalue.desired.plistNullUnsupported"},
+			{name: "object", desired: Desired{intent: IntentSet, kind: "object", value: map[string]any{"secret": "secret@example.com"}}, code: "selectedvalue.desired.plistTypeUnsupported"},
+			{name: "array", desired: Desired{intent: IntentSet, kind: "array", value: []any{"secret@example.com"}}, code: "selectedvalue.desired.plistTypeUnsupported"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				root := t.TempDir()
+				rec := decodeSelectedValueRecipe(t, recipe.PlistFileDriverID, "config.plist")
+				require.NoError(t, os.WriteFile(filepath.Join(root, "config.plist"), []byte(plistXMLString("old@example.com")), 0o644))
+
+				plan, err := PlanPreview(PreviewRequest{
+					Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+					Desired:            tc.desired,
+					WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+				})
+				require.Error(t, err)
+				require.Equal(t, StatusBlocked, plan.Status)
+				requireDiagnosticCode(t, plan, tc.code)
+				encoded, marshalErr := json.Marshal(plan)
+				require.NoError(t, marshalErr)
+				require.NotContains(t, string(encoded), "secret@example.com")
+			})
+		}
+	})
+
 	t.Run("internal invalid desired representations", func(t *testing.T) {
 		t.Parallel()
 
@@ -986,6 +1047,10 @@ func TestDesiredCompatibilityAdditionalBranches(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid internal representation")
 
 		_, err = desiredJSONState(Desired{intent: IntentSet, kind: "number", value: 42})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid internal representation")
+
+		_, err = desiredPlistState(Desired{intent: IntentSet, kind: "number", value: 42})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid internal representation")
 	})
@@ -1023,6 +1088,7 @@ func TestReadCurrentDesiredAdditionalBranches(t *testing.T) {
 		}{
 			{name: "ini", driverID: recipe.IniFileDriverID, relPath: "config.ini"},
 			{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml"},
+			{name: "plist", driverID: recipe.PlistFileDriverID, relPath: "config.plist"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
@@ -1062,6 +1128,29 @@ func TestReadCurrentDesiredAdditionalBranches(t *testing.T) {
 		require.Equal(t, json.Number("42"), raw)
 	})
 
+	t.Run("plist bool and number scalar values round trip as desired values", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.PlistFileDriverID, "config.plist")
+
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.plist"), []byte(plistXMLRawValue("<true/>")), 0o644))
+		boolValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+		require.NoError(t, err)
+		require.Equal(t, "bool", boolValue.Desired.Kind())
+		raw, ok := boolValue.Desired.Value()
+		require.True(t, ok)
+		require.Equal(t, true, raw)
+
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.plist"), []byte(plistXMLRawValue("<integer>42</integer>")), 0o644))
+		numberValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+		require.NoError(t, err)
+		require.Equal(t, "number", numberValue.Desired.Kind())
+		raw, ok = numberValue.Desired.Value()
+		require.True(t, ok)
+		require.Equal(t, json.Number("42"), raw)
+	})
+
 	t.Run("driver read failures are surfaced without raw values", func(t *testing.T) {
 		t.Parallel()
 
@@ -1075,6 +1164,7 @@ func TestReadCurrentDesiredAdditionalBranches(t *testing.T) {
 			{name: "json non scalar", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":{"nested":true}}}`},
 			{name: "yaml non scalar", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email:\n    nested: true\n"},
 			{name: "toml non scalar", driverID: recipe.TOMLFileDriverID, relPath: "config.toml", content: "[user.email]\nnested = true\n"},
+			{name: "plist non scalar", driverID: recipe.PlistFileDriverID, relPath: "config.plist", content: plistXMLRawValue("<dict><key>nested</key><true/></dict>")},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
@@ -1107,7 +1197,19 @@ func TestSelectedValueInternalHelperAdditionalBranches(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "desired intent is required")
 
+	_, err = desiredTOMLState(SetNull())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not support null")
+
+	_, err = desiredPlistState(Desired{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desired intent is required")
+
 	desired, err := desiredFromYAMLState(yamldriver.AbsentState())
+	require.NoError(t, err)
+	require.Equal(t, IntentDelete, desired.Intent())
+
+	desired, err = desiredFromPlistState(plistdriver.AbsentState())
 	require.NoError(t, err)
 	require.Equal(t, IntentDelete, desired.Intent())
 
@@ -1130,6 +1232,7 @@ func TestSelectedValueInternalHelperAdditionalBranches(t *testing.T) {
 	require.Nil(t, iniBackupHook(&Plan{}, nil, nil))
 	require.Nil(t, jsonBackupHook(&Plan{}, nil, nil))
 	require.Nil(t, yamlBackupHook(&Plan{}, nil, nil))
+	require.Nil(t, plistBackupHook(&Plan{}, nil, nil))
 
 	require.NoError(t, checkGitINIIdentityCase([]byte("# comment\n[core]\n\tEmail = ignored\n[user]\n\temail = ok@example.com\n"), "email"))
 	section, ok := parseGitCaseGuardSection("  [user]  ")
@@ -1180,6 +1283,50 @@ func TestSelectedValueInternalHelperAdditionalBranches(t *testing.T) {
 	_, err = yamlHook(yamldriver.BackupRequest{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "safe yaml backup failure")
+
+	tomlHook := tomlBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		require.Equal(t, "/tmp/config.toml", req.Path)
+		require.Equal(t, "safe-toml-before", string(req.BeforeFile))
+		return BackupResult{ID: "backup-toml", Before: req.Before}, nil
+	}, &captured)
+	tomlBackup, err := tomlHook(tomldriver.BackupRequest{
+		Path:       "/tmp/config.toml",
+		Before:     tomldriver.State{Exists: true, SHA256: "toml123", Normalizer: tomldriver.NormalizerID},
+		BeforeFile: []byte("safe-toml-before"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "backup-toml", tomlBackup.ID)
+
+	tomlHook = tomlBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		return BackupResult{}, fmt.Errorf("safe toml backup failure")
+	}, &captured)
+	_, err = tomlHook(tomldriver.BackupRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "safe toml backup failure")
+
+	plistHook := plistBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		require.Equal(t, "test.app:identity.email", req.SettingRef)
+		require.Equal(t, "config-email", req.ResourceID)
+		require.Equal(t, "/tmp/config.plist", req.Path)
+		require.Equal(t, "safe-plist-before", string(req.BeforeFile))
+		return BackupResult{ID: "backup-plist", Before: req.Before}, nil
+	}, &captured)
+	plistBackup, err := plistHook(plistdriver.BackupRequest{
+		Path:       "/tmp/config.plist",
+		Before:     plistdriver.State{Exists: true, SHA256: "plist123", Normalizer: plistdriver.NormalizerID},
+		BeforeFile: []byte("safe-plist-before"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "backup-plist", plistBackup.ID)
+	require.NotNil(t, captured)
+	require.Equal(t, "backup-plist", captured.ID)
+
+	plistHook = plistBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		return BackupResult{}, fmt.Errorf("safe plist backup failure")
+	}, &captured)
+	_, err = plistHook(plistdriver.BackupRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "safe plist backup failure")
 }
 
 func readSelectedValueFile(t *testing.T, path string) string {
@@ -1187,4 +1334,22 @@ func readSelectedValueFile(t *testing.T, path string) string {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(data)
+}
+
+func plistXMLString(email string) string {
+	return plistXMLRawValue(fmt.Sprintf("<string>%s</string>", email))
+}
+
+func plistXMLRawValue(valueXML string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>user</key>
+	<dict>
+		<key>email</key>
+		%s
+	</dict>
+</dict>
+</plist>
+`, valueXML)
 }
