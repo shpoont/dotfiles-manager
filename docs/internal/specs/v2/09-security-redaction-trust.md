@@ -111,6 +111,40 @@ outcome:
 
 Diff renderers must obey redaction. JSON output must not leak redacted values.
 
+### Runtime secret detection for selected values
+
+MVP selected-value desired writes must run a deterministic local secret-detection
+gate after URI, recipe metadata, trust, capability, sensitivity, and redaction
+checks pass, and before any filesystem side effects such as creating desired
+directories, settings files, temporary files, backups, or ledgers.
+
+The gate scans only value-bearing string `set` intents. `delete`, `unmanaged`,
+`null`, boolean, and number intents do not carry secret strings and are not
+classified by this gate. The scanner must inspect the original trimmed string
+and conservative normalized forms for multiline or escaped secret material such
+as private-key headers. Generic high-entropy detection must require an
+explicit credential-like public setting/resource context, a minimum length, a
+deterministic entropy threshold, and character-class diversity; random-looking
+values for non-credential settings such as themes must not be blocked by generic
+entropy alone.
+
+The MVP blocked categories include private-key headers, common access-token and
+API-key shapes, JWT-like bearer material, and sensitive-context high-entropy
+strings. A finding always blocks selected-value desired persistence, even when
+recipe metadata says the setting is `personal`, `low`, `known-safe`, or
+`redacted-for-display`. Changing recipe metadata must not bypass runtime secret
+detection. False positives are handled by changing the selected value, choosing
+a different non-secret setting, excluding the setting from management, or a
+future explicitly reviewed allow mechanism; there is no automatic local
+whitelist or unconfirmed workaround in MVP.
+
+Secret-detection diagnostics are metadata-only. They may include stable pattern
+IDs, categories, public setting refs, and schema paths. They must not include
+matched substrings, raw values, entropy samples, local secret-bearing paths,
+captured output, or arbitrary user-provided metadata that could itself contain
+secret material. Text output, JSON output, logs, errors, preview snapshots, and
+debug formatting of selected-value containers must remain redaction-safe.
+
 ### Recipe trust
 
 Bundled recipes are trusted by the release process. User-local recipes must be

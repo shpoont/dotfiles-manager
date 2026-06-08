@@ -63,6 +63,14 @@ func Delete() Desired {
 	return Desired{intent: IntentDelete}
 }
 
+func (d Desired) String() string {
+	return fmt.Sprintf("Desired{intent:%s kind:%s value:<redacted>}", defaultString(d.intent, "<unset>"), defaultString(d.kind, "<none>"))
+}
+
+func (d Desired) GoString() string {
+	return d.String()
+}
+
 func (d Desired) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]string{"intent": d.intent, "kind": d.kind})
 }

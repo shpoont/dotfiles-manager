@@ -323,6 +323,22 @@ func TestDesiredMarshalJSONDoesNotLeakRawValue(t *testing.T) {
 	require.NotContains(t, string(encoded), "secret@example.com")
 }
 
+func TestDesiredFormattingDoesNotLeakRawValue(t *testing.T) {
+	t.Parallel()
+
+	secret := "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+	desired := SetString(secret)
+	for _, rendered := range []string{
+		fmt.Sprintf("%v", desired),
+		fmt.Sprintf("%+v", desired),
+		fmt.Sprintf("%#v", desired),
+		fmt.Sprintf("%q", desired),
+	} {
+		require.NotContains(t, rendered, secret)
+		require.Contains(t, rendered, "<redacted>")
+	}
+}
+
 func decodeSelectedValueRecipe(t *testing.T, driverID string, relPath string) *recipe.Recipe {
 	t.Helper()
 

@@ -3,6 +3,7 @@ package desired
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -306,6 +307,93 @@ func TestSelectedValueWritesRequireSafetyDecision(t *testing.T) {
 	err = WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("secret@example.com"), Safety: untrusted})
 	requireSafetyCode(t, err, "desired.writeSafety.trust.untrusted")
 	assertMissing(t, path)
+}
+
+func TestSelectedValueWritesBlockLikelySecretsBeforeSideEffects(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		value  string
+		driver string
+	}{
+		{name: "private key", value: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----", driver: recipe.IniFileDriverID},
+		{name: "escaped private key", value: "-----BEGIN RSA PRIVATE KEY-----\\nabc\\n-----END RSA PRIVATE KEY-----", driver: recipe.IniFileDriverID},
+		{name: "github token", value: "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH123456", driver: recipe.IniFileDriverID},
+		{name: "github fine grained token", value: "github_pat_" + strings.Repeat("A", 90), driver: recipe.IniFileDriverID},
+		{name: "gitlab token", value: "glpat-abcdefghijklmnopqrstuvwxyz12", driver: recipe.IniFileDriverID},
+		{name: "slack token", value: "xoxb-not-a-real-token-value-abcdef", driver: recipe.IniFileDriverID},
+		{name: "openai key", value: "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890", driver: recipe.IniFileDriverID},
+		{name: "aws access key id", value: "AKIAIOSFODNN7EXAMPLE", driver: recipe.IniFileDriverID},
+		{name: "google api key", value: "AIza" + strings.Repeat("A", 35), driver: recipe.IniFileDriverID},
+		{name: "stripe live key", value: "sk_live_" + strings.Repeat("a", 24), driver: recipe.IniFileDriverID},
+		{name: "jwt", value: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuvwxyz", driver: recipe.JSONFileDriverID},
+		{name: "context entropy", value: "A9bC7dE8fG1hJ2kL3mN4pQ5r", driver: recipe.JSONFileDriverID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			uri := "desired://user/leon/targets/git/settings#api_token"
+			path := filepath.Join(root, "desired", "user", "leon", "targets", "git", "settings.yaml")
+			err := WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: SetString(tc.value), Safety: safeDecisionForSetting(t, tc.driver, "api_token")})
+			requireSafetyCode(t, err, "desired.writeSafety.secretDetected")
+			assertMissing(t, filepath.Join(root, "desired"))
+			assertMissing(t, path)
+			require.NotContains(t, err.Error(), tc.value)
+			payload, marshalErr := json.Marshal(err)
+			require.NoError(t, marshalErr)
+			require.NotContains(t, string(payload), tc.value)
+		})
+	}
+}
+
+func TestSelectedValueWritesAllowBenignStringsAndNonStrings(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		setting string
+		value   SelectedValue
+	}{
+		{name: "email", setting: "user.email", value: SetString("leonid@example.com")},
+		{name: "name", setting: "user.name", value: SetString("Leonid Komarovsky")},
+		{name: "url", setting: "homepage", value: SetString("https://example.com/docs/theme")},
+		{name: "theme", setting: "theme", value: SetString("nord-dark")},
+		{name: "human label in sensitive context", setting: "token_label", value: SetString("this-is-a-long-but-human-readable-token-label")},
+		{name: "bool", setting: "api_token", value: SetBool(true)},
+		{name: "number", setting: "api_token", value: SetNumber(json.Number("42"))},
+		{name: "null", setting: "api_token", value: SetNull()},
+		{name: "delete", setting: "api_token", value: Delete()},
+		{name: "unmanaged", setting: "api_token", value: Unmanaged()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			uri := "desired://user/leon/targets/git/settings#" + tc.setting
+			err := WriteSelectedValue(WriteRequest{RepoRoot: root, URI: uri, Value: tc.value, Safety: safeDecisionForSetting(t, recipe.JSONFileDriverID, tc.setting)})
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSelectedValueFormattingDoesNotLeakRawValue(t *testing.T) {
+	t.Parallel()
+
+	secret := "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH123456"
+	value := SetString(secret)
+	for _, rendered := range []string{
+		fmt.Sprintf("%v", value),
+		fmt.Sprintf("%+v", value),
+		fmt.Sprintf("%#v", value),
+		fmt.Sprintf("%q", value),
+	} {
+		require.NotContains(t, rendered, secret)
+		require.Contains(t, rendered, "<redacted>")
+	}
 }
 
 func TestSelectedValueWritesBlockUnsafeRecipeMetadata(t *testing.T) {
