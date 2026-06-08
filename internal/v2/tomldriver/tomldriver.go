@@ -590,11 +590,6 @@ func parseDesiredScalar(raw []byte) (any, error) {
 	return tomlScalarValue(value)
 }
 
-func isTOMLScalar(value any) bool {
-	_, err := tomlScalarValue(value)
-	return err == nil
-}
-
 func canonicalScalar(value any) ([]byte, error) {
 	canonicalValue, err := tomlScalarValue(value)
 	if err != nil {
