@@ -8,6 +8,7 @@ import (
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/plistdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
 	"github.com/shpoont/dotfiles-manager/internal/v2/tomldriver"
@@ -15,10 +16,11 @@ import (
 )
 
 const (
-	IniFileSelectedDriverVersion  = "ini-file.driver.v1"
-	JSONFileSelectedDriverVersion = "json-file.driver.v1"
-	YAMLFileSelectedDriverVersion = "yaml-file.driver.v1"
-	TOMLFileSelectedDriverVersion = "toml-file.driver.v1"
+	IniFileSelectedDriverVersion   = "ini-file.driver.v1"
+	JSONFileSelectedDriverVersion  = "json-file.driver.v1"
+	YAMLFileSelectedDriverVersion  = "yaml-file.driver.v1"
+	TOMLFileSelectedDriverVersion  = "toml-file.driver.v1"
+	PlistFileSelectedDriverVersion = "plist-file.driver.v1"
 )
 
 type SelectedValueBackupRequest struct {
@@ -104,6 +106,8 @@ func selectedValueDriverVersion(driver string) string {
 		return YAMLFileSelectedDriverVersion
 	case recipe.TOMLFileDriverID:
 		return TOMLFileSelectedDriverVersion
+	case recipe.PlistFileDriverID:
+		return PlistFileSelectedDriverVersion
 	default:
 		return strings.TrimSpace(driver)
 	}
@@ -119,6 +123,8 @@ func selectedValueNormalizer(driver string) string {
 		return yamldriver.NormalizerID
 	case recipe.TOMLFileDriverID:
 		return tomldriver.NormalizerID
+	case recipe.PlistFileDriverID:
+		return plistdriver.NormalizerID
 	default:
 		return ""
 	}

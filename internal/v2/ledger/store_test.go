@@ -676,6 +676,8 @@ func TestWriteSelectedValueBackupPersistsMetadataAndPayload(t *testing.T) {
 	requireFile(t, filepath.Join(stateRoot, "backups", "run-selected", item.PayloadRelPath), "user:\n  email: old@example.com\n")
 	require.Equal(t, TOMLFileSelectedDriverVersion, SelectedValueDriverVersion(recipe.TOMLFileDriverID))
 	require.Equal(t, "toml-file.selected-scalar.v1", SelectedValueNormalizer(recipe.TOMLFileDriverID))
+	require.Equal(t, PlistFileSelectedDriverVersion, SelectedValueDriverVersion(recipe.PlistFileDriverID))
+	require.Equal(t, "plist-file.selected-scalar.v1", SelectedValueNormalizer(recipe.PlistFileDriverID))
 
 	metadata := requireBackupMetadata(t, stateRoot, "run-selected")
 	require.Len(t, metadata.Items, 1)

@@ -263,6 +263,13 @@ func TestRecipeAcceptsSettingsGroupsAndSelectedPathResources(t *testing.T) {
 			driver:     TOMLFileDriverID,
 			settingRef: "identity.email",
 		},
+		{
+			name:       "plist selected scalar",
+			recipeID:   "test.plist",
+			body:       validSelectedPathRecipe("test.plist", PlistFileDriverID, "config.plist"),
+			driver:     PlistFileDriverID,
+			settingRef: "identity.email",
+		},
 	}
 
 	for _, tc := range tests {
