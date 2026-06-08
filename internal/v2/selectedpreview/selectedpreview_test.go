@@ -304,7 +304,9 @@ func TestBuildMissingDesiredCoversStatusDiffSaveApply(t *testing.T) {
 	require.NoError(t, err)
 	saveItem := report.Items[0]
 	require.True(t, report.DryRun)
-	require.Equal(t, "would-save", saveItem.PlannedAction)
+	require.Equal(t, PlannedActionWouldPromote, saveItem.PlannedAction)
+	require.Equal(t, 1, report.Summary.Saved)
+	require.Contains(t, saveItem.Message, "promoted into desired state")
 	require.NotNil(t, saveItem.Preview)
 	require.Equal(t, "create", saveItem.Preview.ChangeKind)
 	require.Equal(t, desired.IntentSet, saveItem.Preview.Intent)
@@ -314,8 +316,50 @@ func TestBuildMissingDesiredCoversStatusDiffSaveApply(t *testing.T) {
 	require.NoError(t, err)
 	applyItem := report.Items[0]
 	require.Equal(t, v2status.StateMissingDesired, applyItem.State)
-	require.Equal(t, "blocked-missing-desired", applyItem.PlannedAction)
+	require.Equal(t, PlannedActionBlockedMissingDesired, applyItem.PlannedAction)
 	require.Contains(t, applyItem.Message, "no desired artifact")
+}
+
+func TestBuildMissingDesiredWithoutLiveValueDoesNotUsePromotionAction(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixture(t)
+	fixture.trustRecipe()
+
+	report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.app:identity.email", UserID: "leon", DryRun: true})
+	require.NoError(t, err)
+	require.Equal(t, SummaryChanged, report.Summary.Status)
+	require.Equal(t, 1, report.Summary.Saved)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.False(t, item.Current.Exists)
+	require.Equal(t, PlannedActionWouldSave, item.PlannedAction)
+	require.NotContains(t, item.Message, "promoted into desired state")
+	require.NotNil(t, item.Preview)
+	require.Equal(t, "create", item.Preview.ChangeKind)
+	require.Equal(t, desired.IntentDelete, item.Preview.Intent)
+}
+
+func TestBuildExistingDesiredDoesNotUsePromotionAction(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixture(t)
+	fixture.writeLiveYAML("current@example.com")
+	fixture.writeDesiredSet("desired@example.com")
+	fixture.trustRecipe()
+
+	report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "test.app:identity.email", UserID: "leon", DryRun: true})
+	require.NoError(t, err)
+	require.Equal(t, SummaryChanged, report.Summary.Status)
+	require.Equal(t, 1, report.Summary.Saved)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.True(t, item.Current.Exists)
+	require.Equal(t, desired.StatusPresent, item.Desired.Status)
+	require.Equal(t, PlannedActionWouldSave, item.PlannedAction)
+	require.NotContains(t, item.Message, "promoted into desired state")
+	require.NotContains(t, mustJSON(t, report), "current@example.com")
+	require.NotContains(t, mustJSON(t, report), "desired@example.com")
 }
 
 func TestBuildDeleteIntentUsesDeleteSentinelAndOmitsRawValues(t *testing.T) {
@@ -336,7 +380,7 @@ func TestBuildDeleteIntentUsesDeleteSentinelAndOmitsRawValues(t *testing.T) {
 	require.True(t, item.Current.Exists)
 	require.NotNil(t, item.Preview)
 	require.Equal(t, "delete", item.Preview.ChangeKind)
-	require.Equal(t, "would-apply", item.PlannedAction)
+	require.Equal(t, PlannedActionWouldApply, item.PlannedAction)
 	require.NotContains(t, mustJSON(t, report), "delete-me@example.com")
 }
 
@@ -529,9 +573,14 @@ func TestRemainingHelperBranches(t *testing.T) {
 
 	require.Equal(t, "", plannedAction(CommandStatus, Item{State: v2status.StateChangedCurrent}))
 	require.Equal(t, "", plannedAction(CommandSave, Item{State: v2status.StateBlockedSafety}))
-	require.Equal(t, "none", plannedAction(CommandSave, Item{State: v2status.StateUnchanged}))
-	require.Equal(t, "none", plannedAction(CommandApply, Item{State: v2status.StateUnchanged}))
-	require.Equal(t, "would-apply", plannedAction(CommandApply, Item{State: v2status.StateReadyToApply}))
+	require.Equal(t, PlannedActionNone, plannedAction(CommandSave, Item{State: v2status.StateUnchanged}))
+	require.Equal(t, PlannedActionNone, plannedAction(CommandApply, Item{State: v2status.StateUnchanged}))
+	require.Equal(t, PlannedActionWouldApply, plannedAction(CommandApply, Item{State: v2status.StateReadyToApply}))
+	require.Equal(t, PlannedActionWouldPromote, plannedSaveActionForMissingDesired(Item{Current: Snapshot{Exists: true}}))
+	require.Equal(t, PlannedActionWouldSave, plannedSaveActionForMissingDesired(Item{}))
+	require.True(t, IsSavePlannedAction(PlannedActionWouldPromote))
+	require.True(t, IsSavePlannedAction(PlannedActionWouldSave))
+	require.False(t, IsSavePlannedAction(PlannedActionWouldApply))
 
 	require.Equal(t, desired.IntentDelete, saveIntent(Snapshot{}))
 	require.Equal(t, desired.IntentSet, saveIntent(Snapshot{Exists: true}))
@@ -589,7 +638,7 @@ func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
 		Selector:      SelectorInfo{Summary: "user.email"},
 		Diff:          diffInfo("update"),
 		Message:       "safe message",
-		PlannedAction: "would-apply",
+		PlannedAction: PlannedActionWouldApply,
 		Mutation: &MutationInfo{
 			Result:     "verified",
 			RunID:      "run-rich",
@@ -682,14 +731,15 @@ func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
 	blocked := &Report{Command: CommandSave, Items: []Item{
 		{State: v2status.StateBlockedLifecycle},
 		{State: v2status.StateUnchanged},
-		{State: v2status.StateChangedCurrent, PlannedAction: "would-save"},
+		{State: v2status.StateChangedCurrent, PlannedAction: PlannedActionWouldSave},
+		{State: v2status.StateMissingDesired, PlannedAction: PlannedActionWouldPromote},
 	}}
 	finishReport(blocked)
 	require.Equal(t, SummaryBlocked, blocked.Summary.Status)
 	require.Equal(t, 1, blocked.Summary.Blocked)
-	require.Equal(t, 1, blocked.Summary.Saved)
+	require.Equal(t, 2, blocked.Summary.Saved)
 
-	changedApply := &Report{Command: CommandApply, Items: []Item{{State: v2status.StateReadyToApply, PlannedAction: "would-apply"}}}
+	changedApply := &Report{Command: CommandApply, Items: []Item{{State: v2status.StateReadyToApply, PlannedAction: PlannedActionWouldApply}}}
 	finishReport(changedApply)
 	require.Equal(t, SummaryChanged, changedApply.Summary.Status)
 	require.Equal(t, 1, changedApply.Summary.Applied)

@@ -777,10 +777,13 @@ func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {
 	require.True(t, hasPlanBlocker(report))
 	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: "blocked-driver"}}}
 	require.True(t, hasPlanBlocker(report))
-	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: "would-save"}}}
+	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: selectedpreview.PlannedActionWouldSave}}}
 	require.True(t, requiresConfirmation(report))
-	require.True(t, isActionable(selectedpreview.CommandSave, selectedpreview.Item{PlannedAction: "would-save"}))
-	require.True(t, isActionable(selectedpreview.CommandApply, selectedpreview.Item{PlannedAction: "would-apply"}))
+	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: selectedpreview.PlannedActionWouldPromote}}}
+	require.True(t, requiresConfirmation(report))
+	require.True(t, isActionable(selectedpreview.CommandSave, selectedpreview.Item{PlannedAction: selectedpreview.PlannedActionWouldSave}))
+	require.True(t, isActionable(selectedpreview.CommandSave, selectedpreview.Item{PlannedAction: selectedpreview.PlannedActionWouldPromote}))
+	require.True(t, isActionable(selectedpreview.CommandApply, selectedpreview.Item{PlannedAction: selectedpreview.PlannedActionWouldApply}))
 
 	attachReportError(report, "safe.code", "safe message", map[string]any{"flag": "--yes"})
 	require.Equal(t, selectedpreview.SummaryError, report.Summary.Status)

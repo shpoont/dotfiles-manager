@@ -253,8 +253,8 @@ settings:
 - `git:user.name`
 
 It manages only `~/.gitconfig` `[user] email` and `[user] name`. It does not
-manage credential helpers, tokens, signing keys, includes, aliases, or
-repository-local `.git/config`.
+manage credential helpers, tokens, signing keys, includes, URL rewrites,
+aliases, arbitrary sections, or repository-local `.git/config`.
 
 Until the v2 `add` command ships, select Git in a profile layer:
 
@@ -269,7 +269,9 @@ selections:
         scope: user
 ```
 
-Then use the existing selected-value commands:
+Then use the existing selected-value commands. `save --yes` is the supported
+import/promotion command for selected Git identity values: it copies the
+selected live value into v2 desired state after you first preview it.
 
 ```bash
 dotfiles-manager status --user-id leon git:user.email
@@ -280,11 +282,30 @@ dotfiles-manager apply --dry-run --user-id leon git:user.email
 dotfiles-manager apply --yes --user-id leon git:user.email
 ```
 
-`save --yes` copies the selected live value from `~/.gitconfig` into:
+When no desired artifact exists and the selected live Git value exists,
+`save --dry-run` reports `action=would-promote`. That means the value can be
+promoted into managed desired state with `save --yes`; normal CLI output still
+omits the raw value.
+
+`save --yes` copies the selected live value from `~/.gitconfig` into the desired
+settings artifact for that profile subject. For user-scoped Git settings the
+path is:
 
 ```text
-desired/user/leon/targets/git/settings.yaml
+desired/user/<user>/targets/git/settings.yaml
 ```
+
+For example, `--user-id leon` writes
+`desired/user/leon/targets/git/settings.yaml`.
+
+Inspecting that desired file directly can reveal the raw safe identity value
+such as an email address or display name. The raw value is stored there because
+the manager needs an actual desired value to apply later. Normal command output,
+reports, ledgers, backup metadata, and JSON previews stay redacted.
+
+Promotion applies only to the selected safe Git identity key. Repeat the
+preview-and-save flow for both `git:user.email` and `git:user.name` if you want
+to manage both values.
 
 `apply --yes` writes the desired value back to `~/.gitconfig` after planning,
 backup, write, and verification. The backup is a local whole-file pre-apply

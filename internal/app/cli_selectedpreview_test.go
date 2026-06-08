@@ -174,6 +174,21 @@ func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	require.NotContains(t, stdout, "current@example.com")
 	require.NotContains(t, stdout, helperSecret)
 
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, "save", payload["command"])
+	require.Equal(t, true, payload["dryRun"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "changed", summary["status"])
+	require.Equal(t, float64(1), summary["saved"])
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	require.Equal(t, "would-promote", item["plannedAction"])
+	require.Contains(t, item["message"], "promoted into desired state")
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, helperSecret)
+
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
 	require.Equal(t, "save", payload["command"])
@@ -227,6 +242,30 @@ func TestV2BundledGitCredentialHelperSelectionIsUnsupported(t *testing.T) {
 	diagnostics := item["diagnostics"].([]any)
 	require.Equal(t, "selectedpreview.resource.unknown", diagnostics[0].(map[string]any)["code"])
 	require.NotContains(t, stdout, "credential-helper-secret")
+}
+
+func TestV2BundledGitPromotionBlocksOnCaseAmbiguousConfig(t *testing.T) {
+	fixture := setupCLIV2BundledGitFixture(t)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "git", "settings.yaml")
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[User]\n\tEmail = raw-case@example.com\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
+	require.Error(t, err)
+	require.Equal(t, "save", payload["command"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "error", summary["status"])
+	errorObj := payload["error"].(map[string]any)
+	require.Equal(t, "selectedlive.planBlocked", errorObj["code"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "blocked-safety", item["state"])
+	require.Empty(t, item["plannedAction"])
+	diagnostics := item["diagnostics"].([]any)
+	require.Equal(t, "selectedvalue.driver.invalid-selector", diagnostics[0].(map[string]any)["code"])
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, "raw-case@example.com")
 }
 
 type cliV2SelectedPreviewFixture struct {

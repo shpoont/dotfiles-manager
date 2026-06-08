@@ -668,7 +668,7 @@ func requiresConfirmation(report *selectedpreview.Report) bool {
 		return false
 	}
 	for _, item := range report.Items {
-		if item.PlannedAction == "would-save" || item.PlannedAction == "would-apply" {
+		if selectedpreview.IsSavePlannedAction(item.PlannedAction) || item.PlannedAction == selectedpreview.PlannedActionWouldApply {
 			return true
 		}
 	}
@@ -678,9 +678,9 @@ func requiresConfirmation(report *selectedpreview.Report) bool {
 func isActionable(command string, item selectedpreview.Item) bool {
 	switch command {
 	case selectedpreview.CommandSave:
-		return item.PlannedAction == "would-save"
+		return selectedpreview.IsSavePlannedAction(item.PlannedAction)
 	case selectedpreview.CommandApply:
-		return item.PlannedAction == "would-apply"
+		return item.PlannedAction == selectedpreview.PlannedActionWouldApply
 	default:
 		return false
 	}
