@@ -2,6 +2,8 @@ package tomldriver
 
 import (
 	"encoding/json"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +62,315 @@ func TestDriverReadNormalizePreviewApplyAndVerifySelectedScalar(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, verify.Verified)
 	require.Equal(t, filedriver.ChangeUnchanged, verify.Change.Kind)
+}
+
+func TestDriverAdditionalSafetyAndErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	driver := Driver{}
+
+	t.Run("detect missing and non regular paths", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		_, err := driver.Detect(Request{Target: filedriver.Target{LocationID: "config", Root: root, RelPath: "../bad.toml"}, Selector: Selector{Path: []string{"email"}}})
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+
+		detection, err := driver.Detect(request(root, Selector{Path: []string{"email"}}))
+		require.NoError(t, err)
+		require.False(t, detection.Exists)
+		require.False(t, detection.Readable)
+
+		require.NoError(t, os.Mkdir(filepath.Join(root, "config.toml"), 0o755))
+		_, err = driver.Detect(request(root, Selector{Path: []string{"email"}}))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+		_, err = driver.ReadCurrent(request(root, Selector{Path: []string{"email"}}))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+	})
+
+	t.Run("scalar normalization edge cases", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []any{int(1), int8(2), int16(3), int32(4), int64(5), uint(6), uint8(7), uint16(8), uint32(9), float32(1.25), float64(2.5)} {
+			state, err := driver.NormalizeValue(value)
+			require.NoError(t, err)
+			require.True(t, state.Exists)
+			require.NotEmpty(t, state.SHA256)
+		}
+
+		_, err := driver.NormalizeValue(uint64(math.MaxInt64) + 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "int64 range")
+		_, err = driver.NormalizeValue(math.NaN())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "finite")
+		_, err = driver.NormalizeValue(math.Inf(1))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "finite")
+		_, err = driver.NormalizeValue(func() {})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported TOML selected scalar type")
+		_, err = driver.Normalize([]byte(`true false`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "trailing JSON data")
+		_, err = driver.Normalize([]byte(`42`))
+		require.NoError(t, err)
+		_, err = driver.Normalize([]byte(`1.25`))
+		require.NoError(t, err)
+		_, err = driver.NormalizeValue(json.Number("1e1000000"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "valid integer or finite float")
+		_, err = parseJSONScalar([]byte(`true {`))
+		require.Error(t, err)
+	})
+
+	t.Run("desired intent and verification failures", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		path := filepath.Join(root, "config.toml")
+		require.NoError(t, os.WriteFile(path, []byte("email = 'old@example.com'\n"), 0o644))
+
+		_, err := driver.PreviewApply(request(root, Selector{Path: []string{"email"}}), State{Exists: true, Value: []byte(`"new@example.com"`), Intent: IntentDelete})
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+		_, err = driver.PreviewApply(request(root, Selector{Path: []string{"email"}}), State{Exists: true, Value: []byte(`{`), Intent: IntentSet})
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+
+		_, err = driver.Verify(request(root, Selector{Path: []string{"email"}}), mustNormalize(t, driver, `"different@example.com"`))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeVerificationFailed), err.Error())
+		_, err = driver.Verify(Request{Target: filedriver.Target{LocationID: "config", Root: root, RelPath: "../bad.toml"}, Selector: Selector{Path: []string{"email"}}}, mustNormalize(t, driver, `"new@example.com"`))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+		_, err = driver.Verify(request(root, Selector{Path: []string{"email"}}), AbsentState())
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+
+		result, backup, err := driver.ApplyWithBackup(request(root, Selector{Path: []string{"email"}}), mustNormalize(t, driver, `"new@example.com"`), func(BackupRequest) (BackupResult, error) {
+			return BackupResult{}, errors.New("safe backup failure")
+		})
+		require.Error(t, err)
+		require.False(t, result.Mutated)
+		require.Nil(t, backup)
+		requireTOMLFile(t, path, "email = 'old@example.com'\n")
+	})
+
+	t.Run("restore hook contract", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		req := request(root, Selector{Path: []string{"email"}})
+
+		err := driver.Restore(Request{Target: filedriver.Target{LocationID: "config", Root: root, RelPath: "../bad.toml"}, Selector: Selector{Path: []string{"email"}}}, BackupResult{ID: "backup"}, nil)
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+
+		err = driver.Restore(req, BackupResult{ID: "backup"}, nil)
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsupported), err.Error())
+
+		called := false
+		err = driver.Restore(req, BackupResult{ID: "backup"}, func(restore RestoreRequest) error {
+			called = true
+			require.Equal(t, "backup", restore.Backup.ID)
+			require.Equal(t, filepath.Join(root, "config.toml"), restore.Path)
+			return nil
+		})
+		require.NoError(t, err)
+		require.True(t, called)
+	})
+
+	t.Run("low level helpers fail closed", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		inside := filepath.Join(root, "inside.toml")
+		require.NoError(t, ensureInside(root, inside))
+		require.Error(t, ensureInside(root, filepath.Join(t.TempDir(), "outside.toml")))
+
+		data, err := marshalDocument(nil)
+		require.NoError(t, err)
+		require.Nil(t, data)
+
+		parsed, err := parseTOMLDocument([]byte(""))
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{}, parsed)
+
+		missing, err := readRawFile(filepath.Join(root, "missing.toml"))
+		require.NoError(t, err)
+		require.Nil(t, missing)
+
+		existingFile := filepath.Join(root, "existing.toml")
+		require.NoError(t, os.WriteFile(existingFile, []byte("email = 'old@example.com'\n"), 0o600))
+		err = writeFileAtomic(existingFile, []byte("email = 'new@example.com'\n"))
+		require.NoError(t, err)
+		requireTOMLFile(t, existingFile, "email = 'new@example.com'\n")
+		info, err := os.Stat(existingFile)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+		err = writeFileAtomic(filepath.Join(root, "missing-parent", "config.toml"), []byte("email = 'x'\n"))
+		require.Error(t, err)
+		dirPath := filepath.Join(root, "dir")
+		require.NoError(t, os.Mkdir(dirPath, 0o755))
+		err = writeFileAtomic(dirPath, []byte("email = 'x'\n"))
+		require.Error(t, err)
+
+		require.True(t, filedriver.IsCode(classifyOSError("read", "missing", os.ErrNotExist), filedriver.CodeNotFound))
+		require.True(t, filedriver.IsCode(classifyOSError("read", "denied", os.ErrPermission), filedriver.CodePermissionDenied))
+		require.True(t, filedriver.IsCode(classifyOSError("read", "internal", errors.New("boom")), filedriver.CodeInternal))
+	})
+
+	t.Run("direct selector mutation helpers fail closed", func(t *testing.T) {
+		t.Parallel()
+
+		created, err := setSelected(map[string]any{}, Selector{Path: []string{"user", "email"}, CreateMissing: CreatePolicyCreate}, "new@example.com")
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"user": map[string]any{"email": "new@example.com"}}, created)
+
+		_, err = setSelected(nil, Selector{Path: []string{"email"}}, "new@example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing TOML document")
+		_, err = setSelected("not-a-table", Selector{Path: []string{"email"}, CreateMissing: CreatePolicyCreate}, "new@example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "selector root requires table document")
+		_, err = setSelected(map[string]any{}, Selector{Path: []string{"email"}}, "new@example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing selected path")
+		_, err = setSelected(map[string]any{"user": "flat"}, Selector{Path: []string{"user", "email"}, CreateMissing: CreatePolicyCreate}, "new@example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "requires table container")
+		_, err = setSelected(map[string]any{}, Selector{Path: []string{"user", "email"}}, "new@example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing selector container")
+		_, err = setSelected(map[string]any{"email": []any{"old"}}, Selector{Path: []string{"email"}, CreateMissing: CreatePolicyCreate}, "new@example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "existing selected value")
+		_, err = setSelected(map[string]any{}, Selector{Path: []string{"email"}, CreateMissing: CreatePolicyCreate}, []any{"new"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "desired selected value")
+
+		deleted, err := deleteSelected(nil, Selector{Path: []string{"email"}, DeleteKey: DeletePolicyAllow})
+		require.NoError(t, err)
+		require.Nil(t, deleted)
+		deleted, err = deleteSelected(map[string]any{"user": map[string]any{}}, Selector{Path: []string{"user", "email"}, DeleteKey: DeletePolicyAllow})
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"user": map[string]any{}}, deleted)
+		deleted, err = deleteSelected(map[string]any{"missing": "kept"}, Selector{Path: []string{"user", "email"}, DeleteKey: DeletePolicyAllow})
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"missing": "kept"}, deleted)
+
+		_, err = deleteSelected(map[string]any{"email": "old@example.com"}, Selector{Path: []string{"email"}})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "delete intent requires")
+		_, err = deleteSelected("not-a-table", Selector{Path: []string{"email"}, DeleteKey: DeletePolicyAllow})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "selector root requires table document")
+		_, err = deleteSelected(map[string]any{"user": "flat"}, Selector{Path: []string{"user", "email"}, DeleteKey: DeletePolicyAllow})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "requires table container")
+		_, err = deleteSelected(map[string]any{"email": []any{"old"}}, Selector{Path: []string{"email"}, DeleteKey: DeletePolicyAllow})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "selected value")
+	})
+
+	t.Run("render backup restore and write branches", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := parseDesiredScalar([]byte(`null`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "null")
+		_, err = parseDesiredScalar([]byte(`["array"]`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "arrays are unsupported")
+		_, err = parseDesiredScalar([]byte(`true false`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "trailing JSON data")
+		_, err = selectScalar("not-a-table", Selector{Path: []string{"email"}})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "requires table container")
+
+		missingRoot := t.TempDir()
+		createReq := request(missingRoot, Selector{Path: []string{"email"}, CreateMissing: CreatePolicyCreate})
+		backup, err := driver.Backup(createReq, nil)
+		require.NoError(t, err)
+		require.Equal(t, "noop", backup.ID)
+		require.False(t, backup.Before.Exists)
+
+		deleteReq := request(missingRoot, Selector{Path: []string{"email"}, DeleteKey: DeletePolicyAllow})
+		rendered, err := driver.renderDesired(deleteReq, DeleteState())
+		require.NoError(t, err)
+		require.Nil(t, rendered)
+		_, err = driver.renderDesired(createReq, AbsentState())
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+		_, err = driver.renderDesired(Request{Target: filedriver.Target{LocationID: "config", Root: missingRoot, RelPath: "../bad.toml"}, Selector: Selector{Path: []string{"email"}}}, DeleteState())
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+
+		invalidRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(invalidRoot, "config.toml"), []byte("[broken\n"), 0o644))
+		_, err = driver.renderDesired(request(invalidRoot, Selector{Path: []string{"email"}, CreateMissing: CreatePolicyCreate}), mustNormalize(t, driver, `"new@example.com"`))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+
+		unchangedRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(unchangedRoot, "config.toml"), []byte("email = 'same@example.com'\n"), 0o644))
+		hookCalled := false
+		applied, backupPtr, err := driver.ApplyWithBackup(request(unchangedRoot, Selector{Path: []string{"email"}}), mustNormalize(t, driver, `"same@example.com"`), func(BackupRequest) (BackupResult, error) {
+			hookCalled = true
+			return BackupResult{ID: "unexpected"}, nil
+		})
+		require.NoError(t, err)
+		require.False(t, applied.Mutated)
+		require.Nil(t, backupPtr)
+		require.False(t, hookCalled)
+
+		backupRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(backupRoot, "config.toml"), []byte("email = 'old@example.com'\n"), 0o644))
+		backup, err = driver.Backup(request(backupRoot, Selector{Path: []string{"email"}}), func(BackupRequest) (BackupResult, error) {
+			return BackupResult{ID: "filled-by-driver"}, nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, "filled-by-driver", backup.ID)
+		require.True(t, backup.Before.Exists)
+		require.NotEmpty(t, backup.Before.SHA256)
+
+		err = driver.Restore(request(backupRoot, Selector{Path: []string{"email"}}), BackupResult{ID: "restore"}, func(RestoreRequest) error {
+			return errors.New("restore failed")
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "restore failed")
+
+		writeRoot := t.TempDir()
+		err = writeTarget(filedriver.Target{LocationID: "config", Root: writeRoot, RelPath: "nested/config.toml"}, []byte("email = 'new@example.com'\n"))
+		require.NoError(t, err)
+		requireTOMLFile(t, filepath.Join(writeRoot, "nested", "config.toml"), "email = 'new@example.com'\n")
+		err = writeTarget(filedriver.Target{LocationID: "config", Root: writeRoot, RelPath: "../bad.toml"}, []byte("email = 'new@example.com'\n"))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+
+		dirRoot := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dirRoot, "config.toml"), 0o755))
+		err = writeTarget(request(dirRoot, Selector{Path: []string{"email"}}).Target, []byte("email = 'new@example.com'\n"))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeInvalidSelector), err.Error())
+
+		brokenSymlinkRoot := t.TempDir()
+		require.NoError(t, os.Symlink(filepath.Join(brokenSymlinkRoot, "missing.toml"), filepath.Join(brokenSymlinkRoot, "config.toml")))
+		err = writeTarget(request(brokenSymlinkRoot, Selector{Path: []string{"email"}}).Target, []byte("email = 'new@example.com'\n"))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeNotFound), err.Error())
+
+		outsideRoot := t.TempDir()
+		outsidePath := filepath.Join(outsideRoot, "outside.toml")
+		require.NoError(t, os.WriteFile(outsidePath, []byte("email = 'old@example.com'\n"), 0o644))
+		outsideSymlinkRoot := t.TempDir()
+		require.NoError(t, os.Symlink(outsidePath, filepath.Join(outsideSymlinkRoot, "config.toml")))
+		err = writeTarget(request(outsideSymlinkRoot, Selector{Path: []string{"email"}}).Target, []byte("email = 'new@example.com'\n"))
+		require.Error(t, err)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeUnsafePath), err.Error())
+	})
 }
 
 func TestDriverSupportsScalarTypesAndRejectsUnsupportedLeaves(t *testing.T) {
