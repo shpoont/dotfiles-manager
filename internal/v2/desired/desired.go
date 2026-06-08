@@ -13,6 +13,7 @@ import (
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
+	"github.com/shpoont/dotfiles-manager/internal/v2/secretpolicy"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
 	"gopkg.in/yaml.v3"
 )
@@ -88,6 +89,14 @@ func Unmanaged() SelectedValue {
 
 func (v SelectedValue) Intent() string { return v.intent }
 func (v SelectedValue) Kind() string   { return v.kind }
+
+func (v SelectedValue) String() string {
+	return fmt.Sprintf("SelectedValue{intent:%s kind:%s value:<redacted>}", defaultString(v.intent, "<unset>"), defaultString(v.kind, "<none>"))
+}
+
+func (v SelectedValue) GoString() string {
+	return v.String()
+}
 
 func (v SelectedValue) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]string{"intent": v.intent, "kind": v.kind})
@@ -776,7 +785,24 @@ func validateWriteSafety(resolved ResolvedURI, value SelectedValue, decision *Wr
 	if len(diagnostics) > 0 {
 		return &SafetyError{Diagnostics: diagnostics}
 	}
+	if finding, ok := detectSecretValue(value, decision.Recipe.Target+":"+settingID, settingID, resourceID); ok {
+		add("desired.writeSafety.secretDetected", "$.values."+settingID+".value", fmt.Sprintf("selected-value persistence blocked by secret detection policy: %s/%s", finding.Category, finding.PatternID))
+	}
+	if len(diagnostics) > 0 {
+		return &SafetyError{Diagnostics: diagnostics}
+	}
 	return nil
+}
+
+func detectSecretValue(value SelectedValue, settingRef string, settingID string, resourceID string) (secretpolicy.Finding, bool) {
+	if value.intent != IntentSet || value.kind != KindString {
+		return secretpolicy.Finding{}, false
+	}
+	raw, ok := value.value.(string)
+	if !ok {
+		return secretpolicy.Finding{}, false
+	}
+	return secretpolicy.Detect(secretpolicy.Input{Value: raw, SettingRef: settingRef, SettingID: settingID, ResourceID: resourceID})
 }
 
 func addSensitivityDiagnostics(add func(string, string, string), value string, path string, subject string, ctx recipe.WriteSafetyContext) {
