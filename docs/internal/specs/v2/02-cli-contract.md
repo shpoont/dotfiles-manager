@@ -382,9 +382,17 @@ dotfiles-manager apply
 ### Save one Git value
 
 ```bash
-dotfiles-manager status git:user.email
-dotfiles-manager save git:user.email --scope user
+dotfiles-manager status --user-id leon git:user.email
+dotfiles-manager save --dry-run --user-id leon git:user.email
+dotfiles-manager save --yes --user-id leon git:user.email
 ```
+
+For the current MVP tranche, `git:user.email` and `git:user.name` are selected
+through profile YAML before the user-facing `add` command is implemented. The
+bundled Git runtime manages only `~/.gitconfig` `[user] email` and `[user] name`.
+Credential helpers, tokens, signing keys, includes, aliases, and
+repository-local `.git/config` remain unsupported and must fail closed if
+selected explicitly.
 
 ### Command-neutral status with no baseline
 

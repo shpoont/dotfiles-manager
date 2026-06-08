@@ -35,7 +35,6 @@ func TestRecipeExplainGitJSONIsMetadataOnly(t *testing.T) {
 
 	out := stdout.String()
 	require.NotContains(t, out, "secret@example.com")
-	require.NotContains(t, out, "credential.helper")
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
@@ -59,6 +58,7 @@ func TestRecipeExplainGitJSONIsMetadataOnly(t *testing.T) {
 	safety := recipeExplain["safety"].(map[string]any)
 	doNotManage := safety["doNotManage"].([]any)
 	require.Contains(t, doNotManage, "[credential] sections")
+	require.Contains(t, doNotManage, "credential.helper")
 	require.Contains(t, doNotManage, "include and includeIf expansion")
 }
 

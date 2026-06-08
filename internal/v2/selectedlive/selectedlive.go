@@ -328,26 +328,27 @@ func selectedValueBackupHook(store *v2ledger.Store, runID string, started time.T
 }
 
 func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting) (*recipe.Recipe, string, recipe.WriteSafetyContext, string, recipe.Resource, error) {
-	rec, err := recipe.LoadLocal(repoRoot, setting.TargetID)
+	runtime, err := recipe.LoadRuntime(repoRoot, setting.TargetID)
 	if err != nil {
-		return nil, recipe.RecipeSourceLocal, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
+		return nil, runtime.Source, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
 	}
+	rec := runtime.Recipe
 	resourceID, resource, err := rec.ResourceForSetting(setting.SettingID)
 	if err != nil {
-		return rec, recipe.RecipeSourceLocal, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
+		return rec, runtime.Source, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
 	}
-	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, recipe.RecipeSourceLocal, rec)
+	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, runtime.Source, rec)
 	if err != nil {
-		return rec, recipe.RecipeSourceLocal, recipe.WriteSafetyContext{}, resourceID, resource, err
+		return rec, runtime.Source, recipe.WriteSafetyContext{}, resourceID, resource, err
 	}
 	if eval.Status != recipe.TrustStatusTrusted {
-		return rec, recipe.RecipeSourceLocal, recipe.WriteSafetyContext{}, resourceID, resource, fmt.Errorf("recipe trust is not trusted")
+		return rec, runtime.Source, recipe.WriteSafetyContext{}, resourceID, resource, fmt.Errorf("recipe trust is not trusted")
 	}
 	ctx := eval.WriteSafetyContext(recipe.WriteSafetyContext{})
 	if err := rec.ValidateWriteSafety(ctx); err != nil {
-		return rec, recipe.RecipeSourceLocal, ctx, resourceID, resource, err
+		return rec, runtime.Source, ctx, resourceID, resource, err
 	}
-	return rec, recipe.RecipeSourceLocal, ctx, resourceID, resource, nil
+	return rec, runtime.Source, ctx, resourceID, resource, nil
 }
 
 func normalizeSelectedValueItem(item v2ledger.ItemRecord) v2ledger.ItemRecord {

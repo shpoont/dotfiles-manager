@@ -50,12 +50,13 @@ resources:
 	require.Contains(t, text, "git:user.email")
 	require.Contains(t, text, "selector=[user] email")
 	require.Contains(t, text, "do not manage: [credential] sections")
-	require.NotContains(t, text, "credential.helper")
+	require.Contains(t, text, "do not manage: credential.helper")
+	require.NotContains(t, text, "Local Git Collision")
 
 	payload, err := ExplainJSON(report)
 	require.NoError(t, err)
 	require.Contains(t, payload, `"command": "recipe.explain"`)
-	require.NotContains(t, payload, "credential.helper")
+	require.NotContains(t, payload, "Local Git Collision")
 
 	custom, err := Explain(ExplainOptions{Target: CustomFilesTarget, RepoRoot: root})
 	require.NoError(t, err)

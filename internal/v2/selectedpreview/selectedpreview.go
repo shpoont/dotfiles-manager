@@ -407,9 +407,11 @@ func filterSettings(settings []resolution.ResolvedSetting, ref parsedRef) []reso
 func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, setting resolution.ResolvedSetting, roots map[string]map[string]string) Item {
 	item := Item{TargetRef: setting.TargetID, SettingRef: setting.Ref(), Scope: setting.Scope, Subject: setting.Subject, SourceLayer: setting.SourceLayer, DesiredURI: setting.DesiredURI, DesiredRelPath: filepath.ToSlash(setting.DesiredRelPath), State: v2status.StateUnknown, DryRun: dryRun, Mutated: false, Diagnostics: []Diagnostic{}}
 
-	rec, source, blocked := loadRuntimeRecipe(repoRoot, setting.TargetID)
-	item.Recipe.Source = source
-	item.Recipe.RecipeRef = recipeRef(source, setting.TargetID)
+	runtime, blocked := loadRuntimeRecipe(repoRoot, setting.TargetID)
+	rec := runtime.Recipe
+	item.Recipe.Source = runtime.Source
+	item.Recipe.RecipeRef = runtime.RecipeRef
+	item.Recipe.TrustStatus = runtime.TrustStatus
 	if len(blocked) > 0 {
 		for _, diagnostic := range blocked {
 			item.Diagnostics = append(item.Diagnostics, diagnostic.withRef(item.SettingRef))
@@ -432,11 +434,11 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		return finishBlocked(item, v2status.StateUnsupported, "Resource driver is not supported by selected-value preview.")
 	}
 
-	trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, source, rec)
+	trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
 	item.Recipe.TrustStatus = trustEval.Status
 	if trustEval.Status != recipe.TrustStatusTrusted {
 		for _, diagnostic := range trustEval.Diagnostics {
-			item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(diagnostic, item.SettingRef, source, resourceID, resource.Driver))
+			item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(diagnostic, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 		}
 		if len(item.Diagnostics) == 0 {
 			item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "selected-value preview requires trusted recipe evidence before live reads", item.SettingRef))
@@ -446,7 +448,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 
 	if err := rec.ValidateWriteSafety(trustContext); err != nil {
 		for _, validation := range recipe.ValidationDiagnostics(err) {
-			item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, source, resourceID, resource.Driver))
+			item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 		}
 		return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks selected-value preview.")
 	}
@@ -514,19 +516,25 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	return item
 }
 
-func loadRuntimeRecipe(repoRoot string, targetID string) (*recipe.Recipe, string, []Diagnostic) {
-	if _, bundled := recipe.LookupBundledTarget(targetID); bundled {
-		return nil, recipe.RecipeSourceBundled, []Diagnostic{diagnostic("selectedpreview.recipe.bundledRuntimeUnavailable", SeverityError, fmt.Sprintf("bundled runtime recipe for %s is not implemented until a later issue", targetID), targetID)}
-	}
-	rec, err := recipe.LoadLocal(repoRoot, targetID)
+func loadRuntimeRecipe(repoRoot string, targetID string) (recipe.RuntimeRecipe, []Diagnostic) {
+	runtime, err := recipe.LoadRuntime(repoRoot, targetID)
 	if err != nil {
 		code := "selectedpreview.recipe.notFound"
-		if !errors.Is(err, os.ErrNotExist) {
+		switch {
+		case errors.Is(err, recipe.ErrBundledRuntimeUnavailable):
+			code = "selectedpreview.recipe.bundledRuntimeUnavailable"
+		case !errors.Is(err, os.ErrNotExist):
 			code = "selectedpreview.recipe.invalid"
 		}
-		return nil, recipe.RecipeSourceLocal, []Diagnostic{diagnostic(code, SeverityError, err.Error(), targetID)}
+		if runtime.Source == "" {
+			runtime.Source = recipe.RecipeSourceLocal
+		}
+		if runtime.RecipeRef == "" {
+			runtime.RecipeRef = recipeRef(runtime.Source, targetID)
+		}
+		return runtime, []Diagnostic{diagnostic(code, SeverityError, err.Error(), targetID)}
 	}
-	return rec, recipe.RecipeSourceLocal, nil
+	return runtime, nil
 }
 
 func recipeRef(source string, targetID string) string {

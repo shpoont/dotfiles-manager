@@ -154,6 +154,81 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	require.NotContains(t, stdout, "changed-live@example.com")
 }
 
+func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
+	fixture := setupCLIV2BundledGitFixture(t)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "git", "settings.yaml")
+	helperSecret := "credential-helper-secret"
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = current@example.com\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, "status", payload["command"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "git:user.email", item["settingRef"])
+	recipeInfo := item["recipe"].(map[string]any)
+	require.Equal(t, "bundled", recipeInfo["source"])
+	require.Equal(t, "recipe://bundled/git", recipeInfo["recipeRef"])
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, helperSecret)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, "save", payload["command"])
+	require.FileExists(t, desiredPath)
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, helperSecret)
+
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = changed@example.com\n")
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"diff", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, "diff", payload["command"])
+	items = payload["items"].([]any)
+	diffInfo := items[0].(map[string]any)["diff"].(map[string]any)
+	require.Equal(t, "metadata-only", diffInfo["mode"])
+	require.NotContains(t, stdout, "changed@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, helperSecret)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"))), "changed@example.com")
+	require.NotContains(t, stdout, "changed@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, "apply", payload["command"])
+	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"))), "current@example.com")
+	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"))), helperSecret)
+	require.NotContains(t, stdout, "changed@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, helperSecret)
+}
+
+func TestV2BundledGitCredentialHelperSelectionIsUnsupported(t *testing.T) {
+	fixture := setupCLIV2BundledGitFixture(t)
+	setCWD(t, fixture.repoRoot)
+	writeCLIFile(t, filepath.Join(fixture.repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  git:\n    settings:\n      credential.helper:\n        scope: user\n")
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = credential-helper-secret\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "git:credential.helper"})
+	require.NoError(t, err)
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "blocked", summary["status"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "unsupported", item["state"])
+	diagnostics := item["diagnostics"].([]any)
+	require.Equal(t, "selectedpreview.resource.unknown", diagnostics[0].(map[string]any)["code"])
+	require.NotContains(t, stdout, "credential-helper-secret")
+}
+
 type cliV2SelectedPreviewFixture struct {
 	repoRoot string
 	liveRoot string
@@ -183,6 +258,16 @@ func setupCLIV2SelectedPreviewFixture(t *testing.T, trusted bool, withDesired bo
 		require.NoError(t, err)
 	}
 	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, liveRoot: liveRoot, homeDir: homeDir}
+}
+
+func setupCLIV2BundledGitFixture(t *testing.T) cliV2SelectedPreviewFixture {
+	t.Helper()
+	homeDir := setTempHome(t)
+	repoRoot := t.TempDir()
+	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  git:\n    settings:\n      user.email:\n        scope: user\n")
+	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
 }
 
 func cliSelectedPreviewRecipeBody(liveRoot string) string {

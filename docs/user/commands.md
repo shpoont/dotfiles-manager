@@ -10,6 +10,12 @@ dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
 dotfiles-manager [--config <path>] migrate [--dry-run] [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager recipe list [--json]
+dotfiles-manager recipe explain <target> [--json]
 ```
 
 Config is resolved in this order:
@@ -19,6 +25,12 @@ Config is resolved in this order:
 
 No parent-directory config search is performed.
 `version`/`--version` do not require config resolution.
+
+For v2 selected-setting commands, `--config` must point at
+`dotfiles-manager.v2.yaml`. If no v1 `.dotfiles-manager.yaml` exists and the
+current directory is inside a v2 root, `status` and `diff` can auto-detect the
+v2 root. Live `save` and `apply` require a v2 root and require `--yes` before a
+planned write is performed.
 
 Log file destination:
 - default paths:
@@ -231,6 +243,53 @@ MODE: MIGRATE (writes generated output only)
 migration run=<run-id> config=/repo/.dotfiles-manager.yaml
 output: /repo/migrations/v1-to-v2/<run-id>
 ```
+
+## v2 selected settings: Git identity example
+
+The first bundled v2 app recipe is `git`, limited to non-credential identity
+settings:
+
+- `git:user.email`
+- `git:user.name`
+
+It manages only `~/.gitconfig` `[user] email` and `[user] name`. It does not
+manage credential helpers, tokens, signing keys, includes, aliases, or
+repository-local `.git/config`.
+
+Until the v2 `add` command ships, select Git in a profile layer:
+
+```yaml
+# profiles/layers/global.yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  git:
+    settings:
+      user.email:
+        scope: user
+```
+
+Then use the existing selected-value commands:
+
+```bash
+dotfiles-manager status --user-id leon git:user.email
+dotfiles-manager save --dry-run --user-id leon git:user.email
+dotfiles-manager save --yes --user-id leon git:user.email
+dotfiles-manager diff --user-id leon git:user.email
+dotfiles-manager apply --dry-run --user-id leon git:user.email
+dotfiles-manager apply --yes --user-id leon git:user.email
+```
+
+`save --yes` copies the selected live value from `~/.gitconfig` into:
+
+```text
+desired/user/leon/targets/git/settings.yaml
+```
+
+`apply --yes` writes the desired value back to `~/.gitconfig` after planning,
+backup, write, and verification. The backup is a local whole-file pre-apply
+backup under the manager's local state directory; normal output, ledgers, and
+backup metadata do not show raw Git config values.
 
 ## `[path]` scoping
 

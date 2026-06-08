@@ -63,6 +63,58 @@ func TestApplyChangedBacksUpMutatesVerifiesAndAppendsLedgerWithoutRawMetadata(t 
 	require.Equal(t, "verified", result.Report.Items[0].Mutation.Result)
 }
 
+func TestBundledGitApplyUsesSelectedIdentityOnlyAndKeepsCredentialDataLocalToBackupPayload(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	home := t.TempDir()
+	stateRoot := t.TempDir()
+	helperSecret := "credential-helper-secret"
+	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  git:\n    settings:\n      user.email:\n        scope: user\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "desired", "user", "leon", "targets", "git", "settings.yaml"), "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  user.email:\n    intent: set\n    kind: string\n    value: new@example.com\n")
+	writeLiveFile(t, filepath.Join(home, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = old@example.com\n")
+
+	result, err := Run(Options{
+		Command:   selectedpreview.CommandApply,
+		RepoRoot:  repoRoot,
+		StateRoot: stateRoot,
+		Ref:       "git:user.email",
+		UserID:    "leon",
+		Confirmed: true,
+		RunID:     "run-git-apply",
+		LocationRoots: map[string]map[string]string{
+			recipe.GitTarget: {"home": home},
+		},
+		Now: func() time.Time {
+			return time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.RunRecord)
+	require.NotNil(t, result.Backup)
+	require.Contains(t, readFile(t, filepath.Join(home, ".gitconfig")), "new@example.com")
+	require.Contains(t, readFile(t, filepath.Join(home, ".gitconfig")), helperSecret)
+	require.Equal(t, v2ledger.ItemResultVerified, result.RunRecord.Items[0].Result)
+	require.Equal(t, recipe.IniFileDriverID, result.RunRecord.Items[0].Driver)
+
+	reportJSON := mustJSON(t, result.Report)
+	runRecord := readFile(t, filepath.Join(stateRoot, "ledger", "runs", "run-git-apply.json"))
+	ledgerPayload := readFile(t, filepath.Join(stateRoot, "ledger", "ledger.jsonl"))
+	backupMetadata := readFile(t, filepath.Join(stateRoot, "backups", "run-git-apply", "backup.yaml"))
+	for _, payload := range []string{reportJSON, runRecord, ledgerPayload, backupMetadata} {
+		require.NotContains(t, payload, "old@example.com")
+		require.NotContains(t, payload, "new@example.com")
+		require.NotContains(t, payload, helperSecret)
+	}
+
+	payloadRel := result.Backup.Items[0].PayloadRelPath
+	backupPayload := readFile(t, filepath.Join(stateRoot, "backups", "run-git-apply", filepath.FromSlash(payloadRel)))
+	require.Contains(t, backupPayload, "old@example.com")
+	require.Contains(t, backupPayload, helperSecret)
+}
+
 func TestApplyNoopWritesRunRecordButNoLedgerEntry(t *testing.T) {
 	t.Parallel()
 
