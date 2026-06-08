@@ -14,8 +14,11 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/config"
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/shpoont/dotfiles-manager/internal/logging"
+	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
+	v2resolution "github.com/shpoont/dotfiles-manager/internal/v2/resolution"
+	v2selectedpreview "github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
 	"github.com/spf13/cobra"
 )
 
@@ -59,6 +62,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newDeployCmd(opts))
 	rootCmd.AddCommand(newImportCmd(opts))
 	rootCmd.AddCommand(newDiffCmd(opts))
+	rootCmd.AddCommand(newSaveCmd(opts))
+	rootCmd.AddCommand(newApplyCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))
 	rootCmd.AddCommand(newRecipeCmd(opts))
 
@@ -80,9 +85,10 @@ func newVersionCmd() *cobra.Command {
 func newStatusCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
+	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "status [path]",
+		Use:   "status [path-or-ref]",
 		Short: "Show drift and candidate operations",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -91,6 +97,7 @@ func newStatusCmd(opts *rootOptions) *cobra.Command {
 				PathArg:    firstArg(args),
 				JSONOutput: jsonOutput,
 				DryRun:     dryRun,
+				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
@@ -98,6 +105,7 @@ func newStatusCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for status (validation error)")
 	_ = cmd.Flags().MarkHidden("dry-run")
+	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
 
@@ -155,9 +163,10 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	var direction string
 	var contextLines int
 	var includePatch bool
+	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "diff [path]",
+		Use:   "diff [path-or-ref]",
 		Short: "Show unified patch previews for candidate changes",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -169,6 +178,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 				Direction:    direction,
 				ContextLines: contextLines,
 				IncludePatch: includePatch,
+				V2:           selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
@@ -179,7 +189,60 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&includePatch, "patch", false, "Include patch body in JSON output")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for diff (validation error)")
 	_ = cmd.Flags().MarkHidden("dry-run")
+	addSelectedPreviewFlags(cmd, v2Flags)
 
+	return cmd
+}
+
+func newSaveCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+	v2Flags := &selectedPreviewFlagOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "save [ref]",
+		Short: "Preview saving selected v2 settings to desired artifacts",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSelectedPreviewRootCommand(cmd, opts, commandOptions{
+				Name:       "save",
+				PathArg:    firstArg(args),
+				JSONOutput: jsonOutput,
+				DryRun:     dryRun,
+				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value save without writing desired artifacts")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
+func newApplyCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+	v2Flags := &selectedPreviewFlagOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "apply [ref]",
+		Short: "Preview applying selected v2 settings to live state",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSelectedPreviewRootCommand(cmd, opts, commandOptions{
+				Name:       "apply",
+				PathArg:    firstArg(args),
+				JSONOutput: jsonOutput,
+				DryRun:     dryRun,
+				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value apply without writing live state")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
 
@@ -291,9 +354,53 @@ type commandOptions struct {
 	Direction    string
 	ContextLines int
 	IncludePatch bool
+	V2           selectedPreviewCommandOptions
+}
+
+type selectedPreviewFlagOptions struct {
+	machineID string
+	userID    string
+	profiles  []string
+}
+
+type selectedPreviewCommandOptions struct {
+	MachineID     string
+	UserID        string
+	Profiles      []string
+	FlagsUsed     bool
+	UsedFlagNames []string
+}
+
+func addSelectedPreviewFlags(cmd *cobra.Command, flags *selectedPreviewFlagOptions) {
+	cmd.Flags().StringVar(&flags.machineID, "machine-id", "", "v2 machine identity for selected-value preview")
+	cmd.Flags().StringVar(&flags.userID, "user-id", "", "v2 user identity for selected-value preview")
+	cmd.Flags().StringArrayVar(&flags.profiles, "profile", nil, "additional v2 profile layer for selected-value preview (repeatable)")
+}
+
+func selectedPreviewOptionsFromFlags(cmd *cobra.Command, flags *selectedPreviewFlagOptions) selectedPreviewCommandOptions {
+	if flags == nil {
+		return selectedPreviewCommandOptions{}
+	}
+	used := make([]string, 0, 3)
+	for _, name := range []string{"machine-id", "user-id", "profile"} {
+		if cmd.Flags().Changed(name) {
+			used = append(used, "--"+name)
+		}
+	}
+	return selectedPreviewCommandOptions{
+		MachineID:     flags.machineID,
+		UserID:        flags.userID,
+		Profiles:      append([]string(nil), flags.profiles...),
+		FlagsUsed:     len(used) > 0,
+		UsedFlagNames: used,
+	}
 }
 
 func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
+	if maybeHandled, err := maybeRunSelectedPreviewCommand(cmd, opts, commandOpts); maybeHandled || err != nil {
+		return err
+	}
+
 	pathInput, pathNormalized, pathErr := normalizeScopePath(commandOpts.PathArg)
 	configPathForErrors := explicitConfigPath(opts.configPath)
 	if pathErr != nil {
@@ -363,6 +470,17 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			}, err)
 			return err
 		}
+	}
+	if commandOpts.V2.FlagsUsed {
+		err := dfmerr.New(dfmerr.CodeFlagUnsupported, "v2 selected-value flags require v2 mode", map[string]any{"flags": commandOpts.V2.UsedFlagNames})
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:        commandOpts.Name,
+			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
+			PathInput:      pathInput,
+			PathNormalized: pathNormalized,
+		}, err)
+		return err
 	}
 
 	logPath, err := logging.ResolvePath(opts.logFile)
@@ -503,6 +621,126 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 
 	commandLogger.Info("command.complete")
 	return nil
+}
+
+func maybeRunSelectedPreviewCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) (bool, error) {
+	if commandOpts.Name != "status" && commandOpts.Name != "diff" {
+		return false, nil
+	}
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		if isExplicitV2Config(opts.configPath) {
+			repoRoot, err := repoRootFromExplicitV2Config(opts.configPath)
+			if err != nil {
+				return true, emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.config.invalid", err.Error(), nil)
+			}
+			return true, runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+		}
+		return false, nil
+	}
+
+	_, v1Err := config.ResolvePath(config.ResolveOptions{})
+	if v1Err == nil {
+		return false, nil
+	}
+	if dfmerr.MustCode(v1Err) != dfmerr.CodeConfigRequired {
+		return false, nil
+	}
+	repoRoot, err := v2resolution.FindRoot("")
+	if err != nil {
+		return false, nil
+	}
+	return true, runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+}
+
+func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
+	if commandOpts.Name != "save" && commandOpts.Name != "apply" {
+		return fmt.Errorf("unsupported selected-value root command: %s", commandOpts.Name)
+	}
+	if !commandOpts.DryRun {
+		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.liveWritesNotImplemented", fmt.Sprintf("%s requires --dry-run until selected-value live writes are implemented in #96", commandOpts.Name), map[string]any{"requiredFlag": "--dry-run"})
+	}
+
+	repoRoot, err := selectedPreviewRepoRoot(opts)
+	if err != nil {
+		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.root.notFound", err.Error(), nil)
+	}
+	return runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+}
+
+func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, repoRoot string) error {
+	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
+	if err != nil {
+		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.stateRoot.default", err.Error(), nil)
+	}
+	report, err := v2selectedpreview.Build(v2selectedpreview.Options{
+		Command:     commandOpts.Name,
+		RepoRoot:    repoRoot,
+		StateRoot:   stateRoot,
+		Ref:         commandOpts.PathArg,
+		MachineID:   commandOpts.V2.MachineID,
+		UserID:      commandOpts.V2.UserID,
+		ExtraLayers: commandOpts.V2.Profiles,
+		DryRun:      commandOpts.DryRun,
+	})
+	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func selectedPreviewRepoRoot(opts *rootOptions) (string, error) {
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		if !isExplicitV2Config(opts.configPath) {
+			return "", fmt.Errorf("--config for v2 selected-value %s must point to %s", "save/apply", v2resolution.RootConfigFile)
+		}
+		return repoRootFromExplicitV2Config(opts.configPath)
+	}
+	return v2resolution.FindRoot("")
+}
+
+func isExplicitV2Config(configPath string) bool {
+	return filepath.Base(strings.TrimSpace(configPath)) == v2resolution.RootConfigFile
+}
+
+func repoRootFromExplicitV2Config(configPath string) (string, error) {
+	trimmed := strings.TrimSpace(configPath)
+	if trimmed == "" {
+		return "", fmt.Errorf("config path is required")
+	}
+	abs, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("v2 config path is not a file: %s", abs)
+	}
+	if filepath.Base(abs) != v2resolution.RootConfigFile {
+		return "", fmt.Errorf("v2 config path must be named %s", v2resolution.RootConfigFile)
+	}
+	return filepath.Dir(abs), nil
+}
+
+func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Report, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2selectedpreview.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2selectedpreview.Text(report))
+	return err
+}
+
+func emitSelectedPreviewError(cmd *cobra.Command, commandOpts commandOptions, code string, message string, details map[string]any) error {
+	report := v2selectedpreview.ErrorReport(commandOpts.Name, commandOpts.DryRun, code, message, details)
+	_ = emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+	return &v2selectedpreview.Error{Code: code, Message: message, Exit: 2, Details: details}
 }
 
 func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
