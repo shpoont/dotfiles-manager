@@ -339,6 +339,215 @@ func TestDesiredFormattingDoesNotLeakRawValue(t *testing.T) {
 	}
 }
 
+func TestReadCurrentDesiredAndApplyWithBackupAcrossDrivers(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		driverID string
+		relPath  string
+		before   string
+		desired  Desired
+		want     string
+	}{
+		{name: "ini", driverID: recipe.IniFileDriverID, relPath: "config.ini", before: "[user]\nemail=old@example.com\n", desired: SetString("new@example.com"), want: "new@example.com"},
+		{name: "json", driverID: recipe.JSONFileDriverID, relPath: "config.json", before: `{"user":{"email":"old@example.com"}}`, desired: SetBool(true), want: `"email": true`},
+		{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", before: "user:\n  email: old@example.com\n", desired: SetNumber(json.Number("42")), want: "email: 42"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			rec := decodeSelectedValueRecipe(t, tc.driverID, tc.relPath)
+			require.NoError(t, os.WriteFile(filepath.Join(root, tc.relPath), []byte(tc.before), 0o644))
+
+			current, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+			require.NoError(t, err)
+			require.NotNil(t, current.Plan)
+			require.True(t, current.Plan.Current.Exists)
+			require.Equal(t, IntentSet, current.Desired.Intent())
+
+			var backupReqs []BackupRequest
+			result, err := ApplyWithBackup(PreviewRequest{
+				Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+				Desired:            tc.desired,
+				WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+			}, ApplyOptions{
+				BackupHook: func(req BackupRequest) (BackupResult, error) {
+					backupReqs = append(backupReqs, req)
+					return BackupResult{ID: "backup-" + tc.name, Before: req.Before}, nil
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.True(t, result.Mutated)
+			require.True(t, result.Verified)
+			require.NotNil(t, result.Backup)
+			require.Equal(t, "backup-"+tc.name, result.Backup.ID)
+			require.Len(t, backupReqs, 1)
+			require.NotEmpty(t, backupReqs[0].BeforeFile)
+			require.Contains(t, string(mustReadSelectedValueFile(t, filepath.Join(root, tc.relPath))), tc.want)
+
+			encoded, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "old@example.com")
+			require.NotContains(t, string(encoded), "new@example.com")
+		})
+	}
+}
+
+func TestReadCurrentDesiredMissingAndJSONScalarKinds(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	rec := decodeSelectedValueRecipe(t, recipe.JSONFileDriverID, "config.json")
+
+	missing, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+	require.NoError(t, err)
+	require.Equal(t, IntentDelete, missing.Desired.Intent())
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"user":{"email":null}}`), 0o644))
+	nullValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+	require.NoError(t, err)
+	require.Equal(t, "null", nullValue.Desired.Kind())
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"user":{"email":"person@example.com"}}`), 0o644))
+	stringValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+	require.NoError(t, err)
+	require.Equal(t, "string", stringValue.Desired.Kind())
+	raw, ok := stringValue.Desired.Value()
+	require.True(t, ok)
+	require.Equal(t, "person@example.com", raw)
+}
+
+func TestApplyWithBackupNoopAndVerificationFailure(t *testing.T) {
+	t.Parallel()
+
+	t.Run("noop", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.YAMLFileDriverID, "config.yaml")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("user:\n  email: same@example.com\n"), 0o644))
+
+		result, err := ApplyWithBackup(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetString("same@example.com"),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		}, ApplyOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+			require.Fail(t, "backup hook should not run for unchanged apply")
+			return BackupResult{}, nil
+		}})
+		require.NoError(t, err)
+		require.False(t, result.Mutated)
+		require.True(t, result.Verified)
+		require.Nil(t, result.Backup)
+	})
+
+	t.Run("verification failure after apply hook", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.YAMLFileDriverID, "config.yaml")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("user:\n  email: old@example.com\n"), 0o644))
+
+		result, err := ApplyWithBackup(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetString("new@example.com"),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		}, ApplyOptions{
+			BackupHook: func(req BackupRequest) (BackupResult, error) {
+				return BackupResult{ID: "backup", Before: req.Before}, nil
+			},
+			AfterApply: func(plan *Plan) error {
+				return os.WriteFile(plan.Path, []byte("user:\n  email: drift@example.com\n"), 0o644)
+			},
+		})
+		require.Error(t, err)
+		require.NotNil(t, result)
+		require.True(t, result.Mutated)
+		require.False(t, result.Verified)
+		require.NotNil(t, result.Backup)
+		require.True(t, filedriver.IsCode(err, filedriver.CodeVerificationFailed), err.Error())
+	})
+}
+
+func TestApplyWithBackupBlocksBeforeMutationBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil recipe", func(t *testing.T) {
+		t.Parallel()
+		result, err := ApplyWithBackup(PreviewRequest{Desired: SetString("x")}, ApplyOptions{})
+		require.Error(t, err)
+		require.NotNil(t, result.Plan)
+		requireDiagnosticCode(t, result.Plan, "selectedvalue.recipe.required")
+	})
+
+	t.Run("write safety", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.YAMLFileDriverID, "config.yaml")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("user:\n  email: old@example.com\n"), 0o644))
+		result, err := ApplyWithBackup(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetString("new@example.com"),
+			WriteSafetyContext: recipe.WriteSafetyContext{Source: recipe.RecipeSourceLocal, Trusted: false},
+		}, ApplyOptions{})
+		require.Error(t, err)
+		requireDiagnosticCode(t, result.Plan, "writeSafety.trust.untrusted")
+	})
+
+	t.Run("invalid desired for ini", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.IniFileDriverID, "config.ini")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.ini"), []byte("[user]\nemail=old@example.com\n"), 0o644))
+		result, err := ApplyWithBackup(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetBool(true),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		}, ApplyOptions{})
+		require.Error(t, err)
+		requireDiagnosticCode(t, result.Plan, "selectedvalue.desired.iniTypeUnsupported")
+	})
+
+	t.Run("backup hook error", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.JSONFileDriverID, "config.json")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"user":{"email":"old@example.com"}}`), 0o644))
+		result, err := ApplyWithBackup(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetString("new@example.com"),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		}, ApplyOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+			return BackupResult{}, fmt.Errorf("safe backup hook failure")
+		}})
+		require.Error(t, err)
+		require.NotNil(t, result)
+		require.False(t, result.Mutated)
+	})
+
+	t.Run("after apply hook error", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.IniFileDriverID, "config.ini")
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.ini"), []byte("[user]\nemail=old@example.com\n"), 0o644))
+		result, err := ApplyWithBackup(PreviewRequest{
+			Request:            Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}},
+			Desired:            SetString("new@example.com"),
+			WriteSafetyContext: trustedLocalWriteSafety(t, rec),
+		}, ApplyOptions{AfterApply: func(plan *Plan) error {
+			return fmt.Errorf("safe after apply failure")
+		}})
+		require.Error(t, err)
+		require.NotNil(t, result)
+		require.True(t, result.Mutated)
+	})
+}
+
 func decodeSelectedValueRecipe(t *testing.T, driverID string, relPath string) *recipe.Recipe {
 	t.Helper()
 
@@ -472,6 +681,13 @@ func requireNoDiagnosticCode(t *testing.T, plan *Plan, code string) {
 	for _, diagnostic := range plan.Diagnostics {
 		require.NotEqual(t, code, diagnostic.Code, "unexpected diagnostic: %+v", diagnostic)
 	}
+}
+
+func mustReadSelectedValueFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
 }
 
 func TestSelectedValueErrorStrings(t *testing.T) {
@@ -677,4 +893,168 @@ func TestSelectorInfoAndDefaultStringBranches(t *testing.T) {
 	require.Equal(t, "explicit", defaultString("explicit", "fallback"))
 	require.Equal(t, SelectorInfo{Kind: "none"}, selectorInfo(recipe.Resource{Driver: recipe.JSONFileDriverID}))
 	require.Equal(t, "unsupported", selectorInfo(recipe.Resource{Driver: "custom-driver", Selector: &recipe.Selector{}}).Kind)
+}
+
+func TestReadCurrentDesiredAdditionalBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid request returns blocked plan", func(t *testing.T) {
+		t.Parallel()
+
+		current, err := ReadCurrentDesired(Request{SettingRef: "identity.email"})
+		require.Error(t, err)
+		require.NotNil(t, current)
+		require.NotNil(t, current.Plan)
+		requireDiagnosticCode(t, current.Plan, "selectedvalue.recipe.required")
+	})
+
+	t.Run("missing ini and yaml values become delete intents", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			name     string
+			driverID string
+			relPath  string
+		}{
+			{name: "ini", driverID: recipe.IniFileDriverID, relPath: "config.ini"},
+			{name: "yaml", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				root := t.TempDir()
+				rec := decodeSelectedValueRecipe(t, tc.driverID, tc.relPath)
+				current, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+				require.NoError(t, err)
+				require.Equal(t, IntentDelete, current.Desired.Intent())
+				raw, ok := current.Desired.Value()
+				require.False(t, ok)
+				require.Nil(t, raw)
+			})
+		}
+	})
+
+	t.Run("json bool and number scalar values round trip as desired values", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		rec := decodeSelectedValueRecipe(t, recipe.JSONFileDriverID, "config.json")
+
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"user":{"email":true}}`), 0o644))
+		boolValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+		require.NoError(t, err)
+		require.Equal(t, "bool", boolValue.Desired.Kind())
+		raw, ok := boolValue.Desired.Value()
+		require.True(t, ok)
+		require.Equal(t, true, raw)
+
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"user":{"email":42}}`), 0o644))
+		numberValue, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+		require.NoError(t, err)
+		require.Equal(t, "number", numberValue.Desired.Kind())
+		raw, ok = numberValue.Desired.Value()
+		require.True(t, ok)
+		require.Equal(t, json.Number("42"), raw)
+	})
+
+	t.Run("driver read failures are surfaced without raw values", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			name     string
+			driverID string
+			relPath  string
+			content  string
+		}{
+			{name: "ini duplicate key", driverID: recipe.IniFileDriverID, relPath: "config.ini", content: "[user]\nemail=a@example.com\nemail=b@example.com\n"},
+			{name: "json non scalar", driverID: recipe.JSONFileDriverID, relPath: "config.json", content: `{"user":{"email":{"nested":true}}}`},
+			{name: "yaml non scalar", driverID: recipe.YAMLFileDriverID, relPath: "config.yaml", content: "user:\n  email:\n    nested: true\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				root := t.TempDir()
+				rec := decodeSelectedValueRecipe(t, tc.driverID, tc.relPath)
+				require.NoError(t, os.WriteFile(filepath.Join(root, tc.relPath), []byte(tc.content), 0o644))
+
+				current, err := ReadCurrentDesired(Request{Recipe: rec, SettingRef: "identity.email", LocationRoots: map[string]string{"config": root}})
+				require.Error(t, err)
+				require.NotNil(t, current.Plan)
+				requireDiagnosticCode(t, current.Plan, "selectedvalue.driver.invalid-selector")
+				encoded, marshalErr := json.Marshal(current.Plan)
+				require.NoError(t, marshalErr)
+				require.NotContains(t, string(encoded), "a@example.com")
+				require.NotContains(t, string(encoded), "b@example.com")
+			})
+		}
+	})
+}
+
+func TestSelectedValueInternalHelperAdditionalBranches(t *testing.T) {
+	t.Parallel()
+
+	_, err := desiredINIState(Desired{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desired intent is required")
+
+	_, err = desiredYAMLState(Desired{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desired intent is required")
+
+	desired, err := desiredFromYAMLState(yamldriver.AbsentState())
+	require.NoError(t, err)
+	require.Equal(t, IntentDelete, desired.Intent())
+
+	_, err = desiredFromCanonicalJSON([]byte("{"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "could not be decoded")
+
+	_, err = desiredFromCanonicalJSON([]byte("{}"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a supported scalar")
+
+	plan := blockedPlan("test.app", "", "identity.email", "config-email", "test.code", "test message")
+	require.Equal(t, "test.app:identity.email", plan.SettingRef)
+	requireDiagnosticCode(t, plan, "test.code")
+
+	defaultSeverityPlan := &Plan{}
+	block(defaultSeverityPlan, Diagnostic{Code: "test.defaultSeverity"})
+	require.Equal(t, SeverityError, defaultSeverityPlan.Diagnostics[0].Severity)
+
+	require.Nil(t, iniBackupHook(&Plan{}, nil, nil))
+	require.Nil(t, jsonBackupHook(&Plan{}, nil, nil))
+	require.Nil(t, yamlBackupHook(&Plan{}, nil, nil))
+
+	backupPlan := &Plan{SettingRef: "test.app:identity.email", ResourceID: "config-email", DriverID: recipe.IniFileDriverID}
+	var captured *BackupResult
+	iniHook := iniBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		require.Equal(t, "test.app:identity.email", req.SettingRef)
+		require.Equal(t, "config-email", req.ResourceID)
+		require.Equal(t, "/tmp/config.ini", req.Path)
+		require.Equal(t, "safe-before", string(req.BeforeFile))
+		return BackupResult{ID: "backup-ini", Before: req.Before}, nil
+	}, &captured)
+	iniBackup, err := iniHook(inidriver.BackupRequest{
+		Path:       "/tmp/config.ini",
+		Before:     inidriver.State{Exists: true, SHA256: "abc123", Normalizer: inidriver.NormalizerID},
+		BeforeFile: []byte("safe-before"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "backup-ini", iniBackup.ID)
+	require.NotNil(t, captured)
+	require.Equal(t, "backup-ini", captured.ID)
+
+	jsonHook := jsonBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		return BackupResult{}, fmt.Errorf("safe json backup failure")
+	}, &captured)
+	_, err = jsonHook(jsondriver.BackupRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "safe json backup failure")
+
+	yamlHook := yamlBackupHook(backupPlan, func(req BackupRequest) (BackupResult, error) {
+		return BackupResult{}, fmt.Errorf("safe yaml backup failure")
+	}, &captured)
+	_, err = yamlHook(yamldriver.BackupRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "safe yaml backup failure")
 }

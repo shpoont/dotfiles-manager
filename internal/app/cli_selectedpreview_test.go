@@ -77,7 +77,7 @@ func TestInvalidV1ConfigDoesNotFallbackToV2(t *testing.T) {
 	require.NotEqual(t, "dotfiles-manager.v2.preview", payload["schema"])
 }
 
-func TestV2SaveApplyRequireDryRunBeforeSideEffects(t *testing.T) {
+func TestV2SaveApplyWithoutV2RootDoNotCreateState(t *testing.T) {
 	homeDir := setTempHome(t)
 	setCWD(t, t.TempDir())
 
@@ -91,7 +91,7 @@ func TestV2SaveApplyRequireDryRunBeforeSideEffects(t *testing.T) {
 			summary := payload["summary"].(map[string]any)
 			require.Equal(t, "error", summary["status"])
 			errorObj := payload["error"].(map[string]any)
-			require.Equal(t, "selectedpreview.liveWritesNotImplemented", errorObj["code"])
+			require.Equal(t, "selectedpreview.root.notFound", errorObj["code"])
 		})
 	}
 	require.NoDirExists(t, filepath.Join(homeDir, "Library", "Application Support", "dotfiles-manager"))
@@ -123,6 +123,35 @@ func TestV2SaveDryRunPreviewDoesNotWriteDesiredArtifacts(t *testing.T) {
 	require.Equal(t, true, payload["dryRun"])
 	require.NoFileExists(t, desiredPath)
 	require.NotContains(t, stdout, "current@example.com")
+}
+
+func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, false)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"save", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "dotfiles-manager.v2.preview", payload["schema"])
+	errorObj := payload["error"].(map[string]any)
+	require.Equal(t, "selectedlive.confirmationRequired", errorObj["code"])
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, "current@example.com")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	require.Equal(t, "save", payload["command"])
+	require.Equal(t, false, payload["dryRun"])
+	require.FileExists(t, desiredPath)
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+
+	writeCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"), "user:\n  email: changed-live@example.com\n")
+	_, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "current@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
 }
 
 type cliV2SelectedPreviewFixture struct {
@@ -215,4 +244,11 @@ func writeCLIFile(t *testing.T, path string, body string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+}
+
+func mustReadCLIFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
 }
