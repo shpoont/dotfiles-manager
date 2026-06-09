@@ -549,6 +549,118 @@ The bundled recipe deliberately does **not** manage:
 Unsupported tmux refs outside `tmux:home.conf` and `tmux:xdg.conf` are treated
 as unsupported settings and must not be resolved to filesystem paths or read.
 
+## v2 selected settings: SSH config file example
+
+The bundled `ssh` recipe manages only the primary OpenSSH user config file:
+
+- `ssh:config` -> `~/.ssh/config`
+
+It does **not** manage keys or the whole `~/.ssh` directory. Until the v2 `add`
+command ships, select it in a profile layer:
+
+```yaml
+# profiles/layers/global.yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  ssh:
+    settings:
+      config:
+        scope: user
+```
+
+Then use the same selected file-resource workflow:
+
+```bash
+dotfiles-manager recipe explain ssh
+dotfiles-manager status --user-id leon ssh:config
+dotfiles-manager save --dry-run --user-id leon ssh:config
+dotfiles-manager save --yes --user-id leon ssh:config
+dotfiles-manager diff --user-id leon ssh:config
+dotfiles-manager apply --dry-run --user-id leon ssh:config
+dotfiles-manager apply --yes --user-id leon ssh:config
+```
+
+For user-scoped SSH config, `save --yes` writes the desired artifact to:
+
+```text
+desired/user/<user>/targets/ssh/artifacts/config
+```
+
+For example:
+
+```text
+desired/user/leon/targets/ssh/artifacts/config
+desired://user/leon/targets/ssh/artifacts/config
+```
+
+The desired artifact contains the raw SSH config bytes because it is the file
+that will be applied later. Normal text and JSON output, diffs, ledgers, and
+backup metadata stay metadata-only and do not print raw SSH config contents.
+
+For `save` and `apply`, the recipe emits this non-blocking content-review
+warning:
+
+```text
+ssh.config.review-required
+```
+
+Review `Include`, `IdentityFile`, `CertificateFile`, `LocalCommand`,
+`ProxyCommand`, and `Match exec` directives before writing. The manager does not
+read referenced files, so `IdentityFile ~/.ssh/id_ed25519` is allowed as a
+directive, but the key file itself is not managed.
+
+Before save/apply persists raw bytes or creates a raw backup payload, the SSH
+recipe scans the bytes being persisted for obvious excluded material. It blocks
+with:
+
+```text
+ssh.config.excluded-content
+```
+
+The diagnostic is metadata-only. It does not print the matched key, token,
+line, or config snippet. The scanner catches obvious private-key headers,
+token-like secrets, public key lines, OpenSSH certificate key lines,
+known_hosts-style lines, and authorized_keys-style lines. It does not parse or
+validate full SSH semantics.
+
+Symlinked `~/.ssh/config` is blocked:
+
+```text
+ssh.config.symlink-unsupported
+```
+
+Missing-state behavior is fail-closed:
+
+- if `~` is missing, status/diff/save/apply block;
+- if live `~/.ssh/config` is missing, save blocks and does not delete desired
+  state;
+- if live `~/.ssh/config` is missing, apply also blocks rather than creating
+  the file or intermediate directories;
+- if the desired artifact is missing, apply blocks and does not delete live
+  state.
+
+The bundled recipe deliberately does **not** manage:
+
+- private keys, public keys, key certificates, host keys, `known_hosts`,
+  `authorized_keys`, or generated host-key state;
+- ssh-agent, keychain, hardware-token state, sockets, control sockets, or
+  multiplexed connection state;
+- `Include` target files, `~/.ssh/config.d` trees, `IdentityFile` targets,
+  `CertificateFile` targets, or `UserKnownHostsFile` targets;
+- key generation, key import/export, permission repair, SSH installation,
+  network access, `ssh -G`, or command execution.
+
+Explicit excluded refs such as `ssh:keys`, `ssh:private-keys`,
+`ssh:known_hosts`, `ssh:authorized_keys`, `ssh:agent`, `ssh:sockets`,
+`ssh:config.d`, `ssh:includes`, `ssh:certificates`, and `ssh:host-keys` return:
+
+```text
+ssh.ref.excluded
+```
+
+They are not resolved to filesystem paths, listed, or read.
+
 ## v2 selected file-tree resources: Neovim config example
 
 The bundled `nvim` recipe manages the Neovim configuration tree at

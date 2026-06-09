@@ -181,6 +181,15 @@ func defaultBundledTargets() []BundledTarget {
 			Summary:         "Manage the Neovim configuration tree with generated state and risky files excluded.",
 		},
 		{
+			ID:              SSHTarget,
+			DisplayName:     "SSH",
+			Aliases:         []string{"openssh"},
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			PlatformSupport: "linux-darwin",
+			Summary:         "Manage only the primary OpenSSH user config file while excluding keys, known_hosts, sockets, and agent state.",
+		},
+		{
 			ID:              StarshipTarget,
 			DisplayName:     "Starship",
 			SupportLevel:    "experimental",

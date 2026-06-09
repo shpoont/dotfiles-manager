@@ -1,6 +1,9 @@
 package recipe
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func (r *Recipe) ValidateWriteSafety(ctx WriteSafetyContext) error {
 	diagnostics := r.WriteSafetyDiagnostics(ctx)
@@ -93,6 +96,45 @@ func (r *Recipe) WriteSafetyDiagnostics(ctx WriteSafetyContext) []ValidationDiag
 	}
 
 	return normalizeDiagnostics(diagnostics)
+}
+
+func (r *Recipe) WriteReviewDiagnostics(command string, settingID string, resourceID string) []ValidationDiagnostic {
+	if r == nil || (command != "save" && command != "apply") {
+		return nil
+	}
+	var diagnostics []ValidationDiagnostic
+	if setting, ok := r.Settings[settingID]; ok {
+		for idx, warning := range setting.WriteWarnings {
+			if reviewWarningMatches(warning, command) {
+				diagnostics = append(diagnostics, reviewWarningDiagnostic(warning, fmt.Sprintf("$.settings.%s.writeWarnings[%d]", settingID, idx)))
+			}
+		}
+	}
+	if resource, ok := r.Resources[resourceID]; ok {
+		for idx, warning := range resource.WriteWarnings {
+			if reviewWarningMatches(warning, command) {
+				diagnostics = append(diagnostics, reviewWarningDiagnostic(warning, fmt.Sprintf("$.resources.%s.writeWarnings[%d]", resourceID, idx)))
+			}
+		}
+	}
+	return normalizeDiagnostics(diagnostics)
+}
+
+func reviewWarningMatches(warning ReviewWarning, command string) bool {
+	for _, trigger := range warning.Triggers {
+		if strings.TrimSpace(trigger) == command {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewWarningDiagnostic(warning ReviewWarning, path string) ValidationDiagnostic {
+	message := strings.TrimSpace(warning.Message)
+	if message == "" {
+		message = "write operation requires user review before proceeding"
+	}
+	return writeSafetyDiagnostic(strings.TrimSpace(warning.Code), path, ValidationSeverityWarning, message)
 }
 
 func sensitivityWriteDiagnostics(value string, path string, subject string, ctx WriteSafetyContext) []ValidationDiagnostic {

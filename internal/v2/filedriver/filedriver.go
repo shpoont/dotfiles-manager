@@ -20,6 +20,7 @@ const (
 	CodePermissionDenied   ErrorCode = "permission-denied"
 	CodeInvalidSelector    ErrorCode = "invalid-selector"
 	CodeUnsafePath         ErrorCode = "unsafe-path"
+	CodeSymlinkUnsupported ErrorCode = "symlink-unsupported"
 	CodeSecretDetected     ErrorCode = "secret-detected"
 	CodeLifecycleBlocked   ErrorCode = "lifecycle-blocked"
 	CodeVerificationFailed ErrorCode = "verification-failed"
@@ -74,6 +75,7 @@ type Target struct {
 	RelPath           string
 	AllowMissingRoot  bool
 	RejectRootSymlink bool
+	RejectLeafSymlink bool
 }
 
 type ResolvedPath struct {
@@ -386,6 +388,13 @@ func ResolveTarget(target Target) (ResolvedPath, error) {
 	}
 	if err := ensureExistingPathStaysInside(rootAbs, rootReal, rel); err != nil {
 		return ResolvedPath{}, err
+	}
+	if target.RejectLeafSymlink {
+		if info, err := os.Lstat(candidate); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return ResolvedPath{}, driverError(CodeSymlinkUnsupported, "resolve", candidate, fmt.Errorf("leaf symlink is unsupported for this resource"))
+		} else if err != nil && !os.IsNotExist(err) {
+			return ResolvedPath{}, classifyOSError("resolve", candidate, err)
+		}
 	}
 	return ResolvedPath{LocationID: target.LocationID, Root: rootAbs, RootReal: rootReal, RelPath: rel, AbsPath: candidate}, nil
 }

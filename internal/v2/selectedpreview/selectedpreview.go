@@ -448,6 +448,12 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 				return finishBlocked(item, v2status.StateUnsupported, "Zsh setting is blocked by bundled recipe policy.")
 			}
 		}
+		if rec.Target == recipe.SSHTarget {
+			if blockedDiagnostic, ok := recipe.SSHExcludedSettingDiagnostic(setting.SettingID); ok {
+				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(blockedDiagnostic, item.SettingRef, runtime.Source, "", ""))
+				return finishBlocked(item, v2status.StateUnsupported, "SSH setting is excluded by bundled recipe policy.")
+			}
+		}
 		item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.resource.unknown", SeverityError, err.Error(), item.SettingRef))
 		return finishBlocked(item, v2status.StateUnsupported, "Selected setting is not supported by the recipe runtime.")
 	}
@@ -635,7 +641,7 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 	}
 	if err != nil {
 		item = hydrateFileResourceReadState(item, req)
-		item.Diagnostics = append(item.Diagnostics, fileResourceDiagnostic("selectedpreview.fileResource.plan", err, item))
+		appendFileResourceDiagnostics(&item, err)
 		return finishBlocked(item, v2status.StateBlockedSafety, "File-resource planning is blocked; no files will be mutated.")
 	}
 	if plan.Resource.Driver == recipe.FileTreeDriverID {
@@ -850,6 +856,13 @@ func appendWriteSafetyWarnings(item *Item, command string, rec *recipe.Recipe, s
 			continue
 		}
 		if seen[warning.Code] {
+			continue
+		}
+		item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(warning, item.SettingRef, source, resourceID, driverID))
+		seen[warning.Code] = true
+	}
+	for _, warning := range rec.WriteReviewDiagnostics(command, setting.SettingID, resourceID) {
+		if warning.Severity != recipe.ValidationSeverityWarning || seen[warning.Code] {
 			continue
 		}
 		item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(warning, item.SettingRef, source, resourceID, driverID))
@@ -1155,6 +1168,35 @@ func fileResourceDiagnostic(code string, err error, item Item) Diagnostic {
 		message = err.Error()
 	}
 	return Diagnostic{Code: code, Severity: SeverityError, Message: message, Ref: item.SettingRef, Path: item.Resource.Path, ResourceID: item.Resource.ID, DriverID: item.Resource.DriverID}
+}
+
+func appendFileResourceDiagnostics(item *Item, err error) {
+	if item == nil {
+		return
+	}
+	var planErr *customfiles.PlanError
+	if errors.As(err, &planErr) && len(planErr.Diagnostics) > 0 {
+		for _, diagnostic := range planErr.Diagnostics {
+			item.Diagnostics = append(item.Diagnostics, Diagnostic{
+				Code:       diagnostic.Code,
+				Severity:   diagnostic.Severity,
+				Message:    diagnostic.Message,
+				Ref:        fallback(diagnostic.Ref, item.SettingRef),
+				Path:       fallback(diagnostic.Path, item.Resource.Path),
+				ResourceID: fallback(diagnostic.ResourceID, item.Resource.ID),
+				DriverID:   fallback(diagnostic.DriverID, item.Resource.DriverID),
+			})
+		}
+		return
+	}
+	item.Diagnostics = append(item.Diagnostics, fileResourceDiagnostic("selectedpreview.fileResource.plan", err, *item))
+}
+
+func fallback(value string, defaultValue string) string {
+	if strings.TrimSpace(value) == "" {
+		return defaultValue
+	}
+	return value
 }
 
 func finishBlocked(item Item, state v2status.StateCode, message string) Item {

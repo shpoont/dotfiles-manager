@@ -57,6 +57,13 @@ func LoadRuntime(repoRoot string, targetID string) (RuntimeRecipe, error) {
 			}
 			runtime.Recipe = rec
 			return runtime, nil
+		case SSHTarget:
+			rec := BundledSSHRecipe()
+			if err := rec.ValidateSSH(); err != nil {
+				return runtime, fmt.Errorf("validate bundled ssh recipe: %w", err)
+			}
+			runtime.Recipe = rec
+			return runtime, nil
 		case ZshTarget:
 			rec := BundledZshRecipe()
 			if err := rec.ValidateZsh(); err != nil {
@@ -334,6 +341,61 @@ func tmuxSettingLabel(id string) string {
 		return "~/.config/tmux/tmux.conf"
 	default:
 		return fallbackLabel(id)
+	}
+}
+
+func BundledSSHRecipe() *Recipe {
+	return &Recipe{
+		Schema:        Schema,
+		SchemaVersion: SupportedVersion,
+		Target:        SSHTarget,
+		DisplayName:   "SSH",
+		SupportLevel:  "experimental",
+		Capability:    "read-write",
+		Locations: map[string]Location{
+			"home": {Default: "~"},
+		},
+		SettingsGroups: map[string]SettingsGroup{
+			"config": {
+				Label:        "Config file",
+				Description:  "The primary OpenSSH user config file only; keys, known_hosts, sockets, include targets, and agent state are excluded.",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				Settings:     sshSettingIDs(),
+			},
+		},
+		Settings: map[string]Setting{
+			"config": {
+				Label:        "~/.ssh/config",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				ArtifactForm: "file",
+				Sensitivity:  SensitivityPersonal,
+				Redaction:    RedactionRedactedForDisplay,
+				Lifecycle:    LifecycleAllowed,
+				ScopeDefault: "user",
+				Resource:     "config",
+			},
+		},
+		Resources: map[string]Resource{
+			"config": {
+				Driver:              FileDriverID,
+				Location:            "home",
+				Path:                ".ssh/config",
+				Capability:          "read-write",
+				Sensitivity:         SensitivityPersonal,
+				Redaction:           RedactionRedactedForDisplay,
+				Lifecycle:           LifecycleAllowed,
+				ContentSafetyPolicy: SSHContentSafetyPolicy,
+				WriteWarnings: []ReviewWarning{
+					{
+						Code:     SSHConfigReviewWarningCode,
+						Triggers: []string{"save", "apply"},
+						Message:  "SSH config save/apply manages only ~/.ssh/config; review Include, IdentityFile, CertificateFile, LocalCommand, ProxyCommand, and Match exec directives, and do not store key material or tokens inline",
+					},
+				},
+			},
+		},
 	}
 }
 

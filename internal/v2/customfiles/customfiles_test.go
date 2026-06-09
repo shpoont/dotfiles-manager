@@ -1,6 +1,7 @@
 package customfiles
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -825,6 +826,104 @@ func TestFileResourcePlanReadErrorBranches(t *testing.T) {
 	_, err = buildFileResourcePlan(req, Operation("bad"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported file-resource operation")
+}
+
+func TestFileResourceContentSafetyAndPlanErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "file-resource planning failed", (*PlanError)(nil).Error())
+	require.Equal(t, "file-resource planning failed", (&PlanError{}).Error())
+	require.Equal(t, "ssh:config[ssh.config.excluded-content]: file-resource planning failed; ssh:config[custom]: custom message", (&PlanError{Diagnostics: []Diagnostic{
+		{Ref: "ssh:config", Code: recipe.SSHConfigExcludedContentCode},
+		{Ref: "ssh:config", Code: "custom", Message: "custom message"},
+	}}).Error())
+
+	_, _, profile, _ := setupCustomFilesFixture(t)
+	setting := profile.Settings[0]
+	setting.TargetID = recipe.SSHTarget
+	setting.SettingID = "config"
+	resource := recipe.BundledSSHRecipe().Resources["config"]
+	plan := &Plan{
+		Setting:    setting,
+		ResourceID: "config",
+		Resource:   resource,
+	}
+	targetRoot := t.TempDir()
+	target := filedriver.Target{LocationID: "home", Root: targetRoot, RelPath: ".ssh/config"}
+
+	require.NoError(t, enforceFileContentSafety(nil, OperationSave, "live", filedriver.State{Exists: true, Bytes: []byte("-----BEGIN OPENSSH PRIVATE KEY-----")}, target))
+	noPolicy := *plan
+	noPolicy.Resource.ContentSafetyPolicy = ""
+	require.NoError(t, enforceFileContentSafety(&noPolicy, OperationSave, "live", filedriver.State{Exists: true, Bytes: []byte("-----BEGIN OPENSSH PRIVATE KEY-----")}, target))
+	require.NoError(t, enforceFileContentSafety(plan, OperationSave, "live", filedriver.State{Exists: false, Bytes: []byte("-----BEGIN OPENSSH PRIVATE KEY-----")}, target))
+	require.NoError(t, enforceFileContentSafety(plan, OperationSave, "live", filedriver.State{Exists: true, Bytes: []byte("Host github.com\n  IdentityFile ~/.ssh/id_ed25519\n")}, target))
+
+	err := enforceFileContentSafety(plan, OperationApply, "desired", filedriver.State{Exists: true, Bytes: []byte("Host bad\n-----BEGIN OPENSSH PRIVATE KEY-----\nraw-secret\n-----END OPENSSH PRIVATE KEY-----\n")}, target)
+	require.Error(t, err)
+	var planErr *PlanError
+	require.True(t, errors.As(err, &planErr))
+	require.Len(t, planErr.Diagnostics, 1)
+	diagnostic := planErr.Diagnostics[0]
+	require.Equal(t, recipe.SSHConfigExcludedContentCode, diagnostic.Code)
+	require.Equal(t, "error", diagnostic.Severity)
+	require.Equal(t, "ssh:config", diagnostic.Ref)
+	require.Equal(t, "config", diagnostic.ResourceID)
+	require.Equal(t, recipe.FileDriverID, diagnostic.DriverID)
+	require.Equal(t, "private-key", diagnostic.Category)
+	require.Equal(t, "private_key_header", diagnostic.PatternID)
+	require.Equal(t, "apply", diagnostic.Operation)
+	require.Contains(t, diagnostic.Message, "raw content omitted")
+	require.NotContains(t, diagnostic.Message, "raw-secret")
+	require.NotContains(t, err.Error(), "OPENSSH PRIVATE KEY")
+	require.NotContains(t, err.Error(), "raw-secret")
+
+	unresolvableTarget := filedriver.Target{LocationID: "home", Root: filepath.Join(targetRoot, "missing"), RelPath: ".ssh/config"}
+	err = enforceFileContentSafety(plan, OperationSave, "live", filedriver.State{Exists: true, Bytes: []byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFakeFake comment\n")}, unresolvableTarget)
+	require.Error(t, err)
+	require.True(t, errors.As(err, &planErr))
+	require.Equal(t, ".ssh/config", planErr.Diagnostics[0].Path)
+}
+
+func TestFileResourceReadErrorMapsSSHLeafSymlinksMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	setting := resolution.ResolvedSetting{TargetID: recipe.SSHTarget, SettingID: "config"}
+	resource := recipe.BundledSSHRecipe().Resources["config"]
+	driverErr := &filedriver.Error{Code: filedriver.CodeSymlinkUnsupported, Op: "resolve", Path: "/home/leon/.ssh/config", Err: fmt.Errorf("leaf is a symlink")}
+
+	err := fileResourceReadError(setting, "config", resource, "read live", driverErr)
+	require.Error(t, err)
+	var planErr *PlanError
+	require.True(t, errors.As(err, &planErr))
+	require.Len(t, planErr.Diagnostics, 1)
+	diagnostic := planErr.Diagnostics[0]
+	require.Equal(t, recipe.SSHConfigSymlinkUnsupportedCode, diagnostic.Code)
+	require.Equal(t, "error", diagnostic.Severity)
+	require.Equal(t, "ssh:config", diagnostic.Ref)
+	require.Equal(t, "/home/leon/.ssh/config", diagnostic.Path)
+	require.Equal(t, "config", diagnostic.ResourceID)
+	require.Equal(t, recipe.FileDriverID, diagnostic.DriverID)
+	require.NotContains(t, diagnostic.Message, "/home/leon")
+
+	genericErr := fileResourceReadError(setting, "config", recipe.Resource{Driver: recipe.FileDriverID}, "read live", driverErr)
+	require.Error(t, genericErr)
+	require.Contains(t, genericErr.Error(), "read live ssh:config")
+	require.True(t, filedriver.IsCode(genericErr, filedriver.CodeSymlinkUnsupported))
+	require.Equal(t, "/home/leon/.ssh/config", filedriverErrorPath(driverErr))
+	require.Equal(t, "", filedriverErrorPath(fmt.Errorf("plain error")))
+}
+
+func TestApplyFileContentTargetPolicyBranches(t *testing.T) {
+	t.Parallel()
+
+	applyFileContentTargetPolicy(recipe.Resource{ContentSafetyPolicy: recipe.SSHContentSafetyPolicy}, nil)
+
+	target := filedriver.Target{}
+	applyFileContentTargetPolicy(recipe.Resource{}, &target)
+	require.False(t, target.RejectLeafSymlink)
+
+	applyFileContentTargetPolicy(recipe.Resource{ContentSafetyPolicy: recipe.SSHContentSafetyPolicy}, &target)
+	require.True(t, target.RejectLeafSymlink)
 }
 
 func TestCustomFilesAdditionalErrorBranches(t *testing.T) {

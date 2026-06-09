@@ -451,6 +451,10 @@ func bundledExplain(target string) (RecipeExplain, bool) {
 		explain := bundledNvimExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
+	case SSHTarget:
+		explain := bundledSSHExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	case TmuxTarget:
 		explain := bundledTmuxExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
@@ -770,6 +774,71 @@ func bundledTmuxExplain() RecipeExplain {
 			Normalization: "byte-preserving file metadata",
 			DiffMode:      "file metadata-only",
 		})
+	}
+	explain.Drivers = driverExplains(FileDriverID)
+	return explain
+}
+
+func bundledSSHExplain() RecipeExplain {
+	explain := RecipeExplain{
+		Target:           ExplainTarget{Ref: SSHTarget, DisplayName: "SSH", SupportLevel: "experimental", Capability: "read-write", PlatformSupport: "linux-darwin"},
+		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/ssh", TrustStatus: "trusted", Version: "1"},
+		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
+		SettingGroups:    []any{},
+		NativeOperations: []any{},
+		Safety: ExplainSafety{
+			RedactionSummary: "metadata-only explanation; SSH config file contents are personal and are not read or emitted by normal output",
+			LifecycleSummary: "SSH config does not require process lifecycle control; save/apply emits a content-review warning but the manager does not stop ssh, ssh-agent, keychain, hardware tokens, or sessions",
+			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
+			DoNotManage: []string{
+				"private keys, public keys, key certificates, host keys, and hardware-token material",
+				"known_hosts, known_hosts.old, authorized_keys, and generated host-key state",
+				"ssh-agent, keychain, sockets, control sockets, ControlPath runtime files, and multiplexed connection state",
+				"Include target files, ~/.ssh/config.d trees, and any other files referenced from ~/.ssh/config",
+				"key generation, key import/export, chmod/permission repair, and ssh installation",
+				"semantic SSH config parsing, include expansion, ssh -G validation, network access, or command execution",
+				"symlinked ~/.ssh/config files; the bundled SSH recipe requires a regular file",
+			},
+		},
+	}
+	explain.Settings = []ExplainSetting{
+		{
+			Ref:             SSHTarget + ":config",
+			ID:              "config",
+			Label:           "~/.ssh/config",
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			DefaultScope:    "user",
+			ArtifactForm:    "file",
+			SelectionStatus: "unknown",
+			Sensitivity:     SensitivityPersonal,
+			Lifecycle:       LifecycleAllowed,
+			ResourceID:      "config",
+			Driver:          FileDriverID,
+			DiffLimitations: []string{
+				"whole-file metadata-only diff; raw SSH config contents are omitted",
+				"Include files, IdentityFile targets, CertificateFile targets, UserKnownHostsFile targets, and other referenced files are not resolved or read",
+			},
+			ApplyLimitations: []string{
+				"writes only the explicit ~/.ssh/config file at the default home location",
+				"does not create ~/.ssh/config in this slice; save blocks when live config is missing and apply blocks when live or desired config is missing",
+				"does not walk ~/.ssh, read Include targets, read key files, read known_hosts, or read authorized_keys",
+				"does not parse, lint, execute, or validate SSH config semantics",
+				"save/apply blocks if obvious private keys, public keys, certificates, known_hosts, authorized_keys, token-like secrets, or symlinked config files are detected",
+			},
+		},
+	}
+	explain.Resources = []ExplainResource{
+		{
+			ID:            "config",
+			LocationID:    "home",
+			Path:          ".ssh/config",
+			DriverID:      FileDriverID,
+			SupportedOps:  []string{"read", "diff", "preview", "backup", "apply", "verify"},
+			BackupRestore: "pre-apply backup of the existing live file is written to local state only after SSH content safety scanning passes; metadata output stays redacted",
+			Normalization: "byte-preserving file metadata",
+			DiffMode:      "file metadata-only",
+		},
 	}
 	explain.Drivers = driverExplains(FileDriverID)
 	return explain

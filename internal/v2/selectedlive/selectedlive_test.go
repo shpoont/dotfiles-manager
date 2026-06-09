@@ -865,6 +865,43 @@ func TestFileResourceSaveApplyRunMutatesAndRecordsMetadataOnly(t *testing.T) {
 	})
 }
 
+func TestSSHConfigContentSafetyBlocksLiveRunBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save blocks before desired artifact write", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveSSHFixture(t)
+		fixture.writeLive("Host bad\n  ProxyCommand bearer abcdefghijklmnopqrstuvwxyz123456\n")
+
+		result, err := Run(fixture.options(selectedpreview.CommandSave, "run-ssh-save", true))
+		require.Error(t, err)
+		require.Equal(t, selectedpreview.SummaryError, result.Report.Summary.Status)
+		requireDiagnostic(t, result.Report.Items[0], recipe.SSHConfigExcludedContentCode)
+		require.NoFileExists(t, fixture.desiredArtifactPath())
+		reportJSON := mustJSON(t, result.Report)
+		require.NotContains(t, reportJSON, "abcdefghijklmnopqrstuvwxyz123456")
+		require.NoDirExists(t, filepath.Join(fixture.stateRoot, "ledger"))
+	})
+
+	t.Run("apply blocks before live write and backup payload", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveSSHFixture(t)
+		fixture.writeLive("|1|abcdefghijklmnop=|qrstuvwxyzabcdef= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n")
+		fixture.writeDesiredArtifact("Host safe\n  HostName example.com\n")
+
+		result, err := Run(fixture.options(selectedpreview.CommandApply, "run-ssh-apply", true))
+		require.Error(t, err)
+		require.Equal(t, selectedpreview.SummaryError, result.Report.Summary.Status)
+		requireDiagnostic(t, result.Report.Items[0], recipe.SSHConfigExcludedContentCode)
+		require.Contains(t, readFile(t, fixture.livePath()), "ssh-ed25519")
+		require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups", "run-ssh-apply"))
+		require.NoDirExists(t, filepath.Join(fixture.stateRoot, "ledger"))
+		require.NotContains(t, mustJSON(t, result.Report), "abcdefghijklmnop")
+	})
+}
+
 func TestFileTreeResourceSaveApplyRunMutatesAndRecordsMetadataOnly(t *testing.T) {
 	t.Parallel()
 
@@ -1047,6 +1084,13 @@ type liveFileTreeResourceFixture struct {
 	t         *testing.T
 }
 
+type liveSSHFixture struct {
+	repoRoot  string
+	liveRoot  string
+	stateRoot string
+	t         *testing.T
+}
+
 func setupLiveFileResourceFixture(t *testing.T) liveFileResourceFixture {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -1075,6 +1119,17 @@ func setupLiveFileTreeResourceFixture(t *testing.T) liveFileTreeResourceFixture 
 	rec, err := recipe.Decode("file-tree-resource.yaml", strings.NewReader(body))
 	require.NoError(t, err)
 	return liveFileTreeResourceFixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func setupLiveSSHFixture(t *testing.T) liveSSHFixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  ssh:\n    settings:\n      config:\n        scope: user\n")
+	return liveSSHFixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, t: t}
 }
 
 func (f liveFileResourceFixture) options(command string, runID string, confirmed bool) Options {
@@ -1107,8 +1162,30 @@ func (f liveFileTreeResourceFixture) options(command string, runID string, confi
 	}
 }
 
+func (f liveSSHFixture) options(command string, runID string, confirmed bool) Options {
+	return Options{
+		Command:   command,
+		RepoRoot:  f.repoRoot,
+		StateRoot: f.stateRoot,
+		Ref:       "ssh:config",
+		UserID:    "leon",
+		Confirmed: confirmed,
+		RunID:     runID,
+		LocationRoots: map[string]map[string]string{
+			recipe.SSHTarget: {"home": f.liveRoot},
+		},
+		Now: func() time.Time {
+			return fixedSelectedLiveTime()
+		},
+	}
+}
+
 func (f liveFileResourceFixture) livePath() string {
 	return filepath.Join(f.liveRoot, "config.txt")
+}
+
+func (f liveSSHFixture) livePath() string {
+	return filepath.Join(f.liveRoot, ".ssh", "config")
 }
 
 func (f liveFileTreeResourceFixture) livePath() string {
@@ -1119,6 +1196,10 @@ func (f liveFileResourceFixture) desiredArtifactPath() string {
 	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "file.app", "artifacts", "config")
 }
 
+func (f liveSSHFixture) desiredArtifactPath() string {
+	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "ssh", "artifacts", "config")
+}
+
 func (f liveFileTreeResourceFixture) desiredArtifactPath() string {
 	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "tree.app", "artifacts", "config")
 }
@@ -1127,11 +1208,19 @@ func (f liveFileResourceFixture) writeLive(body string) {
 	writeLiveFile(f.t, f.livePath(), body)
 }
 
+func (f liveSSHFixture) writeLive(body string) {
+	writeLiveFile(f.t, f.livePath(), body)
+}
+
 func (f liveFileTreeResourceFixture) writeLive(relPath string, body string) {
 	writeLiveFile(f.t, filepath.Join(f.livePath(), filepath.FromSlash(relPath)), body)
 }
 
 func (f liveFileResourceFixture) writeDesiredArtifact(body string) {
+	writeLiveFile(f.t, f.desiredArtifactPath(), body)
+}
+
+func (f liveSSHFixture) writeDesiredArtifact(body string) {
 	writeLiveFile(f.t, f.desiredArtifactPath(), body)
 }
 
@@ -1147,6 +1236,16 @@ func (f liveFileResourceFixture) trustRecipe() {
 func (f liveFileTreeResourceFixture) trustRecipe() {
 	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
 	require.NoError(f.t, err)
+}
+
+func requireDiagnostic(t *testing.T, item selectedpreview.Item, code string) {
+	t.Helper()
+	for _, diagnostic := range item.Diagnostics {
+		if diagnostic.Code == code {
+			return
+		}
+	}
+	require.Failf(t, "missing diagnostic", "wanted %s in %+v", code, item.Diagnostics)
 }
 
 func fileResourceExecutionContext(t *testing.T, fixture liveFileResourceFixture) (*resolution.ResolvedProfile, resolution.ResolvedSetting, *recipe.Recipe, string, recipe.Resource, selectedpreview.Item) {
