@@ -434,6 +434,108 @@ func TestV2BundledStarshipDeleteIntentAppliesSelectedKeyOnly(t *testing.T) {
 	require.NotContains(t, stdout, secretFormat)
 }
 
+func TestV2BundledZshSelectedStartupFileStatusDiffSaveApplyEndToEnd(t *testing.T) {
+	fixture := setupCLIV2BundledZshFixture(t, "zshrc")
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.homeDir, ".zshrc")
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "zsh", "artifacts", "zshrc")
+	currentBody := "CURRENT-ZSHRC-CONTENT\n"
+	changedBody := "CHANGED-ZSHRC-CONTENT\n"
+	writeCLIFile(t, livePath, currentBody)
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "zsh:zshrc"})
+	require.NoError(t, err)
+	require.Equal(t, "status", payload["command"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "zsh:zshrc", item["settingRef"])
+	require.Equal(t, "desired://user/leon/targets/zsh/artifacts/zshrc", item["desiredUri"])
+	resource := item["resource"].(map[string]any)
+	require.Equal(t, "file", resource["driverId"])
+	require.Equal(t, ".zshrc", resource["relPath"])
+	recipeInfo := item["recipe"].(map[string]any)
+	require.Equal(t, "bundled", recipeInfo["source"])
+	require.Equal(t, "recipe://bundled/zsh", recipeInfo["recipeRef"])
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "zsh:zshrc"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	require.Equal(t, "would-promote", item["plannedAction"])
+	requireCLIDiagnosticCode(t, item, v2recipe.ZshRiskShellStartupFileCode)
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "zsh:zshrc"})
+	require.NoError(t, err)
+	require.FileExists(t, desiredPath)
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, desiredPath)))
+	items = payload["items"].([]any)
+	requireCLIDiagnosticCode(t, items[0].(map[string]any), v2recipe.ZshRiskShellStartupFileCode)
+	require.NotContains(t, stdout, currentBody)
+
+	writeCLIFile(t, livePath, changedBody)
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"diff", "--json", "--user-id", "leon", "zsh:zshrc"})
+	require.NoError(t, err)
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	diffInfo := item["diff"].(map[string]any)
+	require.Equal(t, "metadata-only", diffInfo["mode"])
+	require.Equal(t, "raw file contents omitted", diffInfo["redaction"])
+	requireNoCLIDiagnosticCode(t, item, v2recipe.ZshRiskShellStartupFileCode)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "zsh:zshrc"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	require.Equal(t, changedBody, string(mustReadCLIFile(t, livePath)))
+	items = payload["items"].([]any)
+	requireCLIDiagnosticCode(t, items[0].(map[string]any), v2recipe.ZshRiskShellStartupFileCode)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "zsh:zshrc"})
+	require.NoError(t, err)
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, livePath)))
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	requireCLIDiagnosticCode(t, item, v2recipe.ZshRiskShellStartupFileCode)
+	mutation := item["mutation"].(map[string]any)
+	require.NotEmpty(t, mutation["backupRefs"])
+	runID := mutation["runId"].(string)
+	stateRoot, stateErr := v2ledger.DefaultStateRoot(fixture.repoRoot)
+	require.NoError(t, stateErr)
+	ledgerBody := string(mustReadCLIFile(t, filepath.Join(stateRoot, "ledger", "ledger.jsonl")))
+	require.NotContains(t, ledgerBody, changedBody)
+	require.NotContains(t, ledgerBody, currentBody)
+	backupMetadata := string(mustReadCLIFile(t, filepath.Join(stateRoot, "backups", runID, "backup.yaml")))
+	require.NotContains(t, backupMetadata, changedBody)
+	require.NotContains(t, backupMetadata, currentBody)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+}
+
+func TestV2BundledZshBlockedRefDoesNotReadRawFiles(t *testing.T) {
+	fixture := setupCLIV2BundledZshFixture(t, "zshenv")
+	setCWD(t, fixture.repoRoot)
+	raw := "RAW-ZSHENV-BLOCKED-CONTENT"
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".zshenv"), raw+"\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "zsh:zshenv"})
+	require.NoError(t, err)
+	require.Equal(t, "blocked", payload["summary"].(map[string]any)["status"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "unsupported", item["state"])
+	requireCLIDiagnosticCode(t, item, v2recipe.ZshBlockedZshenvCode)
+	require.NotContains(t, stdout, raw)
+}
+
 func TestV2FileResourceStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	fixture := setupCLIV2FileResourceFixture(t, false)
 	setCWD(t, fixture.repoRoot)
@@ -614,6 +716,16 @@ func setupCLIV2BundledStarshipFixture(t *testing.T, settingID string) cliV2Selec
 	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
 }
 
+func setupCLIV2BundledZshFixture(t *testing.T, settingID string) cliV2SelectedPreviewFixture {
+	t.Helper()
+	homeDir := setTempHome(t)
+	repoRoot := t.TempDir()
+	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  zsh:\n    settings:\n      "+settingID+":\n        scope: user\n")
+	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
+}
+
 func setupCLIV2FileResourceFixture(t *testing.T, explicitArtifact bool) cliV2SelectedPreviewFixture {
 	t.Helper()
 	homeDir := setTempHome(t)
@@ -718,6 +830,31 @@ func runSelectedPreviewCLI(t *testing.T, args []string) (map[string]any, string,
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload), "stdout=%s stderr=%s", stdout.String(), stderr.String())
 	return payload, stdout.String(), err
+}
+
+func requireCLIDiagnosticCode(t *testing.T, item map[string]any, code string) {
+	t.Helper()
+	diagnostics, ok := item["diagnostics"].([]any)
+	require.True(t, ok, "diagnostics missing from %#v", item)
+	for _, raw := range diagnostics {
+		diagnostic := raw.(map[string]any)
+		if diagnostic["code"] == code {
+			return
+		}
+	}
+	require.Failf(t, "missing diagnostic", "wanted %s in %#v", code, diagnostics)
+}
+
+func requireNoCLIDiagnosticCode(t *testing.T, item map[string]any, code string) {
+	t.Helper()
+	diagnostics, ok := item["diagnostics"].([]any)
+	if !ok {
+		return
+	}
+	for _, raw := range diagnostics {
+		diagnostic := raw.(map[string]any)
+		require.NotEqual(t, code, diagnostic["code"], "unexpected diagnostic in %#v", diagnostics)
+	}
 }
 
 func writeCLIFile(t *testing.T, path string, body string) {

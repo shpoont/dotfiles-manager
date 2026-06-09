@@ -438,6 +438,12 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 
 	resourceID, resource, err := rec.ResourceForSetting(setting.SettingID)
 	if err != nil {
+		if rec.Target == recipe.ZshTarget {
+			if blockedDiagnostic, ok := recipe.ZshBlockedSettingDiagnostic(setting.SettingID); ok {
+				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(blockedDiagnostic, item.SettingRef, runtime.Source, "", ""))
+				return finishBlocked(item, v2status.StateUnsupported, "Zsh setting is blocked by bundled recipe policy.")
+			}
+		}
 		item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.resource.unknown", SeverityError, err.Error(), item.SettingRef))
 		return finishBlocked(item, v2status.StateUnsupported, "Selected setting is not supported by the recipe runtime.")
 	}
@@ -469,6 +475,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 			}
 			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks file-resource preview.")
 		}
+		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
 		locationRoots := roots[setting.TargetID]
 		if locationRoots == nil {
@@ -499,6 +506,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 		return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks selected-value preview.")
 	}
+	appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
 	read, err := desired.ReadSelectedValueForSetting(repoRoot, setting)
 	if err != nil {
@@ -749,6 +757,33 @@ func appendPlanDiagnostics(item *Item, plan *selectedvalue.Plan) {
 	}
 	for _, diagnostic := range plan.Diagnostics {
 		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: diagnostic.Code, Severity: diagnostic.Severity, Message: diagnostic.Message, Ref: diagnostic.Ref, Path: diagnostic.Path, ResourceID: diagnostic.ResourceID, DriverID: diagnostic.DriverID})
+	}
+}
+
+func appendWriteSafetyWarnings(item *Item, command string, rec *recipe.Recipe, setting resolution.ResolvedSetting, resourceID string, driverID string, source string, ctx recipe.WriteSafetyContext) {
+	if item == nil || rec == nil || (command != CommandSave && command != CommandApply) {
+		return
+	}
+	settingPath := "$.settings." + setting.SettingID
+	resourcePath := "$.resources." + resourceID
+	seen := map[string]bool{}
+	for _, diagnostic := range item.Diagnostics {
+		if diagnostic.Severity == SeverityWarning {
+			seen[diagnostic.Code] = true
+		}
+	}
+	for _, warning := range rec.WriteSafetyDiagnostics(ctx) {
+		if warning.Severity != recipe.ValidationSeverityWarning {
+			continue
+		}
+		if !strings.HasPrefix(warning.Path, settingPath) && !strings.HasPrefix(warning.Path, resourcePath) {
+			continue
+		}
+		if seen[warning.Code] {
+			continue
+		}
+		item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(warning, item.SettingRef, source, resourceID, driverID))
+		seen[warning.Code] = true
 	}
 }
 

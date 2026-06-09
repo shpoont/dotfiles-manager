@@ -89,6 +89,37 @@ resources:
 	require.Contains(t, starshipText, "selector=add_newline")
 	require.Contains(t, starshipText, "do not manage: STARSHIP_CONFIG non-default locations")
 	require.NotContains(t, starshipText, "secret@example.com")
+
+	zsh, err := Explain(ExplainOptions{Target: ZshTarget, RepoRoot: root})
+	require.NoError(t, err)
+	require.Equal(t, "recipe://bundled/zsh", zsh.RecipeExplain.Recipe.RecipeRef)
+	require.Equal(t, ZshTarget, zsh.RecipeExplain.Target.Ref)
+	require.Equal(t, "unknown", zsh.RecipeExplain.Target.PlatformSupport)
+	require.Len(t, zsh.RecipeExplain.Settings, 4)
+	require.Len(t, zsh.RecipeExplain.Resources, 4)
+	for idx, settingID := range zshSettingIDs() {
+		require.Equal(t, ZshTarget+":"+settingID, zsh.RecipeExplain.Settings[idx].Ref)
+		require.Equal(t, FileDriverID, zsh.RecipeExplain.Settings[idx].Driver)
+		require.Equal(t, SensitivityPersonal, zsh.RecipeExplain.Settings[idx].Sensitivity)
+		require.Equal(t, "file", zsh.RecipeExplain.Settings[idx].ArtifactForm)
+		require.Equal(t, "user", zsh.RecipeExplain.Settings[idx].DefaultScope)
+		require.Equal(t, settingID, zsh.RecipeExplain.Resources[idx].ID)
+		require.Equal(t, FileDriverID, zsh.RecipeExplain.Resources[idx].DriverID)
+		require.Equal(t, "home", zsh.RecipeExplain.Resources[idx].LocationID)
+		require.Equal(t, zshResourcePath(settingID), zsh.RecipeExplain.Resources[idx].Path)
+		require.Nil(t, zsh.RecipeExplain.Resources[idx].Selector)
+		require.Contains(t, zsh.RecipeExplain.Resources[idx].BackupRestore, "pre-apply backup")
+	}
+	zshText := ExplainText(zsh)
+	require.Contains(t, zshText, "target: zsh")
+	require.Contains(t, zshText, "zsh:zshrc")
+	require.Contains(t, zshText, "resource=zshrc driver=file")
+	require.Contains(t, zshText, "do not manage: .zshenv and zsh:zshenv")
+	require.Contains(t, zshText, "do not manage: .zsh_history and .zhistory")
+	require.Contains(t, zshText, "do not manage: .zcompdump*")
+	require.Contains(t, zshText, "do not manage: .oh-my-zsh")
+	require.Contains(t, zshText, "do not manage: ZDOTDIR discovery")
+	require.NotContains(t, zshText, "secret@example.com")
 }
 
 func TestExplainBundledAliasAndLocalAliasCollision(t *testing.T) {
@@ -211,7 +242,7 @@ func TestExplainErrorsAndExitCodes(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, ExplainCodeUnknownTarget, report.Error.Code)
 	require.Equal(t, 2, err.(*ExplainError).ExitCode())
-	require.Equal(t, []string{CustomFilesTarget, GitTarget, StarshipTarget}, report.Error.Details["knownTargets"])
+	require.Equal(t, []string{CustomFilesTarget, GitTarget, StarshipTarget, ZshTarget}, report.Error.Details["knownTargets"])
 	require.Contains(t, ExplainText(report), "error[unknown-target]")
 
 	report, err = Explain(ExplainOptions{Target: "git:user.email", RepoRoot: root})

@@ -605,6 +605,92 @@ func TestLoadRuntimeUsesBundledStarshipAndIgnoresLocalShadow(t *testing.T) {
 	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
 }
 
+func TestBundledZshRecipeAcceptsSelectedStartupFilesOnly(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledZshRecipe()
+	require.NoError(t, rec.ValidateZsh())
+	require.Equal(t, ZshTarget, rec.Target)
+	require.Equal(t, "Zsh", rec.DisplayName)
+	require.Equal(t, "read-write", rec.Capability)
+	require.Equal(t, "~", rec.Locations["home"].Default)
+	require.Len(t, rec.Settings, 4)
+	require.Len(t, rec.Resources, 4)
+
+	for _, settingID := range zshSettingIDs() {
+		setting, ok := rec.Settings[settingID]
+		require.True(t, ok, "setting %s", settingID)
+		require.Equal(t, settingID, setting.Resource)
+		require.Equal(t, "experimental", setting.SupportLevel)
+		require.Equal(t, "read-write", setting.Capability)
+		require.Equal(t, "file", setting.ArtifactForm)
+		require.Equal(t, SensitivityPersonal, setting.Sensitivity)
+		require.Equal(t, RedactionRedactedForDisplay, setting.Redaction)
+		require.Equal(t, LifecycleWarn, setting.Lifecycle)
+		require.Equal(t, "user", setting.ScopeDefault)
+		requireZshFileResource(t, rec.Resources[setting.Resource], settingID)
+	}
+	require.NotContains(t, rec.Settings, "zshenv")
+	require.NotContains(t, rec.Resources, "zshenv")
+}
+
+func TestLoadRuntimeUsesBundledZshAndIgnoresLocalShadow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, ZshTarget, strings.Replace(validSelectedPathRecipe(ZshTarget, JSONFileDriverID, "config.json"), "  identity.email:\n", "  zshenv:\n", 1))
+
+	runtime, err := LoadRuntime(root, ZshTarget)
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/zsh", runtime.RecipeRef)
+	require.Equal(t, TrustStatusTrusted, runtime.TrustStatus)
+	require.NotNil(t, runtime.Recipe)
+	require.NoError(t, runtime.Recipe.ValidateZsh())
+	require.Contains(t, runtime.Recipe.Settings, "zshrc")
+	require.NotContains(t, runtime.Recipe.Settings, "zshenv")
+
+	eval, err := EvaluateRecipeTrust(root, t.TempDir(), runtime.Source, runtime.Recipe)
+	require.NoError(t, err)
+	require.Equal(t, TrustStatusTrusted, eval.Status)
+	diagnostics := runtime.Recipe.WriteSafetyDiagnostics(eval.WriteSafetyContext(WriteSafetyContext{}))
+	requireDiagnosticCodes(t, diagnostics, ZshRiskShellStartupFileCode)
+	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
+}
+
+func TestZshBlockedSettingDiagnosticMapsUnsafeRefs(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"zshenv":           ZshBlockedZshenvCode,
+		"history":          ZshBlockedHistoryCode,
+		"zsh-history":      ZshBlockedHistoryCode,
+		"zhistory":         ZshBlockedHistoryCode,
+		"zcompdump":        ZshBlockedCompletionCacheCode,
+		"completion-cache": ZshBlockedCompletionCacheCode,
+		"cache":            ZshBlockedCompletionCacheCode,
+		"zsh-cache":        ZshBlockedCompletionCacheCode,
+		"oh-my-zsh":        ZshBlockedPluginStateCode,
+		"custom":           ZshBlockedPluginStateCode,
+		"zprezto":          ZshBlockedPluginStateCode,
+		"zinit":            ZshBlockedPluginStateCode,
+		"zim":              ZshBlockedPluginStateCode,
+		"zplug":            ZshBlockedPluginStateCode,
+		"plugin-state":     ZshBlockedPluginStateCode,
+		"zsh-sessions":     ZshBlockedSessionStateCode,
+		"sessions":         ZshBlockedSessionStateCode,
+	}
+	for settingID, wantCode := range tests {
+		diagnostic, ok := ZshBlockedSettingDiagnostic(settingID)
+		require.True(t, ok, settingID)
+		require.Equal(t, wantCode, diagnostic.Code)
+		require.Equal(t, ValidationSeverityError, diagnostic.Severity)
+		require.Contains(t, diagnostic.Path, settingID)
+	}
+	_, ok := ZshBlockedSettingDiagnostic("zshrc")
+	require.False(t, ok)
+}
+
 func TestLoadRuntimeKeepsBundledRuntimeUnavailableExplicitForNonExecutableTargets(t *testing.T) {
 	t.Parallel()
 
@@ -852,6 +938,149 @@ func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 	}
 }
 
+func TestZshRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Recipe)
+		wantErr string
+	}{
+		{name: "wrong target", mutate: func(r *Recipe) { r.Target = "zsh.extra" }, wantErr: "target must be"},
+		{name: "read only capability", mutate: func(r *Recipe) { r.Capability = "read-only" }, wantErr: "capability must be read-write"},
+		{name: "extra location", mutate: func(r *Recipe) { r.Locations["zdotdir"] = Location{Default: "~/.config/zsh"} }, wantErr: "only the home location"},
+		{name: "missing home location", mutate: func(r *Recipe) {
+			r.Locations = map[string]Location{"config": {Default: "~/.config"}}
+			for id, resource := range r.Resources {
+				resource.Location = "config"
+				r.Resources[id] = resource
+			}
+		}, wantErr: "must declare home location"},
+		{name: "wrong home default", mutate: func(r *Recipe) { r.Locations["home"] = Location{Default: "~/.config/zsh"} }, wantErr: "home location default must be ~"},
+		{name: "extra setting", mutate: func(r *Recipe) { r.Settings["zshenv"] = r.Settings["zshrc"] }, wantErr: "only supported startup file settings"},
+		{name: "extra resource", mutate: func(r *Recipe) {
+			r.Resources["zshenv"] = Resource{Driver: FileDriverID, Location: "home", Path: ".zshenv"}
+		}, wantErr: "exactly one file resource"},
+		{name: "setting support metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.SupportLevel = "stable"
+			r.Settings["zshrc"] = setting
+		}, wantErr: "supportLevel must be experimental"},
+		{name: "setting scope metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.ScopeDefault = "machine"
+			r.Settings["zshrc"] = setting
+		}, wantErr: "scopeDefault must be user"},
+		{name: "setting capability metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.Capability = "read-only"
+			r.Settings["zshrc"] = setting
+		}, wantErr: "capability must be read-write"},
+		{name: "setting artifact form", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.ArtifactForm = "scalar"
+			r.Settings["zshrc"] = setting
+		}, wantErr: "artifactForm must be file"},
+		{name: "setting safety metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.Sensitivity = SensitivityLow
+			r.Settings["zshrc"] = setting
+		}, wantErr: "sensitivity must be personal"},
+		{name: "setting redaction metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.Redaction = RedactionKnownSafe
+			r.Settings["zshrc"] = setting
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "setting lifecycle metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.Lifecycle = LifecycleAllowed
+			r.Settings["zshrc"] = setting
+		}, wantErr: "lifecycle must be warn"},
+		{name: "setting resource id", mutate: func(r *Recipe) {
+			setting := r.Settings["zshrc"]
+			setting.Resource = "zprofile"
+			r.Settings["zshrc"] = setting
+		}, wantErr: "resource must be zshrc"},
+		{name: "wrong resource driver", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Driver = YAMLFileDriverID
+			resource.Selector = &Selector{Path: []string{"zshrc"}, CreateMissing: "create", DuplicatePolicy: "reject", DeleteKey: "allow"}
+			r.Resources["zshrc"] = resource
+		}, wantErr: "driver must be"},
+		{name: "wrong resource path", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Path = ".zshenv"
+			r.Resources["zshrc"] = resource
+		}, wantErr: "path must be .zshrc"},
+		{name: "wrong resource location", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Location = "config"
+			r.Resources["zshrc"] = resource
+		}, wantErr: "references unknown location config"},
+		{name: "wrong resource capability", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Capability = "read-only"
+			r.Resources["zshrc"] = resource
+		}, wantErr: "capability must be read-write"},
+		{name: "wrong resource sensitivity", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Sensitivity = SensitivityLow
+			r.Resources["zshrc"] = resource
+		}, wantErr: "sensitivity must be personal"},
+		{name: "wrong resource redaction", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Redaction = RedactionKnownSafe
+			r.Resources["zshrc"] = resource
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "wrong resource lifecycle", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Lifecycle = LifecycleAllowed
+			r.Resources["zshrc"] = resource
+		}, wantErr: "lifecycle must be warn"},
+		{name: "selector declared", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Selector = &Selector{Path: []string{"plugins"}}
+			r.Resources["zshrc"] = resource
+		}, wantErr: "must not declare selector"},
+		{name: "include exclude declared", mutate: func(r *Recipe) {
+			resource := r.Resources["zshrc"]
+			resource.Include = []string{"*.zsh"}
+			r.Resources["zshrc"] = resource
+		}, wantErr: "must not declare include/exclude"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := cloneBundledZshRecipe(t)
+			tc.mutate(rec)
+			err := rec.ValidateZsh()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestZshHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "custom file", zshSettingLabel("custom.file"))
+	require.Equal(t, "", zshResourcePath("unknown"))
+
+	rec := cloneBundledZshRecipe(t)
+	setting := rec.Settings["zprofile"]
+	setting.Resource = "zprofile"
+	rec.Settings["unsupported"] = setting
+	delete(rec.Settings, "zshrc")
+	group := rec.SettingsGroups["startup-files"]
+	group.Settings = []string{"unsupported", "zprofile", "zlogin", "zlogout"}
+	rec.SettingsGroups["startup-files"] = group
+	err := rec.ValidateZsh()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing setting zshrc")
+}
+
 func writeRecipe(t *testing.T, root string, body string) {
 	t.Helper()
 	writeNamedRecipe(t, root, CustomFilesTarget, body)
@@ -1025,11 +1254,34 @@ func requireStarshipTOMLResource(t *testing.T, resource Resource, key string) {
 	require.Equal(t, "allow", selectorDeleteKey(resource.Selector))
 }
 
+func requireZshFileResource(t *testing.T, resource Resource, settingID string) {
+	t.Helper()
+	require.Equal(t, FileDriverID, resource.Driver)
+	require.Equal(t, "home", resource.Location)
+	require.Equal(t, zshResourcePath(settingID), resource.Path)
+	require.Equal(t, "read-write", resource.Capability)
+	require.Equal(t, SensitivityPersonal, resource.Sensitivity)
+	require.Equal(t, RedactionRedactedForDisplay, resource.Redaction)
+	require.Equal(t, LifecycleWarn, resource.Lifecycle)
+	require.Empty(t, resource.Include)
+	require.Empty(t, resource.Exclude)
+	require.Nil(t, resource.Selector)
+}
+
 func cloneBundledStarshipRecipe(t *testing.T) *Recipe {
 	t.Helper()
 	data, err := yaml.Marshal(BundledStarshipRecipe())
 	require.NoError(t, err)
 	rec, err := Decode("starship.yaml", strings.NewReader(string(data)))
+	require.NoError(t, err)
+	return rec
+}
+
+func cloneBundledZshRecipe(t *testing.T) *Recipe {
+	t.Helper()
+	data, err := yaml.Marshal(BundledZshRecipe())
+	require.NoError(t, err)
+	rec, err := Decode("zsh.yaml", strings.NewReader(string(data)))
 	require.NoError(t, err)
 	return rec
 }

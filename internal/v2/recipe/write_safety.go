@@ -48,7 +48,7 @@ func (r *Recipe) WriteSafetyDiagnostics(ctx WriteSafetyContext) []ValidationDiag
 			diagnostics = append(diagnostics, redactionWriteDiagnostics(setting.Redaction, settingPath+".redaction", fmt.Sprintf("setting %s", settingID), ctx)...)
 		}
 		if setting.Lifecycle != "" {
-			diagnostics = append(diagnostics, lifecycleWriteDiagnostics(setting.Lifecycle, settingPath+".lifecycle", fmt.Sprintf("setting %s", settingID), ctx, addWarning)...)
+			diagnostics = append(diagnostics, lifecycleWriteDiagnostics(r.Target, setting.Lifecycle, settingPath+".lifecycle", fmt.Sprintf("setting %s", settingID), ctx, addWarning)...)
 		}
 	}
 
@@ -72,7 +72,7 @@ func (r *Recipe) WriteSafetyDiagnostics(ctx WriteSafetyContext) []ValidationDiag
 		if resource.Lifecycle == "" {
 			add("writeSafety.resource.lifecycle.required", resourcePath+".lifecycle", fmt.Sprintf("write-capable resource %s requires lifecycle metadata", resourceID))
 		} else {
-			diagnostics = append(diagnostics, lifecycleWriteDiagnostics(resource.Lifecycle, resourcePath+".lifecycle", fmt.Sprintf("resource %s", resourceID), ctx, addWarning)...)
+			diagnostics = append(diagnostics, lifecycleWriteDiagnostics(r.Target, resource.Lifecycle, resourcePath+".lifecycle", fmt.Sprintf("resource %s", resourceID), ctx, addWarning)...)
 		}
 	}
 
@@ -121,7 +121,7 @@ func redactionWriteDiagnostics(value string, path string, subject string, ctx Wr
 	return nil
 }
 
-func lifecycleWriteDiagnostics(value string, path string, subject string, ctx WriteSafetyContext, addWarning func(string, string, string)) []ValidationDiagnostic {
+func lifecycleWriteDiagnostics(target string, value string, path string, subject string, ctx WriteSafetyContext, addWarning func(string, string, string)) []ValidationDiagnostic {
 	switch value {
 	case LifecycleBlocked:
 		return []ValidationDiagnostic{writeSafetyDiagnostic("writeSafety.lifecycle.blocked", path, ValidationSeverityError, fmt.Sprintf("%s lifecycle policy blocks write planning", subject))}
@@ -131,10 +131,24 @@ func lifecycleWriteDiagnostics(value string, path string, subject string, ctx Wr
 		}
 	case LifecycleWarn:
 		if addWarning != nil {
-			addWarning("writeSafety.lifecycle.warn", path, fmt.Sprintf("%s lifecycle policy requires a user-visible warning", subject))
+			addWarning(lifecycleWarningCode(target), path, lifecycleWarningMessage(target, subject))
 		}
 	}
 	return nil
+}
+
+func lifecycleWarningCode(target string) string {
+	if target == ZshTarget {
+		return ZshRiskShellStartupFileCode
+	}
+	return "writeSafety.lifecycle.warn"
+}
+
+func lifecycleWarningMessage(target string, subject string) string {
+	if target == ZshTarget {
+		return "Zsh startup file save/apply can affect shell startup behavior; review carefully before writing"
+	}
+	return fmt.Sprintf("%s lifecycle policy requires a user-visible warning", subject)
 }
 
 func effectiveSettingCapability(r *Recipe, setting Setting) string {

@@ -166,6 +166,17 @@ func TestWriteSafetyLifecycleWarnIsNonBlockingDiagnostic(t *testing.T) {
 	require.NoError(t, rec.ValidateWriteSafety(ctx))
 }
 
+func TestWriteSafetyUsesStableZshStartupWarningCode(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledZshRecipe()
+	diagnostics := rec.WriteSafetyDiagnostics(WriteSafetyContext{Source: RecipeSourceBundled, Trusted: true})
+	requireDiagnosticCodes(t, diagnostics, ZshRiskShellStartupFileCode)
+	require.NotEmpty(t, warningDiagnostics(diagnostics))
+	require.Empty(t, blockingDiagnostics(diagnostics))
+	require.NoError(t, rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceBundled, Trusted: true}))
+}
+
 func TestSafetyValidationDiagnosticsDoNotEchoInvalidSafetyValues(t *testing.T) {
 	t.Parallel()
 
@@ -266,6 +277,16 @@ func warningDiagnostics(diagnostics []ValidationDiagnostic) []ValidationDiagnost
 		}
 	}
 	return warnings
+}
+
+func blockingDiagnostics(diagnostics []ValidationDiagnostic) []ValidationDiagnostic {
+	var blocking []ValidationDiagnostic
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "" || diagnostic.Severity == ValidationSeverityError {
+			blocking = append(blocking, diagnostic)
+		}
+	}
+	return blocking
 }
 
 func trustedLocalContextForRecipe(t *testing.T, rec *Recipe, base WriteSafetyContext) WriteSafetyContext {

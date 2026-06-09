@@ -145,6 +145,126 @@ func TestBuildUsesBundledGitRuntimeForSelectedIdentitySettings(t *testing.T) {
 	}
 }
 
+func TestBuildUsesBundledZshFileResourceRuntime(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupZshFixture(t, "zshrc")
+	writeFile(t, filepath.Join(fixture.liveRoot, ".zshrc"), "raw-live-zshrc\n")
+	writeFileResourceDesired(t, fixture, recipe.ZshTarget, "zshrc", "raw-desired-zshrc\n")
+	roots := map[string]map[string]string{recipe.ZshTarget: {"home": fixture.liveRoot}}
+
+	for _, command := range []string{CommandStatus, CommandDiff, CommandSave, CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "zsh:zshrc", UserID: "leon", DryRun: command == CommandSave || command == CommandApply, LocationRoots: roots})
+			require.NoError(t, err)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, recipe.RecipeSourceBundled, item.Recipe.Source)
+			require.Equal(t, "recipe://bundled/zsh", item.Recipe.RecipeRef)
+			require.Equal(t, recipe.TrustStatusTrusted, item.Recipe.TrustStatus)
+			require.Equal(t, "zsh:zshrc", item.SettingRef)
+			require.Equal(t, recipe.FileDriverID, item.Resource.DriverID)
+			require.Equal(t, "zshrc", item.Resource.ID)
+			require.Equal(t, "home", item.Resource.LocationID)
+			require.Equal(t, ".zshrc", item.Resource.RelPath)
+			require.Equal(t, SelectorInfo{Kind: "file", Summary: ".zshrc"}, item.Selector)
+			require.Equal(t, "desired://user/leon/targets/zsh/artifacts/zshrc", item.DesiredURI)
+			require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "zsh", "artifacts", "zshrc")), item.DesiredRelPath)
+			require.True(t, item.Current.Exists)
+			require.Equal(t, "present", item.Desired.Status)
+			require.Equal(t, "file", item.Desired.Kind)
+			require.True(t, item.Desired.Snapshot.Exists)
+			require.NotNil(t, item.Preview)
+			if command == CommandDiff {
+				require.NotNil(t, item.Diff)
+				require.Equal(t, "metadata-only", item.Diff.Mode)
+				require.Equal(t, "raw file contents omitted", item.Diff.Redaction)
+			}
+			if command == CommandSave || command == CommandApply {
+				requireDiagnostic(t, item, recipe.ZshRiskShellStartupFileCode)
+				require.NotEqual(t, SummaryBlocked, report.Summary.Status)
+			} else {
+				requireNoDiagnostic(t, item, recipe.ZshRiskShellStartupFileCode)
+			}
+			payload := mustJSON(t, report)
+			require.NotContains(t, payload, "raw-live-zshrc")
+			require.NotContains(t, payload, "raw-desired-zshrc")
+			require.NotContains(t, Text(report), "raw-live-zshrc")
+			require.NotContains(t, Text(report), "raw-desired-zshrc")
+		})
+	}
+}
+
+func TestBuildZshOptInStartupFilesEmitWriteWarnings(t *testing.T) {
+	t.Parallel()
+
+	for _, settingID := range []string{"zprofile", "zlogin", "zlogout"} {
+		t.Run(settingID, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := setupZshFixture(t, settingID)
+			path := "." + settingID
+			writeFile(t, filepath.Join(fixture.liveRoot, path), "raw-live-"+settingID+"\n")
+			writeFileResourceDesired(t, fixture, recipe.ZshTarget, settingID, "raw-desired-"+settingID+"\n")
+			roots := map[string]map[string]string{recipe.ZshTarget: {"home": fixture.liveRoot}}
+
+			for _, command := range []string{CommandSave, CommandApply} {
+				report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "zsh:" + settingID, UserID: "leon", DryRun: true, LocationRoots: roots})
+				require.NoError(t, err)
+				require.Len(t, report.Items, 1)
+				item := report.Items[0]
+				require.Equal(t, "zsh:"+settingID, item.SettingRef)
+				require.Equal(t, path, item.Resource.RelPath)
+				requireDiagnostic(t, item, recipe.ZshRiskShellStartupFileCode)
+				require.NotEqual(t, SummaryBlocked, report.Summary.Status)
+				payload := mustJSON(t, report)
+				require.NotContains(t, payload, "raw-live-"+settingID)
+				require.NotContains(t, payload, "raw-desired-"+settingID)
+			}
+		})
+	}
+}
+
+func TestBuildZshBlockedRefsDoNotReadRawFiles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		settingID string
+		code      string
+		livePath  string
+	}{
+		{settingID: "zshenv", code: recipe.ZshBlockedZshenvCode, livePath: ".zshenv"},
+		{settingID: "history", code: recipe.ZshBlockedHistoryCode, livePath: ".zsh_history"},
+		{settingID: "zcompdump", code: recipe.ZshBlockedCompletionCacheCode, livePath: ".zcompdump"},
+		{settingID: "cache", code: recipe.ZshBlockedCompletionCacheCode, livePath: filepath.Join(".cache", "zsh", "raw.cache")},
+		{settingID: "oh-my-zsh", code: recipe.ZshBlockedPluginStateCode, livePath: filepath.Join(".oh-my-zsh", "custom", "raw.zsh")},
+		{settingID: "custom", code: recipe.ZshBlockedPluginStateCode, livePath: filepath.Join(".oh-my-zsh", "custom", "raw.zsh")},
+		{settingID: "zsh-sessions", code: recipe.ZshBlockedSessionStateCode, livePath: filepath.Join(".zsh_sessions", "raw.session")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.settingID, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := setupZshFixture(t, tc.settingID)
+			raw := "RAW-BLOCKED-ZSH-" + tc.settingID
+			writeFile(t, filepath.Join(fixture.liveRoot, tc.livePath), raw+"\n")
+			roots := map[string]map[string]string{recipe.ZshTarget: {"home": fixture.liveRoot}}
+
+			report, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "zsh:" + tc.settingID, UserID: "leon", LocationRoots: roots})
+			require.NoError(t, err)
+			require.Equal(t, SummaryBlocked, report.Summary.Status)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, v2status.StateUnsupported, item.State)
+			require.False(t, item.Current.Exists)
+			require.Empty(t, item.Current.SHA256)
+			requireDiagnostic(t, item, tc.code)
+			require.NotContains(t, mustJSON(t, report), raw)
+			require.NotContains(t, Text(report), raw)
+		})
+	}
+}
+
 func TestBuildRejectsRefsAndMissingMatches(t *testing.T) {
 	t.Parallel()
 
@@ -166,6 +286,13 @@ func requireDiagnostic(t *testing.T, item Item, code string) {
 		}
 	}
 	require.Failf(t, "missing diagnostic", "wanted %s in %+v", code, item.Diagnostics)
+}
+
+func requireNoDiagnostic(t *testing.T, item Item, code string) {
+	t.Helper()
+	for _, diagnostic := range item.Diagnostics {
+		require.NotEqual(t, code, diagnostic.Code, "unexpected diagnostic in %+v", item.Diagnostics)
+	}
 }
 
 func mustJSON(t *testing.T, report *Report) string {
@@ -200,6 +327,15 @@ func setupFixtureForTarget(t *testing.T, target string, settingID string) fixtur
 		rec = decodeRecipe(t, body)
 	}
 	return fixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func setupZshFixture(t *testing.T, settingID string) fixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	homeRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, recipe.ZshTarget, settingID)
+	return fixture{repoRoot: repoRoot, liveRoot: homeRoot, stateRoot: stateRoot, t: t}
 }
 
 func (f fixture) writeLiveYAML(email string) {

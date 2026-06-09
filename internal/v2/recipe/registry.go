@@ -179,5 +179,13 @@ func defaultBundledTargets() []BundledTarget {
 			PlatformSupport: "unknown",
 			Summary:         "Manage selected prompt-wide Starship TOML options.",
 		},
+		{
+			ID:              ZshTarget,
+			DisplayName:     "Zsh",
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			PlatformSupport: "unknown",
+			Summary:         "Manage selected Zsh startup files only; history, completion caches, sessions, plugin state, and .zshenv are blocked.",
+		},
 	}
 }
