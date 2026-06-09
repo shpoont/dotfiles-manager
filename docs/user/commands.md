@@ -364,6 +364,88 @@ apply may canonicalize/reformat the file and may not preserve comments. Use a
 whole-file recipe resource when you want byte-preserving file management instead
 of selected TOML-key management.
 
+## v2 selected settings: Zsh startup file example
+
+The bundled `zsh` recipe manages a small explicit set of whole startup files
+under the named `home` location, whose default is `~`:
+
+- `zsh:zshrc` -> `~/.zshrc`
+- `zsh:zprofile` -> `~/.zprofile`
+- `zsh:zlogin` -> `~/.zlogin`
+- `zsh:zlogout` -> `~/.zlogout`
+
+Until the v2 `add` command ships, select Zsh in a profile layer:
+
+```yaml
+# profiles/layers/global.yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  zsh:
+    settings:
+      zshrc:
+        scope: user
+```
+
+Then use the same selected file-resource workflow:
+
+```bash
+dotfiles-manager recipe explain zsh
+dotfiles-manager status --user-id leon zsh:zshrc
+dotfiles-manager save --dry-run --user-id leon zsh:zshrc
+dotfiles-manager save --yes --user-id leon zsh:zshrc
+dotfiles-manager diff --user-id leon zsh:zshrc
+dotfiles-manager apply --dry-run --user-id leon zsh:zshrc
+dotfiles-manager apply --yes --user-id leon zsh:zshrc
+```
+
+For user-scoped Zsh files, `save --yes` writes the desired artifact to:
+
+```text
+desired/user/<user>/targets/zsh/artifacts/<setting-id>
+```
+
+For example, `--user-id leon` and `zsh:zshrc` write:
+
+```text
+desired/user/leon/targets/zsh/artifacts/zshrc
+```
+
+The desired artifact contains the raw file bytes because it is the file that
+will be applied later. Normal text and JSON output, diffs, ledgers, and backup
+metadata stay metadata-only and do not print raw startup file contents.
+
+Zsh startup files can affect shell startup behavior. For `save` and `apply`
+plans, selected Zsh files emit a warning diagnostic:
+
+```text
+zsh.risk.shell-startup-file
+```
+
+This warning does not block the plan by itself. It is there to make the write
+risk visible before `save --yes` or `apply --yes`. `status` and `diff` do not
+emit this write warning.
+
+`zsh:zshrc` is the intended future default candidate for `add zsh`.
+`zsh:zprofile`, `zsh:zlogin`, and `zsh:zlogout` are opt-in because they affect
+login/logout startup behavior.
+
+The bundled recipe deliberately does **not** manage:
+
+- `.zshenv` / `zsh:zshenv` (`zsh.blocked.zshenv`)
+- `.zsh_history`, `.zhistory`, or `zsh:history`
+- `.zcompdump*` completion dump/cache files, `zsh:cache`, and `zsh:zsh-cache`
+- `.zsh_sessions/` session state
+- cache directories such as `.cache/` and `.config/zsh/.zcompdump*`
+- plugin/generated state such as `.oh-my-zsh`, `.zprezto`, `.zinit`, `.zim`,
+  and `.zplug`
+- `ZDOTDIR` discovery or non-default Zsh locations
+- package/plugin-manager installation, shell restart, or shell re-sourcing
+- arbitrary shell-script parsing, secret detection, or semantic analysis
+
+Unsupported refs for these categories block visibly before live reads, so raw
+file contents are not printed as part of the block.
+
 ## v2 selected whole-file resources
 
 The v2 selected command flow also supports single-file recipe resources. A file

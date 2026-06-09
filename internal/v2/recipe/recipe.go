@@ -24,6 +24,7 @@ const (
 	CustomFilesTarget             = "custom.files"
 	GitTarget                     = "git"
 	StarshipTarget                = "starship"
+	ZshTarget                     = "zsh"
 	FileDriverID                  = "file"
 	FileTreeDriverID              = "file-tree"
 	IniFileDriverID               = "ini-file"
@@ -68,6 +69,15 @@ const (
 	LifecycleQuitIfRunning         = "quit-if-running"
 	LifecycleBlockIfRunning        = "block-if-running"
 	LifecycleReopenIfStoppedByTool = "reopen-if-stopped-by-tool"
+)
+
+const (
+	ZshRiskShellStartupFileCode   = "zsh.risk.shell-startup-file"
+	ZshBlockedZshenvCode          = "zsh.blocked.zshenv"
+	ZshBlockedHistoryCode         = "zsh.blocked.history"
+	ZshBlockedCompletionCacheCode = "zsh.blocked.completion-cache"
+	ZshBlockedPluginStateCode     = "zsh.blocked.plugin-state"
+	ZshBlockedSessionStateCode    = "zsh.blocked.session-state"
 )
 
 var (
@@ -465,6 +475,109 @@ func (r *Recipe) ValidateStarship() error {
 	return nil
 }
 
+func (r *Recipe) ValidateZsh() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Target != ZshTarget {
+		return fmt.Errorf("zsh recipe target must be %q, got %q", ZshTarget, r.Target)
+	}
+	if r.Capability != "read-write" {
+		return fmt.Errorf("zsh recipe capability must be read-write, got %s", r.Capability)
+	}
+	if len(r.Locations) != 1 {
+		return fmt.Errorf("zsh recipe must declare only the home location")
+	}
+	location, ok := r.Locations["home"]
+	if !ok {
+		return fmt.Errorf("zsh recipe must declare home location")
+	}
+	if strings.TrimSpace(location.Default) != "~" {
+		return fmt.Errorf("zsh home location default must be ~")
+	}
+	if len(r.Settings) != len(zshSettingIDs()) {
+		return fmt.Errorf("zsh recipe must declare only supported startup file settings")
+	}
+	if len(r.Resources) != len(zshSettingIDs()) {
+		return fmt.Errorf("zsh recipe must declare exactly one file resource per supported startup file")
+	}
+	for _, settingID := range zshSettingIDs() {
+		if err := r.validateZshSetting(settingID); err != nil {
+			return err
+		}
+	}
+	if _, exists := r.Settings["zshenv"]; exists {
+		return fmt.Errorf("zsh recipe must not declare .zshenv as a managed setting")
+	}
+	if _, exists := r.Resources["zshenv"]; exists {
+		return fmt.Errorf("zsh recipe must not declare .zshenv as a managed resource")
+	}
+	return nil
+}
+
+func (r *Recipe) validateZshSetting(settingID string) error {
+	setting, ok := r.Settings[settingID]
+	if !ok {
+		return fmt.Errorf("zsh recipe missing setting %s", settingID)
+	}
+	if setting.ScopeDefault != "user" {
+		return fmt.Errorf("zsh setting %s scopeDefault must be user", settingID)
+	}
+	if setting.SupportLevel != "experimental" {
+		return fmt.Errorf("zsh setting %s supportLevel must be experimental", settingID)
+	}
+	if setting.Capability != "read-write" {
+		return fmt.Errorf("zsh setting %s capability must be read-write", settingID)
+	}
+	if setting.ArtifactForm != "file" {
+		return fmt.Errorf("zsh setting %s artifactForm must be file", settingID)
+	}
+	if setting.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("zsh setting %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if setting.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("zsh setting %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if setting.Lifecycle != LifecycleWarn {
+		return fmt.Errorf("zsh setting %s lifecycle must be %s", settingID, LifecycleWarn)
+	}
+	if setting.Resource != settingID {
+		return fmt.Errorf("zsh setting %s resource must be %s", settingID, settingID)
+	}
+	resource, ok := r.Resources[setting.Resource]
+	if !ok {
+		return fmt.Errorf("zsh setting %s references unknown resource %s", settingID, setting.Resource)
+	}
+	if resource.Driver != FileDriverID {
+		return fmt.Errorf("zsh setting %s driver must be %q, got %q", settingID, FileDriverID, resource.Driver)
+	}
+	if resource.Location != "home" {
+		return fmt.Errorf("zsh setting %s location must be home", settingID)
+	}
+	if resource.Path != zshResourcePath(settingID) {
+		return fmt.Errorf("zsh setting %s path must be %s", settingID, zshResourcePath(settingID))
+	}
+	if resource.Capability != "read-write" {
+		return fmt.Errorf("zsh resource %s capability must be read-write", settingID)
+	}
+	if resource.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("zsh resource %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if resource.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("zsh resource %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if resource.Lifecycle != LifecycleWarn {
+		return fmt.Errorf("zsh resource %s lifecycle must be %s", settingID, LifecycleWarn)
+	}
+	if resource.Selector != nil {
+		return fmt.Errorf("zsh resource %s must not declare selector", settingID)
+	}
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("zsh resource %s must not declare include/exclude globs", settingID)
+	}
+	return nil
+}
+
 func (r *Recipe) validateStarshipSetting(settingID string) error {
 	setting, ok := r.Settings[settingID]
 	if !ok {
@@ -581,6 +694,46 @@ func (r *Recipe) validateGitSetting(settingID string, key string) error {
 
 func starshipSettingIDs() []string {
 	return []string{"add_newline", "command_timeout", "follow_symlinks", "scan_timeout"}
+}
+
+func zshSettingIDs() []string {
+	return []string{"zshrc", "zprofile", "zlogin", "zlogout"}
+}
+
+func zshResourcePath(settingID string) string {
+	switch settingID {
+	case "zshrc":
+		return ".zshrc"
+	case "zprofile":
+		return ".zprofile"
+	case "zlogin":
+		return ".zlogin"
+	case "zlogout":
+		return ".zlogout"
+	default:
+		return ""
+	}
+}
+
+func ZshBlockedSettingDiagnostic(settingID string) (ValidationDiagnostic, bool) {
+	switch strings.TrimSpace(settingID) {
+	case "zshenv":
+		return zshBlockedDiagnostic(ZshBlockedZshenvCode, settingID, ".zshenv is blocked because it affects almost every zsh invocation and can break login or session startup"), true
+	case "history", "zsh-history", "zhistory":
+		return zshBlockedDiagnostic(ZshBlockedHistoryCode, settingID, "Zsh history files are blocked because shell history can contain secrets and transient commands"), true
+	case "zcompdump", "completion-cache", "cache", "zsh-cache":
+		return zshBlockedDiagnostic(ZshBlockedCompletionCacheCode, settingID, "Zsh completion dump/cache files and cache directories are generated state and are blocked"), true
+	case "zsh-sessions", "sessions":
+		return zshBlockedDiagnostic(ZshBlockedSessionStateCode, settingID, "Zsh session directories are generated local state and are blocked"), true
+	case "oh-my-zsh", "custom", "zprezto", "zinit", "zim", "zplug", "plugin-state":
+		return zshBlockedDiagnostic(ZshBlockedPluginStateCode, settingID, "Zsh plugin-manager or generated custom state is blocked in this recipe"), true
+	default:
+		return ValidationDiagnostic{}, false
+	}
+}
+
+func zshBlockedDiagnostic(code string, settingID string, message string) ValidationDiagnostic {
+	return ValidationDiagnostic{Code: code, Severity: ValidationSeverityError, Message: message, Path: "$.settings." + settingID}
 }
 
 func (r *Recipe) ValidateCustomFiles() error {

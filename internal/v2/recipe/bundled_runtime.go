@@ -43,6 +43,13 @@ func LoadRuntime(repoRoot string, targetID string) (RuntimeRecipe, error) {
 			}
 			runtime.Recipe = rec
 			return runtime, nil
+		case ZshTarget:
+			rec := BundledZshRecipe()
+			if err := rec.ValidateZsh(); err != nil {
+				return runtime, fmt.Errorf("validate bundled zsh recipe: %w", err)
+			}
+			runtime.Recipe = rec
+			return runtime, nil
 		default:
 			return runtime, fmt.Errorf("%w: %s", ErrBundledRuntimeUnavailable, target.ID)
 		}
@@ -195,5 +202,77 @@ func bundledStarshipResource(key string) Resource {
 			DuplicatePolicy: "reject",
 			DeleteKey:       "allow",
 		},
+	}
+}
+
+func BundledZshRecipe() *Recipe {
+	settings := map[string]Setting{}
+	resources := map[string]Resource{}
+	for _, id := range zshSettingIDs() {
+		settings[id] = bundledZshSetting(id, zshSettingLabel(id))
+		resources[id] = bundledZshResource(id)
+	}
+	return &Recipe{
+		Schema:        Schema,
+		SchemaVersion: SupportedVersion,
+		Target:        ZshTarget,
+		DisplayName:   "Zsh",
+		SupportLevel:  "experimental",
+		Capability:    "read-write",
+		Locations: map[string]Location{
+			"home": {Default: "~"},
+		},
+		SettingsGroups: map[string]SettingsGroup{
+			"startup-files": {
+				Label:        "Startup files",
+				Description:  "Selected Zsh startup files under the home location.",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				Settings:     zshSettingIDs(),
+			},
+		},
+		Settings:  settings,
+		Resources: resources,
+	}
+}
+
+func bundledZshSetting(id string, label string) Setting {
+	return Setting{
+		Label:        label,
+		SupportLevel: "experimental",
+		Capability:   "read-write",
+		ArtifactForm: "file",
+		Sensitivity:  SensitivityPersonal,
+		Redaction:    RedactionRedactedForDisplay,
+		Lifecycle:    LifecycleWarn,
+		ScopeDefault: "user",
+		Resource:     id,
+	}
+}
+
+func bundledZshResource(id string) Resource {
+	return Resource{
+		Driver:      FileDriverID,
+		Location:    "home",
+		Path:        zshResourcePath(id),
+		Capability:  "read-write",
+		Sensitivity: SensitivityPersonal,
+		Redaction:   RedactionRedactedForDisplay,
+		Lifecycle:   LifecycleWarn,
+	}
+}
+
+func zshSettingLabel(id string) string {
+	switch id {
+	case "zshrc":
+		return ".zshrc"
+	case "zprofile":
+		return ".zprofile"
+	case "zlogin":
+		return ".zlogin"
+	case "zlogout":
+		return ".zlogout"
+	default:
+		return fallbackLabel(id)
 	}
 }

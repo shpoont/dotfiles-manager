@@ -111,6 +111,23 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	require.Contains(t, out, "selector=add_newline")
 	require.Contains(t, out, "do not manage: STARSHIP_CONFIG non-default locations")
 	require.NotContains(t, out, "secret@example.com")
+
+	cmd = NewRootCmd()
+	stdout.Reset()
+	stderr.Reset()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "explain", "zsh"})
+	err = cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	out = stdout.String()
+	require.Contains(t, out, "target: zsh")
+	require.Contains(t, out, "zsh:zshrc")
+	require.Contains(t, out, "resource=zshrc driver=file")
+	require.Contains(t, out, "do not manage: .zshenv and zsh:zshenv")
+	require.Contains(t, out, "do not manage: ZDOTDIR discovery")
+	require.NotContains(t, out, "secret@example.com")
 }
 
 func TestRecipeListTextAndJSON(t *testing.T) {
@@ -129,6 +146,7 @@ func TestRecipeListTextAndJSON(t *testing.T) {
 	require.Contains(t, out, "custom.files source=bundled")
 	require.Contains(t, out, "git source=bundled")
 	require.Contains(t, out, "starship source=bundled")
+	require.Contains(t, out, "zsh source=bundled")
 	require.Contains(t, out, "aliases=gitconfig")
 
 	cmd = NewRootCmd()
@@ -147,10 +165,11 @@ func TestRecipeListTextAndJSON(t *testing.T) {
 	require.Equal(t, "recipe.list", payload["command"])
 	recipeList := payload["recipeList"].(map[string]any)
 	targets := recipeList["targets"].([]any)
-	require.Len(t, targets, 3)
+	require.Len(t, targets, 4)
 	require.Equal(t, "custom.files", targets[0].(map[string]any)["id"])
 	require.Equal(t, "git", targets[1].(map[string]any)["id"])
 	require.Equal(t, "starship", targets[2].(map[string]any)["id"])
+	require.Equal(t, "zsh", targets[3].(map[string]any)["id"])
 	require.Equal(t, "bundled", targets[1].(map[string]any)["source"])
 	require.Equal(t, "trusted", targets[1].(map[string]any)["trustStatus"])
 }
@@ -198,6 +217,53 @@ func TestRecipeExplainStarshipJSONIsMetadataOnly(t *testing.T) {
 	require.Equal(t, []any{"add_newline"}, selector["path"].([]any))
 	require.Equal(t, "create", selector["createMissing"])
 	require.Equal(t, "allow", selector["deleteKey"])
+}
+
+func TestRecipeExplainZshJSONIsMetadataOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	require.NoError(t, os.Chdir(tempDir))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, ".zshrc"), []byte("export SECRET_LIKE_ZSHRC=value\n"), 0o644))
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "explain", "zsh", "--json"})
+
+	err = cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	require.NotContains(t, stdout.String(), "SECRET_LIKE_ZSHRC")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	recipeExplain := payload["recipeExplain"].(map[string]any)
+	target := recipeExplain["target"].(map[string]any)
+	require.Equal(t, "zsh", target["ref"])
+	require.Equal(t, "unknown", target["platformSupport"])
+	recipeObj := recipeExplain["recipe"].(map[string]any)
+	require.Equal(t, "bundled", recipeObj["source"])
+	require.Equal(t, "recipe://bundled/zsh", recipeObj["recipeRef"])
+	settings := recipeExplain["settings"].([]any)
+	require.Len(t, settings, 4)
+	require.Equal(t, "zsh:zshrc", settings[0].(map[string]any)["ref"])
+	require.Equal(t, "file", settings[0].(map[string]any)["artifactForm"])
+	require.Equal(t, "user", settings[0].(map[string]any)["defaultScope"])
+	resources := recipeExplain["resources"].([]any)
+	require.Len(t, resources, 4)
+	require.Equal(t, ".zshrc", resources[0].(map[string]any)["path"])
+	require.Equal(t, "file", resources[0].(map[string]any)["driverId"])
+	require.Nil(t, resources[0].(map[string]any)["selector"])
+	safety := recipeExplain["safety"].(map[string]any)
+	doNotManage := safety["doNotManage"].([]any)
+	require.Contains(t, doNotManage, ".zshenv and zsh:zshenv are blocked because .zshenv affects almost every zsh invocation")
+	require.Contains(t, doNotManage, ".zsh_history and .zhistory")
+	require.Contains(t, doNotManage, ".zcompdump* completion dump files")
+	require.Contains(t, doNotManage, "ZDOTDIR discovery or non-default Zsh locations")
 }
 
 func TestRecipeExplainBundledAliasJSON(t *testing.T) {

@@ -421,6 +421,44 @@ identity key, so a user must repeat the preview-and-save flow for both
 case-insensitive ambiguity such as `[User]` or `Email` must block before
 promotion, desired writes, backups, or live mutation.
 
+### Save one Zsh startup file
+
+For the current MVP tranche, the bundled `zsh` runtime manages only selected
+whole-file startup refs:
+
+- `zsh:zshrc` -> `~/.zshrc`
+- `zsh:zprofile` -> `~/.zprofile`
+- `zsh:zlogin` -> `~/.zlogin`
+- `zsh:zlogout` -> `~/.zlogout`
+
+All four use `scopeDefault: user` and the named `home` location with default
+`~`. The desired artifact path for a user-scoped Zsh file is:
+
+```text
+desired/user/<user>/targets/zsh/artifacts/<setting-id>
+```
+
+For example, `--user-id leon` and `zsh:zshrc` write
+`desired/user/leon/targets/zsh/artifacts/zshrc`.
+
+`save --yes` imports the current live startup file into the desired artifact.
+`apply --yes` backs up the live startup file and writes the desired artifact
+back to the live path through the generic file-resource command path.
+
+Because these files affect shell startup, save/apply planning must emit a
+non-blocking warning diagnostic with stable code:
+
+```text
+zsh.risk.shell-startup-file
+```
+
+`status` and `diff` must not emit this write warning. `.zshenv`, history files,
+completion dumps/caches, cache directories (`zsh:cache` / `zsh:zsh-cache`),
+session state, and plugin-manager/generated state must block as unsupported
+before live reads and must not print raw file contents.
+The Zsh recipe must not parse arbitrary shell scripts, discover `ZDOTDIR`,
+restart shells, re-source shells, or install/manage plugin managers.
+
 ### Command-neutral status with no baseline
 
 ```text

@@ -447,6 +447,10 @@ func bundledExplain(target string) (RecipeExplain, bool) {
 		explain := bundledStarshipExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
+	case ZshTarget:
+		explain := bundledZshExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	default:
 		return RecipeExplain{}, false
 	}
@@ -570,6 +574,70 @@ func bundledStarshipExplain() RecipeExplain {
 	return explain
 }
 
+func bundledZshExplain() RecipeExplain {
+	explain := RecipeExplain{
+		Target:           ExplainTarget{Ref: ZshTarget, DisplayName: "Zsh", SupportLevel: "experimental", Capability: "read-write", PlatformSupport: "unknown"},
+		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/zsh", TrustStatus: "trusted", Version: "1"},
+		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
+		SettingGroups:    []any{},
+		NativeOperations: []any{},
+		Safety: ExplainSafety{
+			RedactionSummary: "metadata-only explanation; Zsh startup file contents are personal and are not read or emitted by normal output",
+			LifecycleSummary: "Zsh startup files affect shell startup; save/apply previews emit a warning and the manager does not restart or re-source shells",
+			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
+			DoNotManage: []string{
+				".zshenv and zsh:zshenv are blocked because .zshenv affects almost every zsh invocation",
+				".zsh_history and .zhistory",
+				".zcompdump* completion dump files",
+				".zsh_sessions/ session state",
+				".cache/ and .config/zsh/.zcompdump* cache state",
+				".oh-my-zsh, .zprezto, .zinit, .zim, and .zplug plugin-manager state",
+				"ZDOTDIR discovery or non-default Zsh locations",
+				"shell restart, shell re-sourcing, and package/plugin-manager installation",
+				"arbitrary shell-script parsing, secret detection, or semantic analysis",
+			},
+		},
+	}
+	for _, id := range zshSettingIDs() {
+		explain.Settings = append(explain.Settings, ExplainSetting{
+			Ref:             ZshTarget + ":" + id,
+			ID:              id,
+			Label:           zshSettingLabel(id),
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			DefaultScope:    "user",
+			ArtifactForm:    "file",
+			SelectionStatus: "unknown",
+			Sensitivity:     SensitivityPersonal,
+			Lifecycle:       LifecycleWarn,
+			ResourceID:      id,
+			Driver:          FileDriverID,
+			DiffLimitations: []string{
+				"whole-file metadata-only diff; raw shell file contents are omitted",
+			},
+			ApplyLimitations: append([]string{
+				"writes only the selected Zsh startup file at the default home location",
+				"does not parse, lint, source, or execute shell scripts",
+				"does not restart or re-source existing shells",
+				"does not discover or manage ZDOTDIR/non-default startup file locations",
+				"apply requires an existing desired file artifact",
+			}, zshSelectionPolicyLimitation(id)...),
+		})
+		explain.Resources = append(explain.Resources, ExplainResource{
+			ID:            id,
+			LocationID:    "home",
+			Path:          zshResourcePath(id),
+			DriverID:      FileDriverID,
+			SupportedOps:  []string{"read", "diff", "preview", "backup", "apply", "verify"},
+			BackupRestore: "pre-apply backup of the existing live file is written to local state; metadata output stays redacted",
+			Normalization: "byte-preserving file metadata",
+			DiffMode:      "file metadata-only",
+		})
+	}
+	explain.Drivers = driverExplains(FileDriverID)
+	return explain
+}
+
 func starshipSettingLabel(id string) string {
 	switch id {
 	case "add_newline":
@@ -583,6 +651,13 @@ func starshipSettingLabel(id string) string {
 	default:
 		return fallbackLabel(id)
 	}
+}
+
+func zshSelectionPolicyLimitation(id string) []string {
+	if id == "zshrc" {
+		return []string{"future add-default candidate; profile selection is still explicit in this slice"}
+	}
+	return []string{"opt-in startup file; future add-default support should not select this by default"}
 }
 
 func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus string) RecipeExplain {
