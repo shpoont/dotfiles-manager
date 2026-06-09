@@ -155,7 +155,7 @@ func Run(opts Options) (*Result, error) {
 			locationRoots = map[string]string{}
 		}
 		_ = source
-		if resource.Driver == recipe.FileDriverID {
+		if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
 			item := executeFileResource(command, runID, started, store, profile, setting, rec, resourceID, resource, locationRoots, preItem)
 			items = append(items, item)
 			markReportItem(report, setting.Ref(), item)
@@ -322,7 +322,7 @@ func fileResourceBackupHook(store *v2ledger.Store, runID string, started time.Ti
 		if err != nil {
 			return customfiles.BackupResult{}, err
 		}
-		return customfiles.BackupResult{ID: item.Ref, Before: req.Before.Snapshot()}, nil
+		return customfiles.BackupResult{ID: item.Ref, Before: req.Before.Snapshot(), TreeBefore: req.TreeBefore.Snapshot()}, nil
 	}
 }
 

@@ -145,6 +145,7 @@ func TestRecipeListTextAndJSON(t *testing.T) {
 	require.Contains(t, out, "recipe list")
 	require.Contains(t, out, "custom.files source=bundled")
 	require.Contains(t, out, "git source=bundled")
+	require.Contains(t, out, "nvim source=bundled")
 	require.Contains(t, out, "starship source=bundled")
 	require.Contains(t, out, "zsh source=bundled")
 	require.Contains(t, out, "aliases=gitconfig")
@@ -165,11 +166,12 @@ func TestRecipeListTextAndJSON(t *testing.T) {
 	require.Equal(t, "recipe.list", payload["command"])
 	recipeList := payload["recipeList"].(map[string]any)
 	targets := recipeList["targets"].([]any)
-	require.Len(t, targets, 4)
+	require.Len(t, targets, 5)
 	require.Equal(t, "custom.files", targets[0].(map[string]any)["id"])
 	require.Equal(t, "git", targets[1].(map[string]any)["id"])
-	require.Equal(t, "starship", targets[2].(map[string]any)["id"])
-	require.Equal(t, "zsh", targets[3].(map[string]any)["id"])
+	require.Equal(t, "nvim", targets[2].(map[string]any)["id"])
+	require.Equal(t, "starship", targets[3].(map[string]any)["id"])
+	require.Equal(t, "zsh", targets[4].(map[string]any)["id"])
 	require.Equal(t, "bundled", targets[1].(map[string]any)["source"])
 	require.Equal(t, "trusted", targets[1].(map[string]any)["trustStatus"])
 }
@@ -264,6 +266,51 @@ func TestRecipeExplainZshJSONIsMetadataOnly(t *testing.T) {
 	require.Contains(t, doNotManage, ".zsh_history and .zhistory")
 	require.Contains(t, doNotManage, ".zcompdump* completion dump files")
 	require.Contains(t, doNotManage, "ZDOTDIR discovery or non-default Zsh locations")
+}
+
+func TestRecipeExplainNvimJSONIsMetadataOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	require.NoError(t, os.Chdir(tempDir))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, ".config", "nvim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, ".config", "nvim", "init.lua"), []byte("vim.g.SECRET_LIKE_NVIM = 'value'\n"), 0o644))
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "explain", "nvim", "--json"})
+
+	err = cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	require.NotContains(t, stdout.String(), "SECRET_LIKE_NVIM")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	recipeExplain := payload["recipeExplain"].(map[string]any)
+	target := recipeExplain["target"].(map[string]any)
+	require.Equal(t, "nvim", target["ref"])
+	require.Equal(t, "linux-darwin", target["platformSupport"])
+	recipeObj := recipeExplain["recipe"].(map[string]any)
+	require.Equal(t, "bundled", recipeObj["source"])
+	require.Equal(t, "recipe://bundled/nvim", recipeObj["recipeRef"])
+	settings := recipeExplain["settings"].([]any)
+	require.Len(t, settings, 1)
+	require.Equal(t, "nvim:config", settings[0].(map[string]any)["ref"])
+	require.Equal(t, "file-tree", settings[0].(map[string]any)["artifactForm"])
+	require.Equal(t, "user", settings[0].(map[string]any)["defaultScope"])
+	resources := recipeExplain["resources"].([]any)
+	require.Len(t, resources, 1)
+	require.Equal(t, "nvim", resources[0].(map[string]any)["path"])
+	require.Equal(t, "file-tree", resources[0].(map[string]any)["driverId"])
+	require.Nil(t, resources[0].(map[string]any)["selector"])
+	excludes := resources[0].(map[string]any)["exclude"].([]any)
+	require.Contains(t, excludes, "shada/**")
+	require.NotContains(t, excludes, "**/*secret*")
 }
 
 func TestRecipeExplainBundledAliasJSON(t *testing.T) {

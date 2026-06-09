@@ -593,8 +593,8 @@ func TestBuildReportsUnsupportedAndInvalidRecipeShapes(t *testing.T) {
 	report, err := Build(Options{Command: CommandStatus, RepoRoot: fileFixture.repoRoot, StateRoot: fileFixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon"})
 	require.NoError(t, err)
 	require.Equal(t, SummaryBlocked, report.Summary.Status)
-	require.Equal(t, v2status.StateUnsupported, report.Items[0].State)
-	requireDiagnostic(t, report.Items[0], "selectedpreview.driver.unsupported")
+	require.Equal(t, v2status.StateBlockedSafety, report.Items[0].State)
+	requireDiagnostic(t, report.Items[0], "trust.local.missingRecord")
 
 	missingSettingFixture := setupFixtureForTarget(t, "test.app", "missing.setting")
 	report, err = Build(Options{Command: CommandStatus, RepoRoot: missingSettingFixture.repoRoot, StateRoot: missingSettingFixture.stateRoot, Ref: "test.app:missing.setting", UserID: "leon"})
@@ -680,6 +680,8 @@ func TestBuildFileResourceMissingStatesDoNotDelete(t *testing.T) {
 		require.Len(t, report.Items, 1)
 		item := report.Items[0]
 		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.Equal(t, "desired://user/leon/targets/file.app/artifacts/identity.email", item.DesiredURI)
+		require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "file.app", "artifacts", "identity.email")), item.DesiredRelPath)
 		requireDiagnostic(t, item, "selectedpreview.fileResource.plan")
 		require.Contains(t, item.Diagnostics[0].Message, "live file is missing")
 		require.Equal(t, "keep-desired\n", readFile(t, desiredPath))
@@ -699,6 +701,8 @@ func TestBuildFileResourceMissingStatesDoNotDelete(t *testing.T) {
 		require.Len(t, report.Items, 1)
 		item := report.Items[0]
 		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.Equal(t, "desired://user/leon/targets/file.app/artifacts/identity.email", item.DesiredURI)
+		require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "file.app", "artifacts", "identity.email")), item.DesiredRelPath)
 		requireDiagnostic(t, item, "selectedpreview.fileResource.plan")
 		require.Contains(t, item.Diagnostics[0].Message, "desired artifact is missing")
 		require.Equal(t, "keep-live\n", readFile(t, livePath))
@@ -736,6 +740,162 @@ func TestBuildFileResourceMissingStatesDoNotDelete(t *testing.T) {
 		require.Equal(t, "missing", item.Desired.Status)
 		require.Equal(t, desired.IntentSet, item.Preview.Intent)
 		require.Equal(t, "create", item.Preview.ChangeKind)
+	})
+}
+
+func TestBuildFileTreeResourceCommandsUseMetadataOnlyDesiredArtifacts(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "tree.app", "config", fileTreeRecipeBody("tree.app", fixtureLiveRootPlaceholder))
+	writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "init.lua"), "raw-live-tree\n")
+	writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "cache", "ignored.lua"), "ignored-live-cache\n")
+	writeFileTreeResourceDesired(t, fixture, "tree.app", "config", "init.lua", "raw-desired-tree\n")
+	fixture.trustRecipe()
+
+	for _, command := range []string{CommandStatus, CommandDiff, CommandSave, CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			report, err := Build(Options{
+				Command:   command,
+				RepoRoot:  fixture.repoRoot,
+				StateRoot: fixture.stateRoot,
+				Ref:       "tree.app:config",
+				UserID:    "leon",
+				DryRun:    command == CommandSave || command == CommandApply,
+			})
+			require.NoError(t, err)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, recipe.FileTreeDriverID, item.Resource.DriverID)
+			require.Equal(t, "nvim", item.Resource.RelPath)
+			require.True(t, filepath.IsAbs(item.Resource.Path))
+			require.Equal(t, SelectorInfo{Kind: "file-tree", Summary: "nvim"}, item.Selector)
+			require.Equal(t, "desired://user/leon/targets/tree.app/artifacts/config", item.DesiredURI)
+			require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "tree.app", "artifacts", "config")), item.DesiredRelPath)
+			require.True(t, item.Current.Exists)
+			require.Equal(t, 1, item.Current.FileCount)
+			require.Equal(t, "present", item.Desired.Status)
+			require.Equal(t, "file-tree", item.Desired.Kind)
+			require.True(t, item.Desired.Snapshot.Exists)
+			require.Equal(t, 1, item.Desired.Snapshot.FileCount)
+			require.NotNil(t, item.Preview)
+			require.Equal(t, "update", item.Preview.ChangeKind)
+			if command == CommandSave || command == CommandApply {
+				require.Equal(t, desired.IntentSet, item.Preview.Intent)
+				require.Contains(t, item.PlannedAction, "would-")
+			}
+			if command == CommandDiff {
+				require.NotNil(t, item.Diff)
+				require.Equal(t, "metadata-only", item.Diff.Mode)
+				require.Equal(t, "raw file-tree contents omitted", item.Diff.Redaction)
+				require.Equal(t, "update", item.Diff.Kind)
+			}
+			payload := mustJSON(t, report)
+			require.NotContains(t, payload, "raw-live-tree")
+			require.NotContains(t, payload, "raw-desired-tree")
+			require.NotContains(t, payload, "ignored-live-cache")
+			require.NotContains(t, Text(report), "raw-live-tree")
+			require.NotContains(t, Text(report), "raw-desired-tree")
+		})
+	}
+}
+
+func TestBuildBundledNvimUsesConfigArtifactDirectory(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	liveConfigRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, recipe.NvimTarget, "config")
+	writeFile(t, filepath.Join(liveConfigRoot, "nvim", "init.lua"), "raw-nvim-config\n")
+	writeFile(t, filepath.Join(liveConfigRoot, "nvim", "cache", "ignored.lua"), "ignored-cache\n")
+
+	report, err := Build(Options{
+		Command:   CommandSave,
+		RepoRoot:  repoRoot,
+		StateRoot: stateRoot,
+		Ref:       "nvim:config",
+		UserID:    "leon",
+		DryRun:    true,
+		LocationRoots: map[string]map[string]string{
+			recipe.NvimTarget: {"config": liveConfigRoot},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, recipe.NvimTarget, item.TargetRef)
+	require.Equal(t, "nvim:config", item.SettingRef)
+	require.Equal(t, recipe.FileTreeDriverID, item.Resource.DriverID)
+	require.Equal(t, "nvim", item.Resource.RelPath)
+	require.Equal(t, "desired://user/leon/targets/nvim/artifacts/config", item.DesiredURI)
+	require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "nvim", "artifacts", "config")), item.DesiredRelPath)
+	require.NotContains(t, item.DesiredRelPath, "settings.yaml")
+	require.Equal(t, "file-tree", item.Desired.Kind)
+	require.Equal(t, PlannedActionWouldPromote, item.PlannedAction)
+	require.NotContains(t, mustJSON(t, report), "raw-nvim-config")
+	require.NotContains(t, mustJSON(t, report), "ignored-cache")
+}
+
+func TestBuildFileTreeResourceMissingStatesFollowNoDeletePolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save blocks missing live tree and preserves desired", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "tree.app", "config", fileTreeRecipeBody("tree.app", fixtureLiveRootPlaceholder))
+		desiredRoot := writeFileTreeResourceDesired(t, fixture, "tree.app", "config", "init.lua", "keep-desired-tree\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tree.app:config", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.Equal(t, "desired://user/leon/targets/tree.app/artifacts/config", item.DesiredURI)
+		require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "tree.app", "artifacts", "config")), item.DesiredRelPath)
+		requireDiagnostic(t, item, "selectedpreview.fileResource.plan")
+		require.Contains(t, item.Diagnostics[0].Message, "live tree is missing")
+		require.Equal(t, "keep-desired-tree\n", readFile(t, filepath.Join(desiredRoot, "init.lua")))
+	})
+
+	t.Run("apply previews creation when live tree is missing", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "tree.app", "config", fileTreeRecipeBody("tree.app", fixtureLiveRootPlaceholder))
+		writeFileTreeResourceDesired(t, fixture, "tree.app", "config", "init.lua", "desired-tree\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tree.app:config", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryChanged, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateMissingCurrent, item.State)
+		require.Equal(t, PlannedActionWouldApply, item.PlannedAction)
+		require.NotNil(t, item.Preview)
+		require.Equal(t, "create", item.Preview.ChangeKind)
+		require.Equal(t, desired.IntentSet, item.Preview.Intent)
+	})
+
+	t.Run("apply blocks missing desired tree and preserves live", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "tree.app", "config", fileTreeRecipeBody("tree.app", fixtureLiveRootPlaceholder))
+		writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "init.lua"), "keep-live-tree\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tree.app:config", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.Equal(t, "desired://user/leon/targets/tree.app/artifacts/config", item.DesiredURI)
+		require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "tree.app", "artifacts", "config")), item.DesiredRelPath)
+		requireDiagnostic(t, item, "selectedpreview.fileResource.plan")
+		require.Contains(t, item.Diagnostics[0].Message, "desired artifact is missing")
+		require.Equal(t, "keep-live-tree\n", readFile(t, filepath.Join(fixture.liveRoot, "nvim", "init.lua")))
 	})
 }
 
@@ -857,11 +1017,55 @@ resources:
 `
 }
 
+func fileTreeRecipeBody(target string, liveRoot string) string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: ` + target + `
+displayName: Tree App
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ` + liveRoot + `
+settings:
+  config:
+    label: Config tree
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file-tree
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-tree
+resources:
+  config-tree:
+    driver: file-tree
+    location: config
+    path: nvim
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    include:
+      - "**"
+    exclude:
+      - "cache/**"
+`
+}
+
 func writeFileResourceDesired(t *testing.T, fixture fixture, target string, artifact string, body string) string {
 	t.Helper()
 	path := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", target, "artifacts", artifact)
 	writeFile(t, path, body)
 	return path
+}
+
+func writeFileTreeResourceDesired(t *testing.T, fixture fixture, target string, artifact string, relPath string, body string) string {
+	t.Helper()
+	root := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", target, "artifacts", artifact)
+	writeFile(t, filepath.Join(root, filepath.FromSlash(relPath)), body)
+	return root
 }
 
 func TestRemainingHelperBranches(t *testing.T) {

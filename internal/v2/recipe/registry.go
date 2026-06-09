@@ -172,6 +172,15 @@ func defaultBundledTargets() []BundledTarget {
 			Summary:         "Manage selected non-credential Git identity settings.",
 		},
 		{
+			ID:              NvimTarget,
+			DisplayName:     "Neovim",
+			Aliases:         []string{"neovim"},
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			PlatformSupport: "linux-darwin",
+			Summary:         "Manage the Neovim configuration tree with generated state and risky files excluded.",
+		},
+		{
 			ID:              StarshipTarget,
 			DisplayName:     "Starship",
 			SupportLevel:    "experimental",

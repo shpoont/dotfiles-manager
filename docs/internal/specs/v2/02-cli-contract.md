@@ -459,6 +459,66 @@ before live reads and must not print raw file contents.
 The Zsh recipe must not parse arbitrary shell scripts, discover `ZDOTDIR`,
 restart shells, re-source shells, or install/manage plugin managers.
 
+### Save/apply Neovim config tree
+
+For the current MVP tranche, the bundled `nvim` runtime manages one selected
+file-tree ref:
+
+- `nvim:config` -> `~/.config/nvim`
+
+The target uses `scopeDefault: user`, a named `config` location with default
+`~/.config`, and registry `platformSupport: linux-darwin`. Windows paths are not
+claimed by this bundled recipe in this slice.
+
+The desired artifact path for a user-scoped Neovim config tree is:
+
+```text
+desired/user/<user>/targets/nvim/artifacts/config
+```
+
+For example, `--user-id leon` and `nvim:config` write
+`desired/user/leon/targets/nvim/artifacts/config`, with URI
+`desired://user/leon/targets/nvim/artifacts/config`. It must never be stored in
+`settings.yaml`.
+
+The selected command path for `file-tree` resources is the same generic
+filesystem-resource path as selected whole-file resources:
+
+- `status` and `diff` read live and desired tree metadata without printing file
+  bytes;
+- `save --dry-run` previews copying the managed live tree into the desired
+  artifact directory;
+- `save --yes` writes the desired artifact directory and verifies it;
+- `apply --dry-run` previews copying the desired artifact directory to the live
+  tree;
+- `apply --yes` writes a pre-apply backup, applies the desired artifact
+  directory to the live tree, and verifies it.
+
+Missing-state behavior is normative:
+
+- missing named location root (`~/.config` by default) blocks status/diff/save/apply;
+  the manager must not create the parent location root;
+- missing live tree with an existing location root is not an install-state
+  assertion and must not be described as "Neovim not installed";
+- missing live tree blocks save and must not delete/tombstone desired state;
+- missing desired artifact blocks apply and must not delete/tombstone live state;
+- missing live tree with existing desired artifact is allowed for apply; dry-run
+  previews create, live apply records an absent-tree backup, creates the tree,
+  and verifies.
+
+The bundled Nvim recipe must exclude generated/risky paths narrowly by default,
+including shada, swap, undo, view, session, cache, `.netrwhist`, plugin clone
+directories (`pack/**`, `site/pack/**`, `bundle/**`, `plugged/**`), generated
+dependency directories (`node_modules`, `.deps`, `.rocks`), and common key
+material (`*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`). It must
+not use broad secret/token/temp/backup excludes such as `**/*secret*`,
+`**/*token*`, `**/tmp/**`, or `**/backup/**`.
+
+The bundled Nvim recipe must not install Neovim, install/update plugins, run
+package-manager actions, use runtime RPC, discover `NVIM_APPNAME` or
+`XDG_CONFIG_HOME` alternatives, execute or lint Lua/Vimscript, or perform secret
+scanning.
+
 ### Command-neutral status with no baseline
 
 ```text

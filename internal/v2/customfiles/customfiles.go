@@ -309,6 +309,9 @@ func buildFileResourcePlan(req Request, op Operation) (*Plan, error) {
 		return nil, err
 	}
 	plan.Operation = op
+	if plan.Resource.Driver == recipe.FileTreeDriverID {
+		return planFileTreeResourceOperation(plan, op)
+	}
 	driver := filedriver.Driver{}
 	switch op {
 	case OperationSave:
@@ -344,6 +347,39 @@ func buildFileResourcePlan(req Request, op Operation) (*Plan, error) {
 	return plan, nil
 }
 
+func planFileTreeResourceOperation(plan *Plan, op Operation) (*Plan, error) {
+	driver := filetreedriver.Driver{}
+	switch op {
+	case OperationSave:
+		if !plan.TreeSourceState.Exists {
+			return nil, fmt.Errorf("file-tree resource save %s blocked: live tree is missing; delete/tombstone semantics are out of scope", plan.Setting.Ref())
+		}
+		plan.TreeDesiredFinalState = plan.TreeSourceState
+		preview, err := driver.PreviewApply(plan.TreeDesiredTarget, plan.TreeSourceState)
+		if err != nil {
+			return nil, fmt.Errorf("preview save %s: %w", plan.Setting.Ref(), err)
+		}
+		plan.TreePreview = preview
+	case OperationApply:
+		liveState := plan.TreeSourceState
+		desiredState := plan.TreeDestinationState
+		if !desiredState.Exists {
+			return nil, fmt.Errorf("file-tree resource apply %s blocked: desired artifact is missing; delete/tombstone semantics are out of scope", plan.Setting.Ref())
+		}
+		plan.TreeSourceState = desiredState
+		plan.TreeDestinationState = liveState
+		plan.TreeDesiredFinalState = desiredState
+		preview, err := driver.PreviewApply(plan.TreeLiveTarget, desiredState)
+		if err != nil {
+			return nil, fmt.Errorf("preview apply %s: %w", plan.Setting.Ref(), err)
+		}
+		plan.TreePreview = preview
+	default:
+		return nil, fmt.Errorf("unsupported file-tree resource operation: %s", op)
+	}
+	return plan, nil
+}
+
 func buildFileResourceReadPlan(req Request) (*Plan, error) {
 	if req.Profile == nil {
 		return nil, fmt.Errorf("resolved profile is required")
@@ -363,7 +399,7 @@ func buildFileResourceReadPlan(req Request) (*Plan, error) {
 		return nil, err
 	}
 	if resource.Driver == recipe.FileTreeDriverID {
-		return nil, fmt.Errorf("file-tree resource %s is not supported by the selected file-resource command path", resourceID)
+		return buildFileTreeResourceReadPlan(req.Profile, setting, req.Recipe, resourceID, resource, req.LocationRoots)
 	}
 	if resource.Driver != recipe.FileDriverID {
 		return nil, fmt.Errorf("unsupported file-resource driver: %s", resource.Driver)
@@ -420,6 +456,73 @@ func buildFileResourceReadPlan(req Request) (*Plan, error) {
 		DestinationState:  desiredState,
 		DesiredFinalState: desiredState,
 		Preview:           preview,
+	}, nil
+}
+
+func buildFileTreeResourceReadPlan(profile *resolution.ResolvedProfile, setting resolution.ResolvedSetting, rec *recipe.Recipe, resourceID string, resource recipe.Resource, locationRoots map[string]string) (*Plan, error) {
+	resourceRelPath, err := recipe.ValidateResourcePath(resource.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resource %s path: %w", resourceID, err)
+	}
+	locationRoot, err := rec.LocationRoot(resource.Location, locationRoots)
+	if err != nil {
+		return nil, err
+	}
+
+	setting, err = withConventionalFileArtifact(setting)
+	if err != nil {
+		return nil, err
+	}
+
+	include, exclude, err := filetreedriver.NormalizeGlobs(resource.Include, resource.Exclude)
+	if err != nil {
+		return nil, fmt.Errorf("resource %s globs: %w", resourceID, err)
+	}
+	liveTarget := filetreedriver.Target{
+		LocationID:        resource.Location,
+		Root:              locationRoot,
+		RelPath:           resourceRelPath,
+		Include:           include,
+		Exclude:           exclude,
+		RejectRootSymlink: true,
+	}
+	desiredTarget, desiredRel, err := desiredTreeTargetForSetting(profile.RepoRoot, setting, include, exclude)
+	if err != nil {
+		return nil, err
+	}
+
+	driver := filetreedriver.Driver{}
+	liveState, err := driver.ReadCurrent(liveTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read live %s: %w", setting.Ref(), err)
+	}
+	desiredState, err := driver.ReadCurrent(desiredTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read desired %s: %w", setting.Ref(), err)
+	}
+	resolvedLive, err := filetreedriver.ResolveTarget(liveTarget)
+	if err != nil {
+		return nil, fmt.Errorf("resolve live %s: %w", setting.Ref(), err)
+	}
+	preview := filetreedriver.Preview{
+		Target:     liveTarget,
+		Path:       resolvedLive.AbsPath,
+		Change:     driver.Diff(liveState, desiredState),
+		Normalizer: filetreedriver.NormalizerID,
+	}
+
+	return &Plan{
+		Setting:               setting,
+		ResourceID:            resourceID,
+		Resource:              resource,
+		RepoRoot:              profile.RepoRoot,
+		DesiredRelPath:        desiredRel,
+		TreeLiveTarget:        liveTarget,
+		TreeDesiredTarget:     desiredTarget,
+		TreeSourceState:       liveState,
+		TreeDestinationState:  desiredState,
+		TreeDesiredFinalState: desiredState,
+		TreePreview:           preview,
 	}, nil
 }
 

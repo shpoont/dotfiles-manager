@@ -12,6 +12,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -149,6 +150,9 @@ type Snapshot struct {
 	SHA256     string `json:"sha256,omitempty"`
 	Normalizer string `json:"normalizer,omitempty"`
 	Size       int    `json:"size,omitempty"`
+	EntryCount int    `json:"entryCount,omitempty"`
+	FileCount  int    `json:"fileCount,omitempty"`
+	DirCount   int    `json:"dirCount,omitempty"`
 }
 
 type PreviewInfo struct {
@@ -452,11 +456,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	if resource.Selector != nil {
 		item.Selector = selectorFromRecipe(resource)
 	}
-	if resource.Driver == recipe.FileTreeDriverID {
-		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: "selectedpreview.driver.unsupported", Severity: SeverityError, Message: "file-tree resources are not supported by the selected command path in this slice", Ref: item.SettingRef, ResourceID: resourceID, DriverID: resource.Driver})
-		return finishBlocked(item, v2status.StateUnsupported, "File-tree resources are not supported by selected command preview.")
-	}
-	if resource.Driver == recipe.FileDriverID {
+	if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
 		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
 		item.Recipe.TrustStatus = trustEval.Status
 		if trustEval.Status != recipe.TrustStatusTrusted {
@@ -464,16 +464,16 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(diagnostic, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 			}
 			if len(item.Diagnostics) == 0 {
-				item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "file-resource preview requires trusted recipe evidence before live reads", item.SettingRef))
+				item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "filesystem-resource preview requires trusted recipe evidence before live reads", item.SettingRef))
 			}
-			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before file-resource preview can read live state.")
+			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before filesystem-resource preview can read live state.")
 		}
 
 		if err := rec.ValidateWriteSafety(trustContext); err != nil {
 			for _, validation := range recipe.ValidationDiagnostics(err) {
 				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 			}
-			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks file-resource preview.")
+			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks filesystem-resource preview.")
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
@@ -634,8 +634,12 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 		plan, err = customfiles.PlanFileRead(req)
 	}
 	if err != nil {
+		item = hydrateFileResourceReadState(item, req)
 		item.Diagnostics = append(item.Diagnostics, fileResourceDiagnostic("selectedpreview.fileResource.plan", err, item))
 		return finishBlocked(item, v2status.StateBlockedSafety, "File-resource planning is blocked; no files will be mutated.")
+	}
+	if plan.Resource.Driver == recipe.FileTreeDriverID {
+		return buildFileTreeResourceItem(command, item, plan)
 	}
 
 	item.DesiredURI = plan.Setting.DesiredURI
@@ -671,6 +675,72 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 	if command == CommandSave && !plan.DestinationState.Exists && plan.SourceState.Exists {
 		item.PlannedAction = PlannedActionWouldPromote
 		item.Message = "Existing live file can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
+	}
+	return item
+}
+
+func hydrateFileResourceReadState(item Item, req customfiles.Request) Item {
+	plan, err := customfiles.PlanFileRead(req)
+	if err != nil || plan == nil {
+		return item
+	}
+	item.DesiredURI = plan.Setting.DesiredURI
+	item.DesiredRelPath = filepath.ToSlash(plan.Setting.DesiredRelPath)
+	switch plan.Resource.Driver {
+	case recipe.FileTreeDriverID:
+		item.Resource.Path = plan.TreePreview.Path
+		item.Selector = SelectorInfo{Kind: "file-tree", Summary: plan.Resource.Path}
+		item.Current = fromTreeState(plan.TreeSourceState)
+		item.Desired.Status = desiredStatus(plan.TreeDestinationState.Exists)
+		item.Desired.Kind = "file-tree"
+		item.Desired.Snapshot = fromTreeState(plan.TreeDestinationState)
+		item.Preview = &PreviewInfo{ChangeKind: string(plan.TreePreview.Change.Kind)}
+	case recipe.FileDriverID:
+		item.Resource.Path = plan.Preview.Path
+		item.Selector = SelectorInfo{Kind: "file", Summary: plan.Resource.Path}
+		item.Current = fromFileState(plan.SourceState)
+		item.Desired.Status = desiredStatus(plan.DestinationState.Exists)
+		item.Desired.Kind = "file"
+		item.Desired.Snapshot = fromFileState(plan.DestinationState)
+		item.Preview = &PreviewInfo{ChangeKind: string(plan.Preview.Change.Kind)}
+	}
+	return item
+}
+
+func buildFileTreeResourceItem(command string, item Item, plan *customfiles.Plan) Item {
+	item.DesiredURI = plan.Setting.DesiredURI
+	item.DesiredRelPath = filepath.ToSlash(plan.Setting.DesiredRelPath)
+	item.Resource.Path = plan.TreePreview.Path
+	item.Selector = SelectorInfo{Kind: "file-tree", Summary: plan.Resource.Path}
+
+	current := plan.TreeSourceState
+	desiredState := plan.TreeDestinationState
+	if plan.Operation == customfiles.OperationApply {
+		current = plan.TreeDestinationState
+		desiredState = plan.TreeSourceState
+	}
+	item.Current = fromTreeState(current)
+	item.Desired.Status = desiredStatus(desiredState.Exists)
+	item.Desired.Kind = "file-tree"
+	item.Desired.Snapshot = fromTreeState(desiredState)
+	item.Preview = &PreviewInfo{ChangeKind: string(plan.TreePreview.Change.Kind), Intent: fileTreeResourceIntent(command, current, desiredState)}
+	if command == CommandDiff {
+		diffKind := string(plan.TreePreview.Change.Kind)
+		if !desiredState.Exists {
+			diffKind = "missing-desired"
+		}
+		item.Diff = treeDiffInfo(diffKind)
+	}
+
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedTreeState(desiredState), Current: normalizedTreeState(current)})
+	item.State = stateItem.State
+	item.NoBaseline = stateItem.NoBaseline
+	item.Message = stateItem.Message
+	item.AllowedActions = stateItem.Actions
+	item.PlannedAction = plannedAction(command, item)
+	if command == CommandSave && !plan.TreeDestinationState.Exists && plan.TreeSourceState.Exists {
+		item.PlannedAction = PlannedActionWouldPromote
+		item.Message = "Existing live file tree can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
 	}
 	return item
 }
@@ -1012,13 +1082,36 @@ func fileDiffInfo(kind string) *DiffInfo {
 	return &DiffInfo{Kind: kind, Mode: "metadata-only", Redaction: "raw file contents omitted", Message: "File-resource diff is metadata-only in this slice; compare existence, size, hash, and normalizer."}
 }
 
+func treeDiffInfo(kind string) *DiffInfo {
+	if kind == "" {
+		kind = "unknown"
+	}
+	return &DiffInfo{Kind: kind, Mode: "metadata-only", Redaction: "raw file-tree contents omitted", Message: "File-tree diff is metadata-only; compare existence, entry counts, hash, and normalizer."}
+}
+
 func fromFileState(state filedriver.State) Snapshot {
 	snapshot := state.Snapshot()
 	return Snapshot{Exists: snapshot.Exists, SHA256: snapshot.SHA256, Normalizer: state.Normalizer, Size: snapshot.Size}
 }
 
+func fromTreeState(state filetreedriver.State) Snapshot {
+	snapshot := state.Snapshot()
+	return Snapshot{
+		Exists:     snapshot.Exists,
+		SHA256:     snapshot.SHA256,
+		Normalizer: state.Normalizer,
+		EntryCount: snapshot.EntryCount,
+		FileCount:  snapshot.FileCount,
+		DirCount:   snapshot.DirCount,
+	}
+}
+
 func normalizedFileState(state filedriver.State) v2status.NormalizedState {
 	return v2status.NormalizedState{Exists: state.Exists, Hash: state.SHA256, Normalizer: state.Normalizer}
+}
+
+func normalizedTreeState(state filetreedriver.State) v2status.NormalizedState {
+	return v2status.FromFileTreeState(state)
 }
 
 func desiredStatus(exists bool) string {
@@ -1029,6 +1122,20 @@ func desiredStatus(exists bool) string {
 }
 
 func fileResourceIntent(command string, current filedriver.State, desiredState filedriver.State) string {
+	switch command {
+	case CommandSave:
+		if current.Exists {
+			return desired.IntentSet
+		}
+	case CommandApply:
+		if desiredState.Exists {
+			return desired.IntentSet
+		}
+	}
+	return ""
+}
+
+func fileTreeResourceIntent(command string, current filetreedriver.State, desiredState filetreedriver.State) string {
 	switch command {
 	case CommandSave:
 		if current.Exists {

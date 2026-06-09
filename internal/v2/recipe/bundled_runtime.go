@@ -43,6 +43,13 @@ func LoadRuntime(repoRoot string, targetID string) (RuntimeRecipe, error) {
 			}
 			runtime.Recipe = rec
 			return runtime, nil
+		case NvimTarget:
+			rec := BundledNvimRecipe()
+			if err := rec.ValidateNvim(); err != nil {
+				return runtime, fmt.Errorf("validate bundled nvim recipe: %w", err)
+			}
+			runtime.Recipe = rec
+			return runtime, nil
 		case ZshTarget:
 			rec := BundledZshRecipe()
 			if err := rec.ValidateZsh(); err != nil {
@@ -201,6 +208,55 @@ func bundledStarshipResource(key string) Resource {
 			CreateMissing:   "create",
 			DuplicatePolicy: "reject",
 			DeleteKey:       "allow",
+		},
+	}
+}
+
+func BundledNvimRecipe() *Recipe {
+	return &Recipe{
+		Schema:        Schema,
+		SchemaVersion: SupportedVersion,
+		Target:        NvimTarget,
+		DisplayName:   "Neovim",
+		SupportLevel:  "experimental",
+		Capability:    "read-write",
+		Locations: map[string]Location{
+			"config": {Default: "~/.config"},
+		},
+		SettingsGroups: map[string]SettingsGroup{
+			"config": {
+				Label:        "Config tree",
+				Description:  "The Neovim configuration tree under the config location.",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				Settings:     nvimSettingIDs(),
+			},
+		},
+		Settings: map[string]Setting{
+			"config": {
+				Label:        "Config tree",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				ArtifactForm: "file-tree",
+				Sensitivity:  SensitivityPersonal,
+				Redaction:    RedactionRedactedForDisplay,
+				Lifecycle:    LifecycleAllowed,
+				ScopeDefault: "user",
+				Resource:     "config",
+			},
+		},
+		Resources: map[string]Resource{
+			"config": {
+				Driver:      FileTreeDriverID,
+				Location:    "config",
+				Path:        "nvim",
+				Capability:  "read-write",
+				Sensitivity: SensitivityPersonal,
+				Redaction:   RedactionRedactedForDisplay,
+				Lifecycle:   LifecycleAllowed,
+				Include:     []string{"**"},
+				Exclude:     nvimExcludeGlobs(),
+			},
 		},
 	}
 }
