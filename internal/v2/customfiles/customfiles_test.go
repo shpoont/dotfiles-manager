@@ -424,6 +424,63 @@ resources:
 	return root, liveRoot, profile, rec
 }
 
+func setupGenericFileTreeResourceFixture(t *testing.T) (string, string, *resolution.ResolvedProfile, *recipe.Recipe) {
+	t.Helper()
+
+	root := t.TempDir()
+	liveRoot := filepath.Join(t.TempDir(), "test-files")
+	require.NoError(t, os.MkdirAll(liveRoot, 0o755))
+	writeV2Root(t, root)
+	writeStack(t, root)
+	writeFile(t, filepath.Join(root, "profiles", "layers", "global.yaml"), `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  test.files:
+    settings:
+      config:
+        scope: user
+`)
+	writeFile(t, filepath.Join(root, "recipes", "local", "test.files", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.files
+displayName: Test files
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: `+liveRoot+`
+settings:
+  config:
+    label: Config tree
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file-tree
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-tree
+resources:
+  config-tree:
+    driver: file-tree
+    location: config
+    path: nvim
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    include:
+      - "**"
+    exclude:
+      - "cache/**"
+`)
+	profile, err := resolution.Resolve(root, resolution.ResolveOptions{UserID: "leon", MachineID: "mbp"})
+	require.NoError(t, err)
+	rec, err := recipe.LoadLocal(root, "test.files")
+	require.NoError(t, err)
+	return root, liveRoot, profile, rec
+}
+
 func writeV2Root(t *testing.T, root string) {
 	t.Helper()
 	writeFile(t, filepath.Join(root, resolution.RootConfigFile), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
@@ -649,6 +706,69 @@ func TestFileResourcePlanUsesConventionalArtifactAndBlocksDeletes(t *testing.T) 
 	require.Equal(t, "live\n", string(mustReadFile(t, livePath)))
 }
 
+func TestFileTreeResourcePlanUsesConventionalArtifactAndMissingPolicy(t *testing.T) {
+	t.Parallel()
+
+	root, liveRoot, profile, rec := setupGenericFileTreeResourceFixture(t)
+	liveTree := filepath.Join(liveRoot, "nvim")
+	desiredTree := filepath.Join(root, "desired", "user", "leon", "targets", "test.files", "artifacts", "config")
+	req := Request{Profile: profile, Recipe: rec, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}}
+
+	writeFile(t, filepath.Join(liveTree, "init.lua"), "live\n")
+	writeFile(t, filepath.Join(liveTree, "cache", "ignored.lua"), "ignored\n")
+	readPlan, err := PlanFileRead(req)
+	require.NoError(t, err)
+	require.Equal(t, Operation(""), readPlan.Operation)
+	require.Equal(t, filedriver.ChangeDelete, readPlan.TreePreview.Change.Kind)
+	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", readPlan.Setting.DesiredURI)
+
+	savePlan, err := PlanFileSave(req)
+	require.NoError(t, err)
+	require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "test.files", "artifacts", "config")), filepath.ToSlash(savePlan.DesiredRelPath))
+	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", savePlan.Setting.DesiredURI)
+	require.Equal(t, filedriver.ChangeCreate, savePlan.TreePreview.Change.Kind)
+	dry, err := Execute(savePlan, ExecuteOptions{DryRun: true})
+	require.NoError(t, err)
+	require.True(t, dry.DryRun)
+	assertMissing(t, desiredTree)
+	result, err := Execute(savePlan, ExecuteOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Verified)
+	requireFile(t, filepath.Join(desiredTree, "init.lua"), "live\n")
+	assertMissing(t, filepath.Join(desiredTree, "cache", "ignored.lua"))
+
+	require.NoError(t, os.RemoveAll(liveTree))
+	writeFile(t, filepath.Join(desiredTree, "init.lua"), "desired\n")
+	_, err = PlanFileSave(req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "live tree is missing")
+	requireFile(t, filepath.Join(desiredTree, "init.lua"), "desired\n")
+
+	applyPlan, err := PlanFileApply(req)
+	require.NoError(t, err)
+	require.Equal(t, filedriver.ChangeCreate, applyPlan.TreePreview.Change.Kind)
+	backupCalls := 0
+	result, err = Execute(applyPlan, ExecuteOptions{BackupHook: func(req BackupRequest) (BackupResult, error) {
+		backupCalls++
+		require.False(t, req.TreeBefore.Exists)
+		return BackupResult{ID: "memory://tree-backup", TreeBefore: req.TreeBefore.Snapshot()}, nil
+	}})
+	require.NoError(t, err)
+	require.True(t, result.Verified)
+	require.Equal(t, 1, backupCalls)
+	requireFile(t, filepath.Join(liveTree, "init.lua"), "desired\n")
+
+	require.NoError(t, os.RemoveAll(desiredTree))
+	_, err = PlanFileApply(req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desired artifact is missing")
+	requireFile(t, filepath.Join(liveTree, "init.lua"), "desired\n")
+
+	_, err = PlanFileRead(Request{Profile: profile, Recipe: rec, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": filepath.Join(root, "missing-root")}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "location root does not exist")
+}
+
 func TestFileResourcePlanReadErrorBranches(t *testing.T) {
 	t.Parallel()
 
@@ -669,9 +789,10 @@ func TestFileResourcePlanReadErrorBranches(t *testing.T) {
 		resource.Driver = recipe.FileTreeDriverID
 		fileTreeRecipe.Resources[id] = resource
 	}
-	_, err = PlanFileRead(Request{Profile: profile, Recipe: &fileTreeRecipe, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "file-tree resource")
+	treePlan, err := PlanFileRead(Request{Profile: profile, Recipe: &fileTreeRecipe, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}})
+	require.NoError(t, err)
+	require.Equal(t, recipe.FileTreeDriverID, treePlan.Resource.Driver)
+	require.Equal(t, filedriver.ChangeUnchanged, treePlan.TreePreview.Change.Kind)
 
 	unsupportedRecipe := *rec
 	unsupportedRecipe.Resources = map[string]recipe.Resource{}

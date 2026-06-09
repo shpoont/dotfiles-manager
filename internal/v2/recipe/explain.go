@@ -447,6 +447,10 @@ func bundledExplain(target string) (RecipeExplain, bool) {
 		explain := bundledStarshipExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
+	case NvimTarget:
+		explain := bundledNvimExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	case ZshTarget:
 		explain := bundledZshExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
@@ -571,6 +575,72 @@ func bundledStarshipExplain() RecipeExplain {
 		})
 	}
 	explain.Drivers = driverExplains(TOMLFileDriverID)
+	return explain
+}
+
+func bundledNvimExplain() RecipeExplain {
+	explain := RecipeExplain{
+		Target:           ExplainTarget{Ref: NvimTarget, DisplayName: "Neovim", SupportLevel: "experimental", Capability: "read-write", PlatformSupport: "linux-darwin"},
+		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/nvim", TrustStatus: "trusted", Version: "1"},
+		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
+		SettingGroups:    []any{},
+		NativeOperations: []any{},
+		Safety: ExplainSafety{
+			RedactionSummary: "metadata-only explanation; Neovim config file contents are personal and are not read or emitted by normal output",
+			LifecycleSummary: "Neovim config files are applied as files only; the manager does not start, stop, restart, or connect to Neovim",
+			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
+			DoNotManage: []string{
+				"Neovim installation, plugin installation, package-manager actions, or runtime RPC",
+				"non-default NVIM_APPNAME, XDG_CONFIG_HOME, or platform-specific locations outside ~/.config/nvim",
+				"shada, swap, undo, view, session, cache, and generated state",
+				"plugin clones and generated dependency directories such as pack/**, plugged/**, bundle/**, node_modules, .deps, and .rocks",
+				"key material such as .pem, .key, .p12, .pfx, id_rsa, and id_ed25519 files",
+				"semantic validation, Lua/Vimscript execution, linting, or secret scanning",
+			},
+		},
+	}
+	explain.Settings = []ExplainSetting{
+		{
+			Ref:             NvimTarget + ":config",
+			ID:              "config",
+			Label:           "Config tree",
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			DefaultScope:    "user",
+			ArtifactForm:    "file-tree",
+			SelectionStatus: "unknown",
+			Sensitivity:     SensitivityPersonal,
+			Lifecycle:       LifecycleAllowed,
+			ResourceID:      "config",
+			Driver:          FileTreeDriverID,
+			DiffLimitations: []string{
+				"file-tree metadata-only diff; raw config file contents are omitted",
+				"include/exclude globs decide which paths are captured",
+			},
+			ApplyLimitations: []string{
+				"writes only ~/.config/nvim by default on Linux/macOS",
+				"does not prove whether Neovim is installed when the config tree is missing",
+				"does not install or update plugins",
+				"apply creates the nvim config tree when ~/.config exists and a desired artifact exists",
+				"save refuses a missing live config tree instead of deleting or tombstoning desired state",
+			},
+		},
+	}
+	explain.Resources = []ExplainResource{
+		{
+			ID:            "config",
+			LocationID:    "config",
+			Path:          "nvim",
+			DriverID:      FileTreeDriverID,
+			SupportedOps:  []string{"detect", "read", "diff", "preview", "backup", "apply", "verify", "restore"},
+			BackupRestore: "pre-apply backup of the existing live tree is written to local state; absent live trees are recorded as absent-tree backups",
+			Normalization: "file-tree entries and metadata",
+			DiffMode:      "file-tree metadata-only",
+			Include:       []string{"**"},
+			Exclude:       nvimExcludeGlobs(),
+		},
+	}
+	explain.Drivers = driverExplains(FileTreeDriverID)
 	return explain
 }
 

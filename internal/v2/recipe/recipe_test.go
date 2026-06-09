@@ -605,6 +605,52 @@ func TestLoadRuntimeUsesBundledStarshipAndIgnoresLocalShadow(t *testing.T) {
 	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
 }
 
+func TestBundledNvimRecipeAcceptsConfigTreeOnly(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledNvimRecipe()
+	require.NoError(t, rec.ValidateNvim())
+	require.Equal(t, NvimTarget, rec.Target)
+	require.Equal(t, "Neovim", rec.DisplayName)
+	require.Equal(t, "read-write", rec.Capability)
+	require.Equal(t, "~/.config", rec.Locations["config"].Default)
+	require.Len(t, rec.Settings, 1)
+	require.Len(t, rec.Resources, 1)
+
+	setting := rec.Settings["config"]
+	require.Equal(t, "config", setting.Resource)
+	require.Equal(t, "experimental", setting.SupportLevel)
+	require.Equal(t, "read-write", setting.Capability)
+	require.Equal(t, "file-tree", setting.ArtifactForm)
+	require.Equal(t, SensitivityPersonal, setting.Sensitivity)
+	require.Equal(t, RedactionRedactedForDisplay, setting.Redaction)
+	require.Equal(t, LifecycleAllowed, setting.Lifecycle)
+	require.Equal(t, "user", setting.ScopeDefault)
+	requireNvimFileTreeResource(t, rec.Resources[setting.Resource])
+}
+
+func TestLoadRuntimeUsesBundledNvimAndIgnoresLocalShadow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, NvimTarget, strings.Replace(validSelectedPathRecipe(NvimTarget, JSONFileDriverID, "config.json"), "  identity.email:\n", "  plugin.state:\n", 1))
+
+	runtime, err := LoadRuntime(root, NvimTarget)
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/nvim", runtime.RecipeRef)
+	require.Equal(t, TrustStatusTrusted, runtime.TrustStatus)
+	require.NotNil(t, runtime.Recipe)
+	require.NoError(t, runtime.Recipe.ValidateNvim())
+	require.Contains(t, runtime.Recipe.Settings, "config")
+	require.NotContains(t, runtime.Recipe.Settings, "plugin.state")
+
+	eval, err := EvaluateRecipeTrust(root, t.TempDir(), runtime.Source, runtime.Recipe)
+	require.NoError(t, err)
+	require.Equal(t, TrustStatusTrusted, eval.Status)
+	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
+}
+
 func TestBundledZshRecipeAcceptsSelectedStartupFilesOnly(t *testing.T) {
 	t.Parallel()
 
@@ -932,6 +978,88 @@ func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			rec := cloneBundledStarshipRecipe(t)
 			tc.mutate(rec)
 			err := rec.ValidateStarship()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestNvimRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Recipe)
+		wantErr string
+	}{
+		{name: "wrong target", mutate: func(r *Recipe) { r.Target = "nvim.extra" }, wantErr: "target must be"},
+		{name: "read only capability", mutate: func(r *Recipe) { r.Capability = "read-only" }, wantErr: "capability must be read-write"},
+		{name: "extra location", mutate: func(r *Recipe) { r.Locations["data"] = Location{Default: "~/.local/share"} }, wantErr: "only the config location"},
+		{name: "missing config location", mutate: func(r *Recipe) {
+			r.Locations = map[string]Location{"home": {Default: "~"}}
+			resource := r.Resources["config"]
+			resource.Location = "home"
+			r.Resources["config"] = resource
+		}, wantErr: "must declare config location"},
+		{name: "wrong config default", mutate: func(r *Recipe) { r.Locations["config"] = Location{Default: "~/.config/nvim"} }, wantErr: "config location default must be ~/.config"},
+		{name: "extra setting", mutate: func(r *Recipe) { r.Settings["plugins"] = r.Settings["config"] }, wantErr: "only supported settings"},
+		{name: "extra resource", mutate: func(r *Recipe) {
+			r.Resources["plugins"] = Resource{Driver: FileTreeDriverID, Location: "config", Path: "nvim/pack"}
+		}, wantErr: "exactly one file-tree resource"},
+		{name: "setting artifact form", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.ArtifactForm = "file"
+			r.Settings["config"] = setting
+		}, wantErr: "artifactForm must be file-tree"},
+		{name: "setting scope metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.ScopeDefault = "machine"
+			r.Settings["config"] = setting
+		}, wantErr: "scopeDefault must be user"},
+		{name: "setting sensitivity", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Sensitivity = SensitivityLow
+			r.Settings["config"] = setting
+		}, wantErr: "sensitivity must be personal"},
+		{name: "setting redaction", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Redaction = RedactionKnownSafe
+			r.Settings["config"] = setting
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "setting lifecycle", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Lifecycle = LifecycleWarn
+			r.Settings["config"] = setting
+		}, wantErr: "lifecycle must be allowed"},
+		{name: "wrong resource driver", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Driver = FileDriverID
+			r.Resources["config"] = resource
+		}, wantErr: "driver must be"},
+		{name: "wrong resource path", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Path = "nvim-data"
+			r.Resources["config"] = resource
+		}, wantErr: "path must be nvim"},
+		{name: "selector declared", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Selector = &Selector{Path: []string{"lua"}}
+			r.Resources["config"] = resource
+		}, wantErr: "must not declare selector"},
+		{name: "broad secret exclude added", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Exclude = append(resource.Exclude, "**/*secret*")
+			r.Resources["config"] = resource
+		}, wantErr: "exclude globs must match bundled generated-state policy"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := cloneBundledNvimRecipe(t)
+			tc.mutate(rec)
+			err := rec.ValidateNvim()
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantErr)
 		})
@@ -1268,11 +1396,38 @@ func requireZshFileResource(t *testing.T, resource Resource, settingID string) {
 	require.Nil(t, resource.Selector)
 }
 
+func requireNvimFileTreeResource(t *testing.T, resource Resource) {
+	t.Helper()
+	require.Equal(t, FileTreeDriverID, resource.Driver)
+	require.Equal(t, "config", resource.Location)
+	require.Equal(t, "nvim", resource.Path)
+	require.Equal(t, "read-write", resource.Capability)
+	require.Equal(t, SensitivityPersonal, resource.Sensitivity)
+	require.Equal(t, RedactionRedactedForDisplay, resource.Redaction)
+	require.Equal(t, LifecycleAllowed, resource.Lifecycle)
+	require.Equal(t, []string{"**"}, resource.Include)
+	require.Equal(t, nvimExcludeGlobs(), resource.Exclude)
+	require.Nil(t, resource.Selector)
+	require.Contains(t, resource.Exclude, "shada/**")
+	require.Contains(t, resource.Exclude, "pack/**/start/**")
+	require.NotContains(t, resource.Exclude, "**/*secret*")
+	require.NotContains(t, resource.Exclude, "**/tmp/**")
+}
+
 func cloneBundledStarshipRecipe(t *testing.T) *Recipe {
 	t.Helper()
 	data, err := yaml.Marshal(BundledStarshipRecipe())
 	require.NoError(t, err)
 	rec, err := Decode("starship.yaml", strings.NewReader(string(data)))
+	require.NoError(t, err)
+	return rec
+}
+
+func cloneBundledNvimRecipe(t *testing.T) *Recipe {
+	t.Helper()
+	data, err := yaml.Marshal(BundledNvimRecipe())
+	require.NoError(t, err)
+	rec, err := Decode("nvim.yaml", strings.NewReader(string(data)))
 	require.NoError(t, err)
 	return rec
 }

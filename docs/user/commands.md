@@ -446,13 +446,86 @@ The bundled recipe deliberately does **not** manage:
 Unsupported refs for these categories block visibly before live reads, so raw
 file contents are not printed as part of the block.
 
-## v2 selected whole-file resources
+## v2 selected file-tree resources: Neovim config example
 
-The v2 selected command flow also supports single-file recipe resources. A file
-resource is a whole file selected by a recipe, not a scalar key inside
+The bundled `nvim` recipe manages the Neovim configuration tree at
+`~/.config/nvim` on Linux/macOS. It is a file-tree recipe: it syncs selected
+files under that tree, while excluding generated state, plugin clones/caches,
+session files, swap/undo/view/shada data, and common key-material filenames.
+
+Until the v2 `add` command ships, select Neovim in a profile layer:
+
+```yaml
+# profiles/layers/global.yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  nvim:
+    settings:
+      config:
+        scope: user
+```
+
+Then use the same selected file-tree workflow:
+
+```bash
+dotfiles-manager recipe explain nvim
+dotfiles-manager status --user-id leon nvim:config
+dotfiles-manager save --dry-run --user-id leon nvim:config
+dotfiles-manager save --yes --user-id leon nvim:config
+dotfiles-manager diff --user-id leon nvim:config
+dotfiles-manager apply --dry-run --user-id leon nvim:config
+dotfiles-manager apply --yes --user-id leon nvim:config
+```
+
+For user-scoped Neovim config, `save --yes` writes the desired artifact tree to:
+
+```text
+desired/user/<user>/targets/nvim/artifacts/config
+```
+
+For example, `--user-id leon` writes:
+
+```text
+desired/user/leon/targets/nvim/artifacts/config
+```
+
+The corresponding URI is:
+
+```text
+desired://user/leon/targets/nvim/artifacts/config
+```
+
+The desired artifact contains the raw managed config files because those are the
+files that will be applied later. Normal text and JSON output, diffs, ledgers,
+and backup metadata stay metadata-only and do not print raw file contents.
+
+Missing-state behavior is explicit:
+
+- if the named location root (`~/.config` by default) is missing, `status`,
+  `diff`, `save`, and `apply` block rather than creating the parent location;
+- if `~/.config/nvim` is missing but `~/.config` exists, `status` reports a
+  missing live tree;
+- `save --dry-run` / `save --yes` block when the live tree is missing and do not
+  delete or tombstone an existing desired artifact;
+- `apply --dry-run` previews creating the live tree when a desired artifact
+  exists;
+- `apply --yes` may create `~/.config/nvim`, records an absent-tree backup, and
+  verifies the result.
+
+The bundled recipe deliberately does **not** manage Neovim installation, plugin
+installation, package-manager actions, runtime RPC, non-default `NVIM_APPNAME`
+or `XDG_CONFIG_HOME` locations, semantic Lua/Vimscript validation, or secret
+scanning. A missing config tree is **not** treated as proof that Neovim is not
+installed.
+
+## v2 selected whole-file and file-tree resources
+
+The v2 selected command flow also supports whole-file and file-tree recipe
+resources. These resources are selected by a recipe, not scalar keys inside
 `settings.yaml`.
 
-For a selected file setting, the default desired artifact is:
+For a selected file or file-tree setting, the default desired artifact is:
 
 ```text
 desired/<scope>/<subject>/targets/<target>/artifacts/<setting-id>
@@ -482,20 +555,22 @@ dotfiles-manager apply --dry-run --user-id leon test.files:config
 dotfiles-manager apply --yes --user-id leon test.files:config
 ```
 
-`save --yes` copies the current live file bytes into the desired artifact after
-preview. `apply --yes` backs up the live file, writes the desired artifact bytes
-to the live path, and verifies the result.
+`save --yes` copies the current live file bytes or managed tree entries into the
+desired artifact after preview. `apply --yes` backs up the live file/tree, writes
+the desired artifact to the live path, and verifies the result.
 
-Diff and normal command output are metadata-only for file resources in this
-slice: they show refs, paths, existence, size/hash metadata, change kind, and
-backup/ledger refs, but they do not print raw file contents. The desired artifact
-itself contains the raw file bytes because that is the state to apply later.
+Diff and normal command output are metadata-only for file and file-tree resources
+in this slice: they show refs, paths, existence, size/count/hash metadata, change
+kind, and backup/ledger refs, but they do not print raw file contents. The
+desired artifact itself contains the raw bytes because that is the state to apply
+later.
 
-Delete/tombstone behavior is intentionally not supported yet. A missing live
-file blocks `save`; it does not remove an existing desired artifact. A missing
-desired artifact blocks `apply`; it does not delete the live file. Creating live
-files during apply is also out of scope because the current apply path requires a
-pre-mutation live-file backup.
+Delete/tombstone behavior is intentionally not supported yet. A missing live file
+or tree blocks `save`; it does not remove an existing desired artifact. A missing
+desired artifact blocks `apply`; it does not delete the live file/tree. Selected
+single-file apply still requires an existing live file so the pre-mutation backup
+has a concrete file. Selected file-tree apply may create a missing live tree when
+the named location root exists; the backup records the tree as absent.
 
 ## `[path]` scoping
 

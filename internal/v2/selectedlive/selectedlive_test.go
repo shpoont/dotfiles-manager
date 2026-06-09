@@ -865,6 +865,61 @@ func TestFileResourceSaveApplyRunMutatesAndRecordsMetadataOnly(t *testing.T) {
 	})
 }
 
+func TestFileTreeResourceSaveApplyRunMutatesAndRecordsMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save promotes live tree to desired artifact directory", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveFileTreeResourceFixture(t)
+		fixture.writeLive("init.lua", "raw-live-tree\n")
+		fixture.writeLive("cache/ignored.lua", "ignored-cache\n")
+		fixture.trustRecipe()
+
+		result, err := Run(fixture.options(selectedpreview.CommandSave, "run-tree-save", true))
+		require.NoError(t, err)
+		require.NotNil(t, result.RunRecord)
+		require.Len(t, result.LedgerEntries, 1)
+		require.Equal(t, v2ledger.ItemResultVerified, result.RunRecord.Items[0].Result)
+		require.Equal(t, recipe.FileTreeDriverID, result.RunRecord.Items[0].Driver)
+		require.Contains(t, readFile(t, filepath.Join(fixture.desiredArtifactPath(), "init.lua")), "raw-live-tree")
+		require.NoFileExists(t, filepath.Join(fixture.desiredArtifactPath(), "cache", "ignored.lua"))
+
+		runRecord := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-tree-save.json"))
+		ledgerPayload := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+		reportJSON := mustJSON(t, result.Report)
+		for _, payload := range []string{runRecord, ledgerPayload, reportJSON} {
+			require.NotContains(t, payload, "raw-live-tree")
+			require.NotContains(t, payload, "ignored-cache")
+		}
+	})
+
+	t.Run("apply creates missing live tree and records absent-tree backup", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveFileTreeResourceFixture(t)
+		fixture.writeDesiredArtifact("init.lua", "raw-desired-tree\n")
+		fixture.trustRecipe()
+
+		result, err := Run(fixture.options(selectedpreview.CommandApply, "run-tree-apply", true))
+		require.NoError(t, err)
+		require.NotNil(t, result.RunRecord)
+		require.NotNil(t, result.Backup)
+		require.Len(t, result.RunRecord.Items[0].BackupRefs, 1)
+		require.Equal(t, v2ledger.ItemResultVerified, result.RunRecord.Items[0].Result)
+		require.Equal(t, "raw-desired-tree\n", readFile(t, filepath.Join(fixture.livePath(), "init.lua")))
+		require.False(t, result.RunRecord.Items[0].Before.Exists)
+
+		runRecord := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-tree-apply.json"))
+		ledgerPayload := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+		backupMetadata := readFile(t, filepath.Join(fixture.stateRoot, "backups", "run-tree-apply", "backup.yaml"))
+		reportJSON := mustJSON(t, result.Report)
+		for _, payload := range []string{runRecord, ledgerPayload, backupMetadata, reportJSON} {
+			require.NotContains(t, payload, "raw-desired-tree")
+		}
+	})
+}
+
 func TestDirectFileResourceExecuteBranches(t *testing.T) {
 	t.Parallel()
 
@@ -984,6 +1039,14 @@ type liveFileResourceFixture struct {
 	t         *testing.T
 }
 
+type liveFileTreeResourceFixture struct {
+	repoRoot  string
+	liveRoot  string
+	stateRoot string
+	recipe    *recipe.Recipe
+	t         *testing.T
+}
+
 func setupLiveFileResourceFixture(t *testing.T) liveFileResourceFixture {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -997,6 +1060,21 @@ func setupLiveFileResourceFixture(t *testing.T) liveFileResourceFixture {
 	rec, err := recipe.Decode("file-resource.yaml", strings.NewReader(body))
 	require.NoError(t, err)
 	return liveFileResourceFixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func setupLiveFileTreeResourceFixture(t *testing.T) liveFileTreeResourceFixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  tree.app:\n    settings:\n      config:\n        scope: user\n")
+	body := liveFileTreeResourceRecipeBody(liveRoot)
+	writeLiveFile(t, filepath.Join(repoRoot, "recipes", "local", "tree.app", "recipe.yaml"), body)
+	rec, err := recipe.Decode("file-tree-resource.yaml", strings.NewReader(body))
+	require.NoError(t, err)
+	return liveFileTreeResourceFixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, recipe: rec, t: t}
 }
 
 func (f liveFileResourceFixture) options(command string, runID string, confirmed bool) Options {
@@ -1014,23 +1092,59 @@ func (f liveFileResourceFixture) options(command string, runID string, confirmed
 	}
 }
 
+func (f liveFileTreeResourceFixture) options(command string, runID string, confirmed bool) Options {
+	return Options{
+		Command:   command,
+		RepoRoot:  f.repoRoot,
+		StateRoot: f.stateRoot,
+		Ref:       "tree.app:config",
+		UserID:    "leon",
+		Confirmed: confirmed,
+		RunID:     runID,
+		Now: func() time.Time {
+			return fixedSelectedLiveTime()
+		},
+	}
+}
+
 func (f liveFileResourceFixture) livePath() string {
 	return filepath.Join(f.liveRoot, "config.txt")
+}
+
+func (f liveFileTreeResourceFixture) livePath() string {
+	return filepath.Join(f.liveRoot, "nvim")
 }
 
 func (f liveFileResourceFixture) desiredArtifactPath() string {
 	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "file.app", "artifacts", "config")
 }
 
+func (f liveFileTreeResourceFixture) desiredArtifactPath() string {
+	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "tree.app", "artifacts", "config")
+}
+
 func (f liveFileResourceFixture) writeLive(body string) {
 	writeLiveFile(f.t, f.livePath(), body)
+}
+
+func (f liveFileTreeResourceFixture) writeLive(relPath string, body string) {
+	writeLiveFile(f.t, filepath.Join(f.livePath(), filepath.FromSlash(relPath)), body)
 }
 
 func (f liveFileResourceFixture) writeDesiredArtifact(body string) {
 	writeLiveFile(f.t, f.desiredArtifactPath(), body)
 }
 
+func (f liveFileTreeResourceFixture) writeDesiredArtifact(relPath string, body string) {
+	writeLiveFile(f.t, filepath.Join(f.desiredArtifactPath(), filepath.FromSlash(relPath)), body)
+}
+
 func (f liveFileResourceFixture) trustRecipe() {
+	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
+	require.NoError(f.t, err)
+}
+
+func (f liveFileTreeResourceFixture) trustRecipe() {
 	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
 	require.NoError(f.t, err)
 }
@@ -1088,5 +1202,42 @@ resources:
     sensitivity: personal
     redaction: redacted-for-display
     lifecycle: allowed
+`
+}
+
+func liveFileTreeResourceRecipeBody(liveRoot string) string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: tree.app
+displayName: Tree App
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ` + liveRoot + `
+settings:
+  config:
+    label: Config tree
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file-tree
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-tree
+resources:
+  config-tree:
+    driver: file-tree
+    location: config
+    path: nvim
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    include:
+      - "**"
+    exclude:
+      - "cache/**"
 `
 }

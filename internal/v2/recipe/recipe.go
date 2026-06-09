@@ -23,6 +23,7 @@ const (
 	SupportedVersion              = 1
 	CustomFilesTarget             = "custom.files"
 	GitTarget                     = "git"
+	NvimTarget                    = "nvim"
 	StarshipTarget                = "starship"
 	ZshTarget                     = "zsh"
 	FileDriverID                  = "file"
@@ -515,6 +516,110 @@ func (r *Recipe) ValidateZsh() error {
 	return nil
 }
 
+func (r *Recipe) ValidateNvim() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Target != NvimTarget {
+		return fmt.Errorf("nvim recipe target must be %q, got %q", NvimTarget, r.Target)
+	}
+	if r.Capability != "read-write" {
+		return fmt.Errorf("nvim recipe capability must be read-write, got %s", r.Capability)
+	}
+	if len(r.Locations) != 1 {
+		return fmt.Errorf("nvim recipe must declare only the config location")
+	}
+	location, ok := r.Locations["config"]
+	if !ok {
+		return fmt.Errorf("nvim recipe must declare config location")
+	}
+	if strings.TrimSpace(location.Default) != "~/.config" {
+		return fmt.Errorf("nvim config location default must be ~/.config")
+	}
+	if len(r.Settings) != len(nvimSettingIDs()) {
+		return fmt.Errorf("nvim recipe must declare only supported settings")
+	}
+	if len(r.Resources) != len(nvimSettingIDs()) {
+		return fmt.Errorf("nvim recipe must declare exactly one file-tree resource per supported setting")
+	}
+	for _, settingID := range nvimSettingIDs() {
+		if err := r.validateNvimSetting(settingID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Recipe) validateNvimSetting(settingID string) error {
+	setting, ok := r.Settings[settingID]
+	if !ok {
+		return fmt.Errorf("nvim recipe missing setting %s", settingID)
+	}
+	if setting.ScopeDefault != "user" {
+		return fmt.Errorf("nvim setting %s scopeDefault must be user", settingID)
+	}
+	if setting.SupportLevel != "experimental" {
+		return fmt.Errorf("nvim setting %s supportLevel must be experimental", settingID)
+	}
+	if setting.Capability != "read-write" {
+		return fmt.Errorf("nvim setting %s capability must be read-write", settingID)
+	}
+	if setting.ArtifactForm != "file-tree" {
+		return fmt.Errorf("nvim setting %s artifactForm must be file-tree", settingID)
+	}
+	if setting.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("nvim setting %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if setting.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("nvim setting %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if setting.Lifecycle != LifecycleAllowed {
+		return fmt.Errorf("nvim setting %s lifecycle must be %s", settingID, LifecycleAllowed)
+	}
+	if setting.Resource != settingID {
+		return fmt.Errorf("nvim setting %s resource must be %s", settingID, settingID)
+	}
+	resource, ok := r.Resources[setting.Resource]
+	if !ok {
+		return fmt.Errorf("nvim setting %s references unknown resource %s", settingID, setting.Resource)
+	}
+	if resource.Driver != FileTreeDriverID {
+		return fmt.Errorf("nvim setting %s driver must be %q, got %q", settingID, FileTreeDriverID, resource.Driver)
+	}
+	if resource.Location != "config" {
+		return fmt.Errorf("nvim setting %s location must be config", settingID)
+	}
+	if resource.Path != "nvim" {
+		return fmt.Errorf("nvim setting %s path must be nvim", settingID)
+	}
+	if resource.Capability != "read-write" {
+		return fmt.Errorf("nvim resource %s capability must be read-write", settingID)
+	}
+	if resource.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("nvim resource %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if resource.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("nvim resource %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if resource.Lifecycle != LifecycleAllowed {
+		return fmt.Errorf("nvim resource %s lifecycle must be %s", settingID, LifecycleAllowed)
+	}
+	if resource.Selector != nil {
+		return fmt.Errorf("nvim resource %s must not declare selector", settingID)
+	}
+	include, exclude, err := filetreedriver.NormalizeGlobs(resource.Include, resource.Exclude)
+	if err != nil {
+		return fmt.Errorf("nvim resource %s globs: %w", settingID, err)
+	}
+	if !stringSlicesEqual(include, []string{"**"}) {
+		return fmt.Errorf("nvim resource %s include globs must be the default **", settingID)
+	}
+	if !stringSlicesEqual(exclude, nvimExcludeGlobs()) {
+		return fmt.Errorf("nvim resource %s exclude globs must match bundled generated-state policy", settingID)
+	}
+	return nil
+}
+
 func (r *Recipe) validateZshSetting(settingID string) error {
 	setting, ok := r.Settings[settingID]
 	if !ok {
@@ -698,6 +803,54 @@ func starshipSettingIDs() []string {
 
 func zshSettingIDs() []string {
 	return []string{"zshrc", "zprofile", "zlogin", "zlogout"}
+}
+
+func nvimSettingIDs() []string {
+	return []string{"config"}
+}
+
+func nvimExcludeGlobs() []string {
+	return []string{
+		".git/**",
+		"**/.git/**",
+		"**/*.swp",
+		"**/*.swo",
+		"**/*.swn",
+		"**/*~",
+		"**/*.bak",
+		"**/*.backup",
+		"**/*.tmp",
+		"Session.vim",
+		"**/Session.vim",
+		"session/**",
+		"sessions/**",
+		"shada/**",
+		"**/*.shada",
+		"**/*.shada.tmp",
+		"main.shada",
+		"swap/**",
+		"undo/**",
+		"view/**",
+		"cache/**",
+		".cache/**",
+		".netrwhist",
+		"pack/**/start/**",
+		"pack/**/opt/**",
+		"site/pack/**",
+		"bundle/**",
+		"plugged/**",
+		"plugin/packer_compiled.lua",
+		"**/node_modules/**",
+		"**/.deps/**",
+		"**/.rocks/**",
+		"**/.env",
+		"**/*.pem",
+		"**/*.key",
+		"**/*.p12",
+		"**/*.pfx",
+		"**/id_rsa",
+		"**/id_ed25519",
+	}
 }
 
 func zshResourcePath(settingID string) string {
@@ -1216,6 +1369,18 @@ func knownLifecycle(value string) bool {
 	default:
 		return false
 	}
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if left[idx] != right[idx] {
+			return false
+		}
+	}
+	return true
 }
 
 func sortedKeys[V any](m map[string]V) []string {
