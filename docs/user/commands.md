@@ -14,6 +14,7 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--machin
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <id>] [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
 dotfiles-manager recipe list [--json]
 dotfiles-manager recipe discover [target] [--json]
 dotfiles-manager recipe explain <target> [--json]
@@ -270,6 +271,32 @@ and config probes.
 `custom.files` reports `not-applicable` because it has no app binary or fixed
 bundled live config path to discover.
 
+## v2 add: select a supported target
+
+`add` updates the active v2 profile layer so later `status`, `save`, `diff`,
+and `apply` know which supported settings to manage. It does **not** import
+values, write desired artifacts, write live app files, create backups, or update
+ledgers.
+
+Common examples:
+
+```bash
+dotfiles-manager add git --yes
+dotfiles-manager add ssh --setting config
+dotfiles-manager add zsh --setting zshrc --scope user
+dotfiles-manager add nvim --dry-run --yes
+```
+
+If the active profile stack has multiple layers, pass `--profile <layer>` or
+run interactively and choose the layer. `--json`, `--non-interactive`, and
+`--yes` never prompt; when a choice is required they return
+`add.choice-required` with machine-readable `missingChoices`.
+
+For file and file-tree settings, `add` writes explicit artifact metadata such
+as `artifact: artifacts/config` so desired state is stored as an artifact
+payload. For scalar settings, the profile entry can remain scope-only and later
+`save` stores the value in `settings.yaml`.
+
 ## v2 selected settings: Git identity example
 
 The first bundled v2 app recipe is `git`, limited to non-credential identity
@@ -282,7 +309,20 @@ It manages only `~/.gitconfig` `[user] email` and `[user] name`. It does not
 manage credential helpers, tokens, signing keys, includes, URL rewrites,
 aliases, arbitrary sections, or repository-local `.git/config`.
 
-Until the v2 `add` command ships, select Git in a profile layer:
+Select Git with the `add` command:
+
+```bash
+dotfiles-manager add git --yes
+```
+
+That selects the recommended Git identity settings. To select only one setting,
+name it explicitly:
+
+```bash
+dotfiles-manager add git --setting user.email
+```
+
+The equivalent profile-layer entry is:
 
 ```yaml
 # profiles/layers/global.yaml
@@ -348,7 +388,13 @@ The bundled `starship` recipe manages a small selected-key slice of
 - `starship:scan_timeout` (non-negative integer)
 - `starship:command_timeout` (non-negative integer)
 
-Until the v2 `add` command ships, select Starship in a profile layer:
+Select Starship with `add`. For example, to manage one key:
+
+```bash
+dotfiles-manager add starship --setting add_newline
+```
+
+The equivalent profile-layer entry is:
 
 ```yaml
 # profiles/layers/global.yaml
@@ -400,7 +446,13 @@ under the named `home` location, whose default is `~`:
 - `zsh:zlogin` -> `~/.zlogin`
 - `zsh:zlogout` -> `~/.zlogout`
 
-Until the v2 `add` command ships, select Zsh in a profile layer:
+Select Zsh with `add`. For example:
+
+```bash
+dotfiles-manager add zsh --setting zshrc
+```
+
+The equivalent profile-layer entry is:
 
 ```yaml
 # profiles/layers/global.yaml
@@ -411,6 +463,7 @@ selections:
     settings:
       zshrc:
         scope: user
+        artifact: artifacts/zshrc
 ```
 
 Then use the same selected file-resource workflow:
@@ -485,8 +538,13 @@ not two files the manager assumes are both active. The manager syncs the exact
 setting you select; it does not decide which file tmux loaded, merge them, or
 inspect the running tmux server.
 
-Until the v2 `add` command ships, select the desired tmux config file in a
-profile layer:
+Select the desired tmux config file with `add`:
+
+```bash
+dotfiles-manager add tmux --setting home.conf
+```
+
+The equivalent profile-layer entry is:
 
 ```yaml
 # profiles/layers/global.yaml
@@ -497,6 +555,7 @@ selections:
     settings:
       home.conf:
         scope: user
+        artifact: artifacts/home.conf
 ```
 
 Then use the same selected file-resource workflow:
@@ -581,8 +640,14 @@ The bundled `ssh` recipe manages only the primary OpenSSH user config file:
 
 - `ssh:config` -> `~/.ssh/config`
 
-It does **not** manage keys or the whole `~/.ssh` directory. Until the v2 `add`
-command ships, select it in a profile layer:
+It does **not** manage keys or the whole `~/.ssh` directory. Select it with
+`add`:
+
+```bash
+dotfiles-manager add ssh --yes
+```
+
+The equivalent profile-layer entry is:
 
 ```yaml
 # profiles/layers/global.yaml
@@ -593,6 +658,7 @@ selections:
     settings:
       config:
         scope: user
+        artifact: artifacts/config
 ```
 
 Then use the same selected file-resource workflow:
@@ -694,7 +760,13 @@ The bundled `nvim` recipe manages the Neovim configuration tree at
 files under that tree, while excluding generated state, plugin clones/caches,
 session files, swap/undo/view/shada data, and common key-material filenames.
 
-Until the v2 `add` command ships, select Neovim in a profile layer:
+Select Neovim with `add`:
+
+```bash
+dotfiles-manager add nvim --yes
+```
+
+The equivalent profile-layer entry is:
 
 ```yaml
 # profiles/layers/global.yaml
@@ -705,6 +777,7 @@ selections:
     settings:
       config:
         scope: user
+        artifact: artifacts/config
 ```
 
 Then use the same selected file-tree workflow:
