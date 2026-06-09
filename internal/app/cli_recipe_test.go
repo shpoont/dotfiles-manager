@@ -196,6 +196,82 @@ func TestRecipeListTextAndJSON(t *testing.T) {
 	require.Equal(t, "zsh", targets[6].(map[string]any)["id"])
 	require.Equal(t, "bundled", targets[1].(map[string]any)["source"])
 	require.Equal(t, "trusted", targets[1].(map[string]any)["trustStatus"])
+	require.NotContains(t, stdout.String(), "config-present")
+	require.NotContains(t, stdout.String(), "recipe.discover")
+}
+
+func TestRecipeDiscoverTextAndJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	home := filepath.Join(tempDir, "home")
+	binDir := filepath.Join(tempDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	require.NoError(t, os.MkdirAll(home, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[user]\n\temail = secret@example.com\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "git"), []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir)
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "discover", "git"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	out := stdout.String()
+	require.Contains(t, out, "recipe discover")
+	require.Contains(t, out, "git state=config-present")
+	require.Contains(t, out, "commands=git:installed")
+	require.Contains(t, out, "configs=home:.gitconfig:present")
+	require.NotContains(t, out, "secret@example.com")
+	require.NotContains(t, out, home)
+
+	cmd = NewRootCmd()
+	stdout.Reset()
+	stderr.Reset()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "discover", "git", "--json"})
+
+	err = cmd.Execute()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+	require.NotContains(t, stdout.String(), "secret@example.com")
+	require.NotContains(t, stdout.String(), home)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "recipe.discover", payload["command"])
+	require.Equal(t, float64(1), payload["schemaVersion"])
+	discovery := payload["discovery"].(map[string]any)
+	targets := discovery["targets"].([]any)
+	require.Len(t, targets, 1)
+	target := targets[0].(map[string]any)
+	require.Equal(t, "git", target["id"])
+	require.Equal(t, "config-present", target["state"])
+	require.Equal(t, "installed", target["binaryState"])
+	require.Equal(t, "config-present", target["configState"])
+}
+
+func TestRecipeDiscoverUnknownTargetEmitsStableJSONError(t *testing.T) {
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"recipe", "discover", "missing", "--json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Empty(t, stderr.String())
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	require.Equal(t, "recipe.discover", payload["command"])
+	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "recipe.discover.unknown-target", payload["error"].(map[string]any)["code"])
 }
 
 func TestRecipeExplainStarshipJSONIsMetadataOnly(t *testing.T) {

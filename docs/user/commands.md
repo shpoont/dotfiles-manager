@@ -15,6 +15,7 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--machine-
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager recipe list [--json]
+dotfiles-manager recipe discover [target] [--json]
 dotfiles-manager recipe explain <target> [--json]
 ```
 
@@ -243,6 +244,31 @@ MODE: MIGRATE (writes generated output only)
 migration run=<run-id> config=/repo/.dotfiles-manager.yaml
 output: /repo/migrations/v1-to-v2/<run-id>
 ```
+
+## v2 target discovery
+
+`recipe list` remains static bundled metadata. To inspect whether bundled
+targets appear installed or configured, use the explicit read-only discovery
+command:
+
+```bash
+dotfiles-manager recipe discover --json
+dotfiles-manager recipe discover git
+dotfiles-manager recipe discover ssh --json
+```
+
+Discovery never mutates files or app state. It does not read config contents,
+desired artifacts, backups, ledgers, profile selections, native export/import
+commands, or target runtime state. It only performs PATH command lookups and
+lstat-style metadata checks of declared live config paths.
+
+Summary states are `unsupported-platform`, `ambiguous`, `config-present`,
+`installed`, `config-missing`, and `not-applicable`. JSON also includes separate
+`platformState`, `binaryState`, and `configState` axes plus metadata-only command
+and config probes.
+
+`custom.files` reports `not-applicable` because it has no app binary or fixed
+bundled live config path to discover.
 
 ## v2 selected settings: Git identity example
 

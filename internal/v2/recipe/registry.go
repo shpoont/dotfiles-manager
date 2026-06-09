@@ -7,17 +7,18 @@ import (
 )
 
 type BundledTarget struct {
-	ID              string   `json:"id"`
-	DisplayName     string   `json:"displayName"`
-	Aliases         []string `json:"aliases"`
-	Source          string   `json:"source"`
-	RecipeRef       string   `json:"recipeRef"`
-	Version         string   `json:"version"`
-	SupportLevel    string   `json:"supportLevel"`
-	Capability      string   `json:"capability"`
-	PlatformSupport string   `json:"platformSupport"`
-	TrustStatus     string   `json:"trustStatus"`
-	Summary         string   `json:"summary"`
+	ID                string   `json:"id"`
+	DisplayName       string   `json:"displayName"`
+	Aliases           []string `json:"aliases"`
+	DiscoveryCommands []string `json:"-"`
+	Source            string   `json:"source"`
+	RecipeRef         string   `json:"recipeRef"`
+	Version           string   `json:"version"`
+	SupportLevel      string   `json:"supportLevel"`
+	Capability        string   `json:"capability"`
+	PlatformSupport   string   `json:"platformSupport"`
+	TrustStatus       string   `json:"trustStatus"`
+	Summary           string   `json:"summary"`
 }
 
 type BundledRegistry struct {
@@ -163,55 +164,61 @@ func defaultBundledTargets() []BundledTarget {
 			Summary:         "Manage explicitly declared files or file trees without app-specific semantics.",
 		},
 		{
-			ID:              GitTarget,
-			DisplayName:     "Git",
-			Aliases:         []string{"gitconfig"},
-			SupportLevel:    "experimental",
-			Capability:      "read-write",
-			PlatformSupport: "unknown",
-			Summary:         "Manage selected non-credential Git identity settings.",
+			ID:                GitTarget,
+			DisplayName:       "Git",
+			Aliases:           []string{"gitconfig"},
+			DiscoveryCommands: []string{"git"},
+			SupportLevel:      "experimental",
+			Capability:        "read-write",
+			PlatformSupport:   "unknown",
+			Summary:           "Manage selected non-credential Git identity settings.",
 		},
 		{
-			ID:              NvimTarget,
-			DisplayName:     "Neovim",
-			Aliases:         []string{"neovim"},
-			SupportLevel:    "experimental",
-			Capability:      "read-write",
-			PlatformSupport: "linux-darwin",
-			Summary:         "Manage the Neovim configuration tree with generated state and risky files excluded.",
+			ID:                NvimTarget,
+			DisplayName:       "Neovim",
+			Aliases:           []string{"neovim"},
+			DiscoveryCommands: []string{"nvim"},
+			SupportLevel:      "experimental",
+			Capability:        "read-write",
+			PlatformSupport:   "linux-darwin",
+			Summary:           "Manage the Neovim configuration tree with generated state and risky files excluded.",
 		},
 		{
-			ID:              SSHTarget,
-			DisplayName:     "SSH",
-			Aliases:         []string{"openssh"},
-			SupportLevel:    "experimental",
-			Capability:      "read-write",
-			PlatformSupport: "linux-darwin",
-			Summary:         "Manage only the primary OpenSSH user config file while excluding keys, known_hosts, sockets, and agent state.",
+			ID:                SSHTarget,
+			DisplayName:       "SSH",
+			Aliases:           []string{"openssh"},
+			DiscoveryCommands: []string{"ssh"},
+			SupportLevel:      "experimental",
+			Capability:        "read-write",
+			PlatformSupport:   "linux-darwin",
+			Summary:           "Manage only the primary OpenSSH user config file while excluding keys, known_hosts, sockets, and agent state.",
 		},
 		{
-			ID:              StarshipTarget,
-			DisplayName:     "Starship",
-			SupportLevel:    "experimental",
-			Capability:      "read-write",
-			PlatformSupport: "unknown",
-			Summary:         "Manage selected prompt-wide Starship TOML options.",
+			ID:                StarshipTarget,
+			DisplayName:       "Starship",
+			DiscoveryCommands: []string{"starship"},
+			SupportLevel:      "experimental",
+			Capability:        "read-write",
+			PlatformSupport:   "unknown",
+			Summary:           "Manage selected prompt-wide Starship TOML options.",
 		},
 		{
-			ID:              TmuxTarget,
-			DisplayName:     "tmux",
-			SupportLevel:    "experimental",
-			Capability:      "read-write",
-			PlatformSupport: "linux-darwin",
-			Summary:         "Manage explicit tmux user config files without controlling sessions or runtime state.",
+			ID:                TmuxTarget,
+			DisplayName:       "tmux",
+			DiscoveryCommands: []string{"tmux"},
+			SupportLevel:      "experimental",
+			Capability:        "read-write",
+			PlatformSupport:   "linux-darwin",
+			Summary:           "Manage explicit tmux user config files without controlling sessions or runtime state.",
 		},
 		{
-			ID:              ZshTarget,
-			DisplayName:     "Zsh",
-			SupportLevel:    "experimental",
-			Capability:      "read-write",
-			PlatformSupport: "unknown",
-			Summary:         "Manage selected Zsh startup files only; history, completion caches, sessions, plugin state, and .zshenv are blocked.",
+			ID:                ZshTarget,
+			DisplayName:       "Zsh",
+			DiscoveryCommands: []string{"zsh"},
+			SupportLevel:      "experimental",
+			Capability:        "read-write",
+			PlatformSupport:   "unknown",
+			Summary:           "Manage selected Zsh startup files only; history, completion caches, sessions, plugin state, and .zshenv are blocked.",
 		},
 	}
 }

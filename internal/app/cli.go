@@ -260,6 +260,7 @@ func newRecipeCmd(opts *rootOptions) *cobra.Command {
 	}
 	cmd.AddCommand(newRecipeListCmd(opts))
 	cmd.AddCommand(newRecipeExplainCmd(opts))
+	cmd.AddCommand(newRecipeDiscoverCmd(opts))
 	return cmd
 }
 
@@ -288,6 +289,22 @@ func newRecipeExplainCmd(opts *rootOptions) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRecipeExplainCommand(cmd, opts, args[0], jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newRecipeDiscoverCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "discover [target]",
+		Short: "Discover read-only install/config state for bundled recipe targets",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRecipeDiscoverCommand(cmd, opts, firstArg(args), jsonOutput)
 		},
 	}
 
@@ -800,6 +817,14 @@ func runRecipeListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool
 	return emitRecipeListReport(cmd.OutOrStdout(), report, jsonOutput)
 }
 
+func runRecipeDiscoverCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
+	report, err := v2recipe.Discover(v2recipe.DiscoverOptions{Target: target})
+	if emitErr := emitRecipeDiscoverReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
 func recipeExplainRepoRoot(opts *rootOptions) (string, error) {
 	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
 		abs, err := filepath.Abs(strings.TrimSpace(opts.configPath))
@@ -834,6 +859,19 @@ func emitRecipeListReport(stdout io.Writer, report *v2recipe.ListReport, jsonOut
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2recipe.ListText(report))
+	return err
+}
+
+func emitRecipeDiscoverReport(stdout io.Writer, report *v2recipe.DiscoverReport, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2recipe.DiscoverJSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2recipe.DiscoverText(report))
 	return err
 }
 
