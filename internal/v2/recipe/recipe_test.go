@@ -651,6 +651,59 @@ func TestLoadRuntimeUsesBundledNvimAndIgnoresLocalShadow(t *testing.T) {
 	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
 }
 
+func TestBundledSSHRecipeAcceptsConfigOnly(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledSSHRecipe()
+	require.NoError(t, rec.ValidateSSH())
+	require.Equal(t, SSHTarget, rec.Target)
+	require.Equal(t, "SSH", rec.DisplayName)
+	require.Equal(t, "read-write", rec.Capability)
+	require.Equal(t, "~", rec.Locations["home"].Default)
+	require.Len(t, rec.Settings, 1)
+	require.Len(t, rec.Resources, 1)
+
+	setting := rec.Settings["config"]
+	require.Equal(t, "config", setting.Resource)
+	require.Equal(t, "experimental", setting.SupportLevel)
+	require.Equal(t, "read-write", setting.Capability)
+	require.Equal(t, "file", setting.ArtifactForm)
+	require.Equal(t, SensitivityPersonal, setting.Sensitivity)
+	require.Equal(t, RedactionRedactedForDisplay, setting.Redaction)
+	require.Equal(t, LifecycleAllowed, setting.Lifecycle)
+	require.Equal(t, "user", setting.ScopeDefault)
+	require.Empty(t, setting.WriteWarnings)
+	requireSSHConfigResource(t, rec.Resources[setting.Resource])
+	require.NotContains(t, rec.Settings, "keys")
+	require.NotContains(t, rec.Resources, "known_hosts")
+}
+
+func TestLoadRuntimeUsesBundledSSHIgnoresLocalShadowAndWarningsAreReviewOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, SSHTarget, strings.Replace(validSelectedPathRecipe(SSHTarget, JSONFileDriverID, "config.json"), "  identity.email:\n", "  private-keys:\n", 1))
+
+	runtime, err := LoadRuntime(root, SSHTarget)
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/ssh", runtime.RecipeRef)
+	require.Equal(t, TrustStatusTrusted, runtime.TrustStatus)
+	require.NotNil(t, runtime.Recipe)
+	require.NoError(t, runtime.Recipe.ValidateSSH())
+	require.Contains(t, runtime.Recipe.Settings, "config")
+	require.NotContains(t, runtime.Recipe.Settings, "private-keys")
+
+	eval, err := EvaluateRecipeTrust(root, t.TempDir(), runtime.Source, runtime.Recipe)
+	require.NoError(t, err)
+	require.Equal(t, TrustStatusTrusted, eval.Status)
+	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
+	require.Empty(t, warningDiagnostics(runtime.Recipe.WriteSafetyDiagnostics(eval.WriteSafetyContext(WriteSafetyContext{}))))
+	review := runtime.Recipe.WriteReviewDiagnostics("save", "config", "config")
+	requireDiagnosticCodes(t, review, SSHConfigReviewWarningCode)
+	require.Empty(t, runtime.Recipe.WriteReviewDiagnostics("status", "config", "config"))
+}
+
 func TestBundledTmuxRecipeAcceptsExplicitUserConfigFilesOnly(t *testing.T) {
 	t.Parallel()
 
@@ -1289,6 +1342,149 @@ func TestTmuxHelperBranches(t *testing.T) {
 	require.Contains(t, err.Error(), "references unknown resource missing-resource")
 }
 
+func TestSSHRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Recipe)
+		wantErr string
+	}{
+		{name: "wrong target", mutate: func(r *Recipe) { r.Target = "ssh.extra" }, wantErr: "target must be"},
+		{name: "read only capability", mutate: func(r *Recipe) { r.Capability = "read-only" }, wantErr: "capability must be read-write"},
+		{name: "extra location", mutate: func(r *Recipe) { r.Locations["config"] = Location{Default: "~/.ssh"} }, wantErr: "only the home location"},
+		{name: "missing home location", mutate: func(r *Recipe) {
+			r.Locations = map[string]Location{"config": {Default: "~/.ssh"}}
+			resource := r.Resources["config"]
+			resource.Location = "config"
+			r.Resources["config"] = resource
+		}, wantErr: "must declare home location"},
+		{name: "wrong home default", mutate: func(r *Recipe) { r.Locations["home"] = Location{Default: "~/.ssh"} }, wantErr: "home location default must be ~"},
+		{name: "extra setting", mutate: func(r *Recipe) { r.Settings["keys"] = r.Settings["config"] }, wantErr: "only supported config file settings"},
+		{name: "extra resource", mutate: func(r *Recipe) {
+			r.Resources["known_hosts"] = Resource{Driver: FileDriverID, Location: "home", Path: ".ssh/known_hosts"}
+		}, wantErr: "exactly one file resource"},
+		{name: "setting lifecycle warning rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Lifecycle = LifecycleWarn
+			r.Settings["config"] = setting
+		}, wantErr: "lifecycle must be allowed"},
+		{name: "setting warning rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.WriteWarnings = []ReviewWarning{{Code: SSHConfigReviewWarningCode, Triggers: []string{"save"}}}
+			r.Settings["config"] = setting
+		}, wantErr: "must not declare setting-level write warnings"},
+		{name: "wrong driver", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Driver = FileTreeDriverID
+			r.Resources["config"] = resource
+		}, wantErr: "content safety policy is supported only for file resources"},
+		{name: "wrong resource path", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Path = ".ssh/id_ed25519"
+			r.Resources["config"] = resource
+		}, wantErr: "path must be .ssh/config"},
+		{name: "wrong resource location", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Location = "config"
+			r.Resources["config"] = resource
+		}, wantErr: "references unknown location config"},
+		{name: "wrong content safety policy", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.ContentSafetyPolicy = ""
+			r.Resources["config"] = resource
+		}, wantErr: "contentSafetyPolicy must be"},
+		{name: "wrong review warning", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.WriteWarnings = nil
+			r.Resources["config"] = resource
+		}, wantErr: "must declare the SSH config save/apply review warning"},
+		{name: "selector declared", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Selector = &Selector{Path: []string{"Host"}}
+			r.Resources["config"] = resource
+		}, wantErr: "must not declare selector"},
+		{name: "include exclude declared", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Include = []string{"**"}
+			r.Resources["config"] = resource
+		}, wantErr: "must not declare include/exclude"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := cloneBundledSSHRecipe(t)
+			tc.mutate(rec)
+			err := rec.ValidateSSH()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestSSHExcludedSettingDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	for _, settingID := range []string{"keys", "private-keys", "public-keys", "identity", "known_hosts", "known-hosts", "authorized_keys", "authorized-keys", "agent", "sockets", "control-sockets", "config.d", "includes", "certificates", "host-keys"} {
+		diagnostic, ok := SSHExcludedSettingDiagnostic(settingID)
+		require.True(t, ok, settingID)
+		require.Equal(t, SSHRefExcludedCode, diagnostic.Code)
+		require.Contains(t, diagnostic.Message, "supports only ssh:config")
+	}
+	_, ok := SSHExcludedSettingDiagnostic("config")
+	require.False(t, ok)
+}
+
+func TestRecipeContentSafetyAndReviewWarningValidationBranches(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, knownContentSafetyPolicy(SSHContentSafetyPolicy))
+	require.False(t, knownContentSafetyPolicy("unknown-policy"))
+	require.True(t, knownReviewWarningTrigger("save"))
+	require.True(t, knownReviewWarningTrigger("apply"))
+	require.False(t, knownReviewWarningTrigger("diff"))
+
+	var diagnostics []string
+	addReviewWarningDiagnostics(func(code string, path string, message string) {
+		diagnostics = append(diagnostics, code+"|"+path+"|"+message)
+	}, "resources.config.writeWarnings[0]", "resource config", ReviewWarning{})
+	require.ElementsMatch(t, []string{
+		"reviewWarning.code.required|resources.config.writeWarnings[0].code|resource config review warning code is required",
+		"reviewWarning.triggers.required|resources.config.writeWarnings[0].triggers|resource config review warning requires at least one trigger",
+	}, diagnostics)
+
+	diagnostics = nil
+	addReviewWarningDiagnostics(func(code string, path string, message string) {
+		diagnostics = append(diagnostics, code+"|"+path+"|"+message)
+	}, "resources.config.writeWarnings[0]", "resource config", ReviewWarning{
+		Code:     "bad code",
+		Triggers: []string{"save", "save", "diff"},
+		Message:  " review manually ",
+	})
+	require.ElementsMatch(t, []string{
+		"reviewWarning.code.invalid|resources.config.writeWarnings[0].code|resource config review warning code is invalid",
+		"reviewWarning.trigger.duplicate|resources.config.writeWarnings[0].triggers[1]|resource config review warning trigger is duplicated",
+		"reviewWarning.trigger.unsupported|resources.config.writeWarnings[0].triggers[2]|resource config review warning trigger is unsupported",
+		"reviewWarning.message.invalid|resources.config.writeWarnings[0].message|resource config review warning message must not have surrounding whitespace",
+	}, diagnostics)
+
+	root := t.TempDir()
+	writeRecipe(t, root, validCustomFilesRecipe("config.yaml")+`    contentSafetyPolicy: unknown-policy
+`)
+	_, err := LoadCustomFiles(root)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported content safety policy")
+
+	root = t.TempDir()
+	writeRecipe(t, root, validCustomFileTreeRecipe("config", []string{"**"}, nil)+`    contentSafetyPolicy: `+SSHContentSafetyPolicy+`
+`)
+	_, err = LoadCustomFiles(root)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "content safety policy is supported only for file resources")
+}
+
 func TestZshRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 	t.Parallel()
 
@@ -1633,6 +1829,25 @@ func requireTmuxFileResource(t *testing.T, resource Resource, settingID string) 
 	require.Nil(t, resource.Selector)
 }
 
+func requireSSHConfigResource(t *testing.T, resource Resource) {
+	t.Helper()
+	require.Equal(t, FileDriverID, resource.Driver)
+	require.Equal(t, "home", resource.Location)
+	require.Equal(t, ".ssh/config", resource.Path)
+	require.Equal(t, "read-write", resource.Capability)
+	require.Equal(t, SensitivityPersonal, resource.Sensitivity)
+	require.Equal(t, RedactionRedactedForDisplay, resource.Redaction)
+	require.Equal(t, LifecycleAllowed, resource.Lifecycle)
+	require.Equal(t, SSHContentSafetyPolicy, resource.ContentSafetyPolicy)
+	require.Len(t, resource.WriteWarnings, 1)
+	require.Equal(t, SSHConfigReviewWarningCode, resource.WriteWarnings[0].Code)
+	require.Equal(t, []string{"save", "apply"}, resource.WriteWarnings[0].Triggers)
+	require.NotEmpty(t, resource.WriteWarnings[0].Message)
+	require.Empty(t, resource.Include)
+	require.Empty(t, resource.Exclude)
+	require.Nil(t, resource.Selector)
+}
+
 func requireNvimFileTreeResource(t *testing.T, resource Resource) {
 	t.Helper()
 	require.Equal(t, FileTreeDriverID, resource.Driver)
@@ -1674,6 +1889,15 @@ func cloneBundledTmuxRecipe(t *testing.T) *Recipe {
 	data, err := yaml.Marshal(BundledTmuxRecipe())
 	require.NoError(t, err)
 	rec, err := Decode("tmux.yaml", strings.NewReader(string(data)))
+	require.NoError(t, err)
+	return rec
+}
+
+func cloneBundledSSHRecipe(t *testing.T) *Recipe {
+	t.Helper()
+	data, err := yaml.Marshal(BundledSSHRecipe())
+	require.NoError(t, err)
+	rec, err := Decode("ssh.yaml", strings.NewReader(string(data)))
 	require.NoError(t, err)
 	return rec
 }

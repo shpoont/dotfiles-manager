@@ -277,6 +277,12 @@ resources:
     sensitivity: personal
     redaction: redacted-for-display
     lifecycle: allowed
+    # Optional and off by default. Bundled SSH config uses
+    # ssh-config-obvious-secrets; generic local recipes should not enable a
+    # policy unless the implementation explicitly supports that policy.
+    contentSafetyPolicy: ""
+    # Optional save/apply review warnings that are separate from lifecycle.
+    writeWarnings: []
     driver: file
     location: config
     path: user-info.json
@@ -307,6 +313,9 @@ Recipe validation must reject:
 - selectors unsupported by the driver;
 - paths not rooted in named locations;
 - write-capable settings or resources without required safety metadata;
+- unsupported content safety policies or content safety policies on non-file
+  resources;
+- review warnings without stable codes or supported triggers (`save`, `apply`);
 - user-local write-capable recipes without caller-provided source/trust context;
 - forbidden resource categories;
 - arbitrary scripts in MVP;

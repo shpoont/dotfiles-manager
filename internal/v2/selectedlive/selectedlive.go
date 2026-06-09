@@ -297,7 +297,7 @@ func executeFileResource(command string, runID string, started time.Time, store 
 		err = fmt.Errorf("unsupported file-resource live command: %s", command)
 	}
 	if err != nil {
-		return failedItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: "selectedlive.fileResource.plan", Message: err.Error(), Path: preItem.Resource.Path}, nil)
+		return failedItemRecord(command, runID, setting, resourceID, resource, preItem, customfilesPlanDiagnostic(err, preItem), nil)
 	}
 
 	execOpts := customfiles.ExecuteOptions{}
@@ -324,6 +324,15 @@ func fileResourceBackupHook(store *v2ledger.Store, runID string, started time.Ti
 		}
 		return customfiles.BackupResult{ID: item.Ref, Before: req.Before.Snapshot(), TreeBefore: req.TreeBefore.Snapshot()}, nil
 	}
+}
+
+func customfilesPlanDiagnostic(err error, preItem selectedpreview.Item) v2ledger.Diagnostic {
+	var planErr *customfiles.PlanError
+	if errors.As(err, &planErr) && len(planErr.Diagnostics) > 0 {
+		diagnostic := planErr.Diagnostics[0]
+		return v2ledger.Diagnostic{Code: diagnostic.Code, Message: diagnostic.Message, Path: defaultString(diagnostic.Path, preItem.Resource.Path)}
+	}
+	return v2ledger.Diagnostic{Code: "selectedlive.fileResource.plan", Message: err.Error(), Path: preItem.Resource.Path}
 }
 
 func selectedValueItemFromApply(runID string, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, preItem selectedpreview.Item, result *selectedvalue.ApplyResult) v2ledger.ItemRecord {

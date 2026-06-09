@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/contentsafety"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
@@ -24,6 +25,7 @@ const (
 	CustomFilesTarget             = "custom.files"
 	GitTarget                     = "git"
 	NvimTarget                    = "nvim"
+	SSHTarget                     = "ssh"
 	StarshipTarget                = "starship"
 	TmuxTarget                    = "tmux"
 	ZshTarget                     = "zsh"
@@ -74,13 +76,18 @@ const (
 )
 
 const (
-	ZshRiskShellStartupFileCode   = "zsh.risk.shell-startup-file"
-	ZshBlockedZshenvCode          = "zsh.blocked.zshenv"
-	ZshBlockedHistoryCode         = "zsh.blocked.history"
-	ZshBlockedCompletionCacheCode = "zsh.blocked.completion-cache"
-	ZshBlockedPluginStateCode     = "zsh.blocked.plugin-state"
-	ZshBlockedSessionStateCode    = "zsh.blocked.session-state"
-	TmuxManualReloadWarningCode   = "tmux.lifecycle.manual-reload"
+	ZshRiskShellStartupFileCode     = "zsh.risk.shell-startup-file"
+	ZshBlockedZshenvCode            = "zsh.blocked.zshenv"
+	ZshBlockedHistoryCode           = "zsh.blocked.history"
+	ZshBlockedCompletionCacheCode   = "zsh.blocked.completion-cache"
+	ZshBlockedPluginStateCode       = "zsh.blocked.plugin-state"
+	ZshBlockedSessionStateCode      = "zsh.blocked.session-state"
+	TmuxManualReloadWarningCode     = "tmux.lifecycle.manual-reload"
+	SSHConfigReviewWarningCode      = "ssh.config.review-required"
+	SSHConfigSymlinkUnsupportedCode = "ssh.config.symlink-unsupported"
+	SSHConfigExcludedContentCode    = "ssh.config.excluded-content"
+	SSHRefExcludedCode              = "ssh.ref.excluded"
+	SSHContentSafetyPolicy          = contentsafety.PolicySSHConfigObviousSecrets
 )
 
 var (
@@ -114,28 +121,37 @@ type SettingsGroup struct {
 }
 
 type Setting struct {
-	Label        string `yaml:"label,omitempty"`
-	SupportLevel string `yaml:"supportLevel,omitempty"`
-	Capability   string `yaml:"capability,omitempty"`
-	ArtifactForm string `yaml:"artifactForm,omitempty"`
-	Sensitivity  string `yaml:"sensitivity,omitempty"`
-	Redaction    string `yaml:"redaction,omitempty"`
-	Lifecycle    string `yaml:"lifecycle,omitempty"`
-	ScopeDefault string `yaml:"scopeDefault"`
-	Resource     string `yaml:"resource"`
+	Label         string          `yaml:"label,omitempty"`
+	SupportLevel  string          `yaml:"supportLevel,omitempty"`
+	Capability    string          `yaml:"capability,omitempty"`
+	ArtifactForm  string          `yaml:"artifactForm,omitempty"`
+	Sensitivity   string          `yaml:"sensitivity,omitempty"`
+	Redaction     string          `yaml:"redaction,omitempty"`
+	Lifecycle     string          `yaml:"lifecycle,omitempty"`
+	WriteWarnings []ReviewWarning `yaml:"writeWarnings,omitempty"`
+	ScopeDefault  string          `yaml:"scopeDefault"`
+	Resource      string          `yaml:"resource"`
 }
 
 type Resource struct {
-	Driver      string    `yaml:"driver"`
-	Location    string    `yaml:"location"`
-	Path        string    `yaml:"path"`
-	Capability  string    `yaml:"capability,omitempty"`
-	Sensitivity string    `yaml:"sensitivity,omitempty"`
-	Redaction   string    `yaml:"redaction,omitempty"`
-	Lifecycle   string    `yaml:"lifecycle,omitempty"`
-	Include     []string  `yaml:"include,omitempty"`
-	Exclude     []string  `yaml:"exclude,omitempty"`
-	Selector    *Selector `yaml:"selector,omitempty"`
+	Driver              string          `yaml:"driver"`
+	Location            string          `yaml:"location"`
+	Path                string          `yaml:"path"`
+	Capability          string          `yaml:"capability,omitempty"`
+	Sensitivity         string          `yaml:"sensitivity,omitempty"`
+	Redaction           string          `yaml:"redaction,omitempty"`
+	Lifecycle           string          `yaml:"lifecycle,omitempty"`
+	ContentSafetyPolicy string          `yaml:"contentSafetyPolicy,omitempty"`
+	WriteWarnings       []ReviewWarning `yaml:"writeWarnings,omitempty"`
+	Include             []string        `yaml:"include,omitempty"`
+	Exclude             []string        `yaml:"exclude,omitempty"`
+	Selector            *Selector       `yaml:"selector,omitempty"`
+}
+
+type ReviewWarning struct {
+	Code     string   `yaml:"code"`
+	Triggers []string `yaml:"triggers"`
+	Message  string   `yaml:"message,omitempty"`
 }
 
 type Selector struct {
@@ -333,6 +349,15 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		if resource.Lifecycle != "" && !knownLifecycle(resource.Lifecycle) {
 			add("resource.lifecycle.unsupported", resourcePath+".lifecycle", fmt.Sprintf("resource %s unsupported lifecycle policy", resourceID))
 		}
+		if resource.ContentSafetyPolicy != "" && !knownContentSafetyPolicy(resource.ContentSafetyPolicy) {
+			add("resource.contentSafetyPolicy.unsupported", resourcePath+".contentSafetyPolicy", fmt.Sprintf("resource %s unsupported content safety policy", resourceID))
+		}
+		if resource.ContentSafetyPolicy != "" && resource.Driver != FileDriverID {
+			add("resource.contentSafetyPolicy.driverUnsupported", resourcePath+".contentSafetyPolicy", fmt.Sprintf("resource %s content safety policy is supported only for file resources", resourceID))
+		}
+		for idx, warning := range resource.WriteWarnings {
+			addReviewWarningDiagnostics(add, resourcePath+fmt.Sprintf(".writeWarnings[%d]", idx), "resource "+resourceID, warning)
+		}
 		if driverDeclared {
 			addErr("resource.driver.invalid", resourcePath+".driver", r.validateResourceDriverShape(resourceID, resource))
 		}
@@ -362,6 +387,9 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		}
 		if setting.Lifecycle != "" && !knownLifecycle(setting.Lifecycle) {
 			add("setting.lifecycle.unsupported", settingPath+".lifecycle", fmt.Sprintf("setting %s unsupported lifecycle policy", settingID))
+		}
+		for idx, warning := range setting.WriteWarnings {
+			addReviewWarningDiagnostics(add, settingPath+fmt.Sprintf(".writeWarnings[%d]", idx), "setting "+settingID, warning)
 		}
 		if setting.ScopeDefault != "" && !knownScope(setting.ScopeDefault) {
 			add("setting.scopeDefault.unsupported", settingPath+".scopeDefault", fmt.Sprintf("setting %s unsupported scopeDefault: %s", settingID, setting.ScopeDefault))
@@ -589,6 +617,112 @@ func (r *Recipe) ValidateTmux() error {
 		if err := r.validateTmuxSetting(settingID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (r *Recipe) ValidateSSH() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Target != SSHTarget {
+		return fmt.Errorf("ssh recipe target must be %q, got %q", SSHTarget, r.Target)
+	}
+	if r.Capability != "read-write" {
+		return fmt.Errorf("ssh recipe capability must be read-write, got %s", r.Capability)
+	}
+	if len(r.Locations) != 1 {
+		return fmt.Errorf("ssh recipe must declare only the home location")
+	}
+	location, ok := r.Locations["home"]
+	if !ok {
+		return fmt.Errorf("ssh recipe must declare home location")
+	}
+	if strings.TrimSpace(location.Default) != "~" {
+		return fmt.Errorf("ssh home location default must be ~")
+	}
+	if len(r.Settings) != len(sshSettingIDs()) {
+		return fmt.Errorf("ssh recipe must declare only supported config file settings")
+	}
+	if len(r.Resources) != len(sshSettingIDs()) {
+		return fmt.Errorf("ssh recipe must declare exactly one file resource for the config file")
+	}
+	for _, settingID := range sshSettingIDs() {
+		if err := r.validateSSHSetting(settingID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Recipe) validateSSHSetting(settingID string) error {
+	setting, ok := r.Settings[settingID]
+	if !ok {
+		return fmt.Errorf("ssh recipe missing setting %s", settingID)
+	}
+	if setting.ScopeDefault != "user" {
+		return fmt.Errorf("ssh setting %s scopeDefault must be user", settingID)
+	}
+	if setting.SupportLevel != "experimental" {
+		return fmt.Errorf("ssh setting %s supportLevel must be experimental", settingID)
+	}
+	if setting.Capability != "read-write" {
+		return fmt.Errorf("ssh setting %s capability must be read-write", settingID)
+	}
+	if setting.ArtifactForm != "file" {
+		return fmt.Errorf("ssh setting %s artifactForm must be file", settingID)
+	}
+	if setting.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("ssh setting %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if setting.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("ssh setting %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if setting.Lifecycle != LifecycleAllowed {
+		return fmt.Errorf("ssh setting %s lifecycle must be %s", settingID, LifecycleAllowed)
+	}
+	if len(setting.WriteWarnings) > 0 {
+		return fmt.Errorf("ssh setting %s must not declare setting-level write warnings", settingID)
+	}
+	if setting.Resource != settingID {
+		return fmt.Errorf("ssh setting %s resource must be %s", settingID, settingID)
+	}
+	resource, ok := r.Resources[setting.Resource]
+	if !ok {
+		return fmt.Errorf("ssh setting %s references unknown resource %s", settingID, setting.Resource)
+	}
+	if resource.Driver != FileDriverID {
+		return fmt.Errorf("ssh setting %s driver must be %q, got %q", settingID, FileDriverID, resource.Driver)
+	}
+	if resource.Location != "home" {
+		return fmt.Errorf("ssh setting %s location must be home", settingID)
+	}
+	if resource.Path != ".ssh/config" {
+		return fmt.Errorf("ssh setting %s path must be .ssh/config", settingID)
+	}
+	if resource.Capability != "read-write" {
+		return fmt.Errorf("ssh resource %s capability must be read-write", settingID)
+	}
+	if resource.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("ssh resource %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if resource.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("ssh resource %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if resource.Lifecycle != LifecycleAllowed {
+		return fmt.Errorf("ssh resource %s lifecycle must be %s", settingID, LifecycleAllowed)
+	}
+	if resource.ContentSafetyPolicy != SSHContentSafetyPolicy {
+		return fmt.Errorf("ssh resource %s contentSafetyPolicy must be %s", settingID, SSHContentSafetyPolicy)
+	}
+	if len(resource.WriteWarnings) != 1 || resource.WriteWarnings[0].Code != SSHConfigReviewWarningCode || !stringSlicesEqual(resource.WriteWarnings[0].Triggers, []string{"save", "apply"}) {
+		return fmt.Errorf("ssh resource %s must declare the SSH config save/apply review warning", settingID)
+	}
+	if resource.Selector != nil {
+		return fmt.Errorf("ssh resource %s must not declare selector", settingID)
+	}
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("ssh resource %s must not declare include/exclude globs", settingID)
 	}
 	return nil
 }
@@ -915,6 +1049,10 @@ func nvimSettingIDs() []string {
 	return []string{"config"}
 }
 
+func sshSettingIDs() []string {
+	return []string{"config"}
+}
+
 func tmuxSettingIDs() []string {
 	return []string{"home.conf", "xdg.conf"}
 }
@@ -1019,6 +1157,20 @@ func ZshBlockedSettingDiagnostic(settingID string) (ValidationDiagnostic, bool) 
 
 func zshBlockedDiagnostic(code string, settingID string, message string) ValidationDiagnostic {
 	return ValidationDiagnostic{Code: code, Severity: ValidationSeverityError, Message: message, Path: "$.settings." + settingID}
+}
+
+func SSHExcludedSettingDiagnostic(settingID string) (ValidationDiagnostic, bool) {
+	switch strings.TrimSpace(settingID) {
+	case "keys", "private-keys", "public-keys", "identity", "known_hosts", "known-hosts", "authorized_keys", "authorized-keys", "agent", "sockets", "control-sockets", "config.d", "includes", "certificates", "host-keys":
+		return ValidationDiagnostic{
+			Code:     SSHRefExcludedCode,
+			Severity: ValidationSeverityError,
+			Message:  "bundled SSH recipe supports only ssh:config and does not read keys, known_hosts, authorized_keys, sockets, include targets, certificates, host keys, or agent state",
+			Path:     "$.settings." + settingID,
+		}, true
+	default:
+		return ValidationDiagnostic{}, false
+	}
 }
 
 func (r *Recipe) ValidateCustomFiles() error {
@@ -1497,6 +1649,52 @@ func knownRedaction(value string) bool {
 func knownLifecycle(value string) bool {
 	switch value {
 	case LifecycleAllowed, LifecycleWarn, LifecycleBlocked, LifecycleAskToQuit, LifecycleQuitIfRunning, LifecycleBlockIfRunning, LifecycleReopenIfStoppedByTool:
+		return true
+	default:
+		return false
+	}
+}
+
+func knownContentSafetyPolicy(value string) bool {
+	switch value {
+	case SSHContentSafetyPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+func addReviewWarningDiagnostics(add func(string, string, string), path string, subject string, warning ReviewWarning) {
+	code := strings.TrimSpace(warning.Code)
+	if code == "" {
+		add("reviewWarning.code.required", path+".code", subject+" review warning code is required")
+	} else if err := ValidatePublicID("reviewWarning", code); err != nil {
+		add("reviewWarning.code.invalid", path+".code", subject+" review warning code is invalid")
+	}
+	if len(warning.Triggers) == 0 {
+		add("reviewWarning.triggers.required", path+".triggers", subject+" review warning requires at least one trigger")
+	}
+	seen := map[string]bool{}
+	for idx, trigger := range warning.Triggers {
+		trimmed := strings.TrimSpace(trigger)
+		triggerPath := fmt.Sprintf("%s.triggers[%d]", path, idx)
+		if !knownReviewWarningTrigger(trimmed) {
+			add("reviewWarning.trigger.unsupported", triggerPath, subject+" review warning trigger is unsupported")
+			continue
+		}
+		if seen[trimmed] {
+			add("reviewWarning.trigger.duplicate", triggerPath, subject+" review warning trigger is duplicated")
+		}
+		seen[trimmed] = true
+	}
+	if strings.TrimSpace(warning.Message) != warning.Message {
+		add("reviewWarning.message.invalid", path+".message", subject+" review warning message must not have surrounding whitespace")
+	}
+}
+
+func knownReviewWarningTrigger(value string) bool {
+	switch value {
+	case "save", "apply":
 		return true
 	default:
 		return false

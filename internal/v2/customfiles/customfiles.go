@@ -1,11 +1,13 @@
 package customfiles
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/contentsafety"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
@@ -24,6 +26,38 @@ type Request struct {
 	Recipe        *recipe.Recipe
 	SettingRef    string
 	LocationRoots map[string]string
+}
+
+type Diagnostic struct {
+	Code       string
+	Severity   string
+	Message    string
+	Ref        string
+	Path       string
+	ResourceID string
+	DriverID   string
+	Category   string
+	PatternID  string
+	Operation  string
+}
+
+type PlanError struct {
+	Diagnostics []Diagnostic
+}
+
+func (e *PlanError) Error() string {
+	if e == nil || len(e.Diagnostics) == 0 {
+		return "file-resource planning failed"
+	}
+	parts := make([]string, 0, len(e.Diagnostics))
+	for _, diagnostic := range e.Diagnostics {
+		msg := diagnostic.Message
+		if msg == "" {
+			msg = "file-resource planning failed"
+		}
+		parts = append(parts, fmt.Sprintf("%s[%s]: %s", diagnostic.Ref, diagnostic.Code, msg))
+	}
+	return strings.Join(parts, "; ")
 }
 
 type Plan struct {
@@ -318,6 +352,9 @@ func buildFileResourcePlan(req Request, op Operation) (*Plan, error) {
 		if !plan.SourceState.Exists {
 			return nil, fmt.Errorf("file-resource save %s blocked: live file is missing; delete/tombstone semantics are out of scope", plan.Setting.Ref())
 		}
+		if err := enforceFileContentSafety(plan, op, "live", plan.SourceState, plan.LiveTarget); err != nil {
+			return nil, err
+		}
 		plan.DesiredFinalState = plan.SourceState
 		preview, err := driver.PreviewApply(plan.DesiredTarget, plan.SourceState)
 		if err != nil {
@@ -332,6 +369,12 @@ func buildFileResourcePlan(req Request, op Operation) (*Plan, error) {
 		}
 		if !desiredState.Exists {
 			return nil, fmt.Errorf("file-resource apply %s blocked: desired artifact is missing; delete/tombstone semantics are out of scope", plan.Setting.Ref())
+		}
+		if err := enforceFileContentSafety(plan, op, "desired", desiredState, plan.DesiredTarget); err != nil {
+			return nil, err
+		}
+		if err := enforceFileContentSafety(plan, op, "live-backup", liveState, plan.LiveTarget); err != nil {
+			return nil, err
 		}
 		plan.SourceState = desiredState
 		plan.DestinationState = liveState
@@ -423,19 +466,21 @@ func buildFileResourceReadPlan(req Request) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyFileContentTargetPolicy(resource, &liveTarget)
+	applyFileContentTargetPolicy(resource, &desiredTarget)
 
 	driver := filedriver.Driver{}
 	liveState, err := driver.ReadCurrent(liveTarget)
 	if err != nil {
-		return nil, fmt.Errorf("read live %s: %w", setting.Ref(), err)
+		return nil, fileResourceReadError(setting, resourceID, resource, "read live", err)
 	}
 	desiredState, err := driver.ReadCurrent(desiredTarget)
 	if err != nil {
-		return nil, fmt.Errorf("read desired %s: %w", setting.Ref(), err)
+		return nil, fileResourceReadError(setting, resourceID, resource, "read desired", err)
 	}
 	resolvedLive, err := filedriver.ResolveTarget(liveTarget)
 	if err != nil {
-		return nil, fmt.Errorf("resolve live %s: %w", setting.Ref(), err)
+		return nil, fileResourceReadError(setting, resourceID, resource, "resolve live", err)
 	}
 	preview := filedriver.Preview{
 		Target:     liveTarget,
@@ -524,6 +569,70 @@ func buildFileTreeResourceReadPlan(profile *resolution.ResolvedProfile, setting 
 		TreeDesiredFinalState: desiredState,
 		TreePreview:           preview,
 	}, nil
+}
+
+func applyFileContentTargetPolicy(resource recipe.Resource, target *filedriver.Target) {
+	if target == nil {
+		return
+	}
+	if resource.ContentSafetyPolicy == recipe.SSHContentSafetyPolicy {
+		target.RejectLeafSymlink = true
+	}
+}
+
+func enforceFileContentSafety(plan *Plan, op Operation, role string, state filedriver.State, target filedriver.Target) error {
+	if plan == nil || strings.TrimSpace(plan.Resource.ContentSafetyPolicy) == "" || !state.Exists {
+		return nil
+	}
+	finding, ok := contentsafety.Detect(contentsafety.Input{
+		Policy:     plan.Resource.ContentSafetyPolicy,
+		Value:      state.Bytes,
+		SettingRef: plan.Setting.Ref(),
+		SettingID:  plan.Setting.SettingID,
+		ResourceID: plan.ResourceID,
+	})
+	if !ok {
+		return nil
+	}
+	path := target.RelPath
+	if resolved, err := filedriver.ResolveTarget(target); err == nil {
+		path = resolved.AbsPath
+	}
+	return &PlanError{Diagnostics: []Diagnostic{{
+		Code:       recipe.SSHConfigExcludedContentCode,
+		Severity:   "error",
+		Message:    fmt.Sprintf("SSH config content safety blocked %s for %s file: detected %s/%s; raw content omitted", op, role, finding.Category, finding.PatternID),
+		Ref:        plan.Setting.Ref(),
+		Path:       path,
+		ResourceID: plan.ResourceID,
+		DriverID:   plan.Resource.Driver,
+		Category:   finding.Category,
+		PatternID:  finding.PatternID,
+		Operation:  string(op),
+	}}}
+}
+
+func fileResourceReadError(setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, op string, err error) error {
+	if resource.ContentSafetyPolicy == recipe.SSHContentSafetyPolicy && filedriver.IsCode(err, filedriver.CodeSymlinkUnsupported) {
+		return &PlanError{Diagnostics: []Diagnostic{{
+			Code:       recipe.SSHConfigSymlinkUnsupportedCode,
+			Severity:   "error",
+			Message:    "bundled SSH recipe manages only a regular ~/.ssh/config file and does not follow symlinks",
+			Ref:        setting.Ref(),
+			Path:       filedriverErrorPath(err),
+			ResourceID: resourceID,
+			DriverID:   resource.Driver,
+		}}}
+	}
+	return fmt.Errorf("%s %s: %w", op, setting.Ref(), err)
+}
+
+func filedriverErrorPath(err error) string {
+	var driverErr *filedriver.Error
+	if errors.As(err, &driverErr) {
+		return driverErr.Path
+	}
+	return ""
 }
 
 func buildTreePlan(profile *resolution.ResolvedProfile, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, resourceRelPath string, locationRoot string, op Operation) (*Plan, error) {

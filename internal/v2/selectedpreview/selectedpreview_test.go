@@ -2,6 +2,7 @@ package selectedpreview
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -50,6 +51,57 @@ func TestBuildStatusDiffAndDryRunReportsSelectedValueWithoutRawValues(t *testing
 			}
 		})
 	}
+}
+
+func TestSelectedPreviewHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "recipe://bundled/ssh", recipeRef(recipe.RecipeSourceBundled, recipe.SSHTarget))
+	require.Equal(t, "recipe://local/test.app", recipeRef(recipe.RecipeSourceLocal, "test.app"))
+	require.Equal(t, "", recipeRef("remote", "test.app"))
+
+	require.True(t, isSelectedValueDriver(recipe.JSONFileDriverID))
+	require.False(t, isSelectedValueDriver(recipe.FileDriverID))
+	require.Equal(t, "unknown", fileDiffInfo("").Kind)
+	require.Equal(t, "update", fileDiffInfo("update").Kind)
+	require.Equal(t, "unknown", treeDiffInfo("").Kind)
+	require.Equal(t, "create", treeDiffInfo("create").Kind)
+	require.Equal(t, "default", fallback(" ", "default"))
+	require.Equal(t, "explicit", fallback("explicit", "default"))
+	require.Equal(t, "existing", (Diagnostic{Ref: "existing"}).withRef("new").Ref)
+	require.Equal(t, "new", (Diagnostic{}).withRef("new").Ref)
+}
+
+func TestDesiredValueFromSelectedBranches(t *testing.T) {
+	t.Parallel()
+
+	deleted, err := desiredValueFromSelected(selectedvalue.Delete())
+	require.NoError(t, err)
+	require.Equal(t, desired.IntentDelete, deleted.Intent())
+
+	str, err := desiredValueFromSelected(selectedvalue.SetString("value"))
+	require.NoError(t, err)
+	require.Equal(t, desired.IntentSet, str.Intent())
+	require.Equal(t, "string", str.Kind())
+
+	boolean, err := desiredValueFromSelected(selectedvalue.SetBool(true))
+	require.NoError(t, err)
+	require.Equal(t, desired.IntentSet, boolean.Intent())
+	require.Equal(t, "bool", boolean.Kind())
+
+	number, err := desiredValueFromSelected(selectedvalue.SetNumber(json.Number("1.25")))
+	require.NoError(t, err)
+	require.Equal(t, desired.IntentSet, number.Intent())
+	require.Equal(t, "number", number.Kind())
+
+	nullValue, err := desiredValueFromSelected(selectedvalue.SetNull())
+	require.NoError(t, err)
+	require.Equal(t, desired.IntentSet, nullValue.Intent())
+	require.Equal(t, "null", nullValue.Kind())
+
+	_, err = desiredValueFromSelected(selectedvalue.Desired{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "intent is required")
 }
 
 func TestBuildBlocksLocalRecipeWithoutTrustBeforeLiveRead(t *testing.T) {
@@ -393,6 +445,162 @@ func TestBuildTmuxMissingFileSemanticsAreFailClosed(t *testing.T) {
 	})
 }
 
+func TestBuildUsesBundledSSHConfigOnlyRuntime(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupSSHFixture(t, "config")
+	configPath := filepath.Join(fixture.liveRoot, ".ssh", "config")
+	keyPath := filepath.Join(fixture.liveRoot, ".ssh", "id_ed25519")
+	includePath := filepath.Join(fixture.liveRoot, ".ssh", "config.d", "work.conf")
+	writeFile(t, configPath, "Host github.com\n  HostName github.com\n  IdentityFile ~/.ssh/id_ed25519\n  Include ~/.ssh/config.d/*.conf\n")
+	writeFile(t, keyPath, "-----BEGIN OPENSSH PRIVATE KEY-----\nnot-read\n-----END OPENSSH PRIVATE KEY-----\n")
+	writeFile(t, includePath, "Host included\n  User should-not-be-read\n")
+	writeFileResourceDesired(t, fixture, recipe.SSHTarget, "config", "Host gitlab.com\n  HostName gitlab.com\n")
+	roots := map[string]map[string]string{recipe.SSHTarget: {"home": fixture.liveRoot}}
+
+	for _, command := range []string{CommandStatus, CommandDiff, CommandSave, CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "ssh:config", UserID: "leon", DryRun: command == CommandSave || command == CommandApply, LocationRoots: roots})
+			require.NoError(t, err)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, recipe.RecipeSourceBundled, item.Recipe.Source)
+			require.Equal(t, "recipe://bundled/ssh", item.Recipe.RecipeRef)
+			require.Equal(t, recipe.TrustStatusTrusted, item.Recipe.TrustStatus)
+			require.Equal(t, "ssh:config", item.SettingRef)
+			require.Equal(t, recipe.FileDriverID, item.Resource.DriverID)
+			require.Equal(t, "config", item.Resource.ID)
+			require.Equal(t, "home", item.Resource.LocationID)
+			require.Equal(t, ".ssh/config", item.Resource.RelPath)
+			require.Equal(t, SelectorInfo{Kind: "file", Summary: ".ssh/config"}, item.Selector)
+			require.Equal(t, "desired://user/leon/targets/ssh/artifacts/config", item.DesiredURI)
+			require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "ssh", "artifacts", "config")), item.DesiredRelPath)
+			require.True(t, item.Current.Exists)
+			require.Equal(t, "present", item.Desired.Status)
+			require.Equal(t, "file", item.Desired.Kind)
+			require.True(t, item.Desired.Snapshot.Exists)
+			if command == CommandDiff {
+				require.NotNil(t, item.Diff)
+				require.Equal(t, "metadata-only", item.Diff.Mode)
+			}
+			if command == CommandSave || command == CommandApply {
+				requireDiagnostic(t, item, recipe.SSHConfigReviewWarningCode)
+				require.NotEqual(t, SummaryBlocked, report.Summary.Status)
+			} else {
+				requireNoDiagnostic(t, item, recipe.SSHConfigReviewWarningCode)
+			}
+			payload := mustJSON(t, report)
+			require.NotContains(t, payload, "github.com")
+			require.NotContains(t, payload, "gitlab.com")
+			require.NotContains(t, payload, "not-read")
+			require.NotContains(t, payload, "should-not-be-read")
+			require.NotContains(t, Text(report), "github.com")
+			require.NotContains(t, Text(report), "gitlab.com")
+			require.NotContains(t, Text(report), "not-read")
+			require.NotContains(t, Text(report), "should-not-be-read")
+		})
+	}
+}
+
+func TestBuildSSHBlocksExcludedRefsWithoutFileReads(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupSSHFixture(t, "keys")
+	writeFile(t, filepath.Join(fixture.liveRoot, ".ssh", "id_ed25519"), "raw-private-key-material\n")
+	roots := map[string]map[string]string{recipe.SSHTarget: {"home": fixture.liveRoot}}
+
+	report, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "ssh:keys", UserID: "leon", LocationRoots: roots})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, report.Summary.Status)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, v2status.StateUnsupported, item.State)
+	requireDiagnostic(t, item, recipe.SSHRefExcludedCode)
+	require.Contains(t, item.Message, "excluded")
+	require.Empty(t, item.Current.SHA256)
+	require.NotContains(t, mustJSON(t, report), "raw-private-key-material")
+}
+
+func TestBuildSSHContentSafetyBlocksSaveApplyAndSymlink(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save blocks live private key header", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupSSHFixture(t, "config")
+		writeFile(t, filepath.Join(fixture.liveRoot, ".ssh", "config"), "Host bad\n-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n")
+		roots := map[string]map[string]string{recipe.SSHTarget: {"home": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "ssh:config", UserID: "leon", DryRun: true, LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		requireDiagnostic(t, item, recipe.SSHConfigExcludedContentCode)
+		requireDiagnosticMessageContains(t, item, "private-key")
+		payload := mustJSON(t, report)
+		require.NotContains(t, payload, "BEGIN OPENSSH PRIVATE KEY")
+		require.NotContains(t, Text(report), "BEGIN OPENSSH PRIVATE KEY")
+	})
+
+	t.Run("apply blocks desired public key and preserves live", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupSSHFixture(t, "config")
+		livePath := filepath.Join(fixture.liveRoot, ".ssh", "config")
+		writeFile(t, livePath, "Host safe\n  HostName example.com\n")
+		desiredPath := writeFileResourceDesired(t, fixture, recipe.SSHTarget, "config", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM user@example\n")
+		roots := map[string]map[string]string{recipe.SSHTarget: {"home": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "ssh:config", UserID: "leon", DryRun: true, LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		item := report.Items[0]
+		requireDiagnostic(t, item, recipe.SSHConfigExcludedContentCode)
+		requireDiagnosticMessageContains(t, item, "ssh-public-key")
+		require.Equal(t, "Host safe\n  HostName example.com\n", readFile(t, livePath))
+		require.Contains(t, readFile(t, desiredPath), "ssh-ed25519")
+		require.NotContains(t, mustJSON(t, report), "AAAAC3NzaC1lZDI1NTE5")
+	})
+
+	t.Run("apply blocks live backup with known hosts content", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupSSHFixture(t, "config")
+		writeFile(t, filepath.Join(fixture.liveRoot, ".ssh", "config"), "|1|abcdefghijklmnop=|qrstuvwxyzabcdef= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n")
+		writeFileResourceDesired(t, fixture, recipe.SSHTarget, "config", "Host safe\n  HostName example.com\n")
+		roots := map[string]map[string]string{recipe.SSHTarget: {"home": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "ssh:config", UserID: "leon", DryRun: true, LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		item := report.Items[0]
+		requireDiagnostic(t, item, recipe.SSHConfigExcludedContentCode)
+		requireDiagnosticMessageContains(t, item, "ssh-known-hosts")
+		require.NotContains(t, mustJSON(t, report), "abcdefghijklmnop")
+	})
+
+	t.Run("status blocks symlinked config before reading target", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupSSHFixture(t, "config")
+		keyPath := filepath.Join(fixture.liveRoot, ".ssh", "id_ed25519")
+		configPath := filepath.Join(fixture.liveRoot, ".ssh", "config")
+		writeFile(t, keyPath, "raw-symlink-private-key\n")
+		require.NoError(t, os.Symlink(keyPath, configPath))
+		writeFileResourceDesired(t, fixture, recipe.SSHTarget, "config", "Host safe\n")
+		roots := map[string]map[string]string{recipe.SSHTarget: {"home": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "ssh:config", UserID: "leon", LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		item := report.Items[0]
+		requireDiagnostic(t, item, recipe.SSHConfigSymlinkUnsupportedCode)
+		require.Empty(t, item.Current.SHA256)
+		require.NotContains(t, mustJSON(t, report), "raw-symlink-private-key")
+	})
+}
+
 func TestBuildRejectsRefsAndMissingMatches(t *testing.T) {
 	t.Parallel()
 
@@ -483,6 +691,15 @@ func setupTmuxFixture(t *testing.T, settingID string) fixture {
 	stateRoot := t.TempDir()
 	writeV2Root(t, repoRoot, recipe.TmuxTarget, settingID)
 	return fixture{repoRoot: repoRoot, liveRoot: locationRoot, stateRoot: stateRoot, t: t}
+}
+
+func setupSSHFixture(t *testing.T, settingID string) fixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	homeRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, recipe.SSHTarget, settingID)
+	return fixture{repoRoot: repoRoot, liveRoot: homeRoot, stateRoot: stateRoot, t: t}
 }
 
 func (f fixture) writeLiveYAML(email string) {

@@ -373,7 +373,7 @@ CLI result schema is promoted.
 
 ```bash
 dotfiles-manager init
-dotfiles-manager add git nvim starship tmux zsh
+dotfiles-manager add git nvim ssh starship tmux zsh
 dotfiles-manager status
 dotfiles-manager apply --dry-run
 dotfiles-manager apply
@@ -531,6 +531,111 @@ semantic validation, plugin validation, or secret scanning.
 
 Unsupported tmux refs outside `tmux:home.conf` and `tmux:xdg.conf` must remain
 unsupported settings and must not be resolved to filesystem paths or read.
+
+### Save one SSH config file
+
+For the current MVP tranche, the bundled `ssh` runtime manages only one
+selected whole-file OpenSSH user config ref:
+
+- `ssh:config` -> `~/.ssh/config`
+
+`ssh:config` uses `scopeDefault: user` and the named `home` location with
+default `~`. It uses `driver: file`, `artifactForm: file`, `sensitivity:
+personal`, `redaction: redacted-for-display`, `lifecycle: allowed`, no
+selectors, and no include/exclude globs. It also enables the opt-in file
+content safety policy `ssh-config-obvious-secrets` and a save/apply review
+warning. The warning is **not** a lifecycle warning because SSH config changes
+do not require the manager to stop ssh, ssh-agent, keychain, hardware tokens, or
+sessions.
+
+The desired artifact path for a user-scoped SSH config file is:
+
+```text
+desired/user/<user>/targets/ssh/artifacts/config
+```
+
+For example, `--user-id leon` and `ssh:config` write
+`desired/user/leon/targets/ssh/artifacts/config`, with URI
+`desired://user/leon/targets/ssh/artifacts/config`. It must never be stored in
+`settings.yaml`.
+
+The command behavior follows the generic selected whole-file resource path, with
+additional SSH safety gates:
+
+- `status` and `diff` read metadata only and must not emit raw config bytes;
+- `save --dry-run` previews importing the live `~/.ssh/config` file into the
+  desired artifact;
+- `save --yes` writes the desired artifact and verifies it only after scanning
+  the live bytes that would be persisted;
+- `apply --dry-run` previews copying the desired artifact back to
+  `~/.ssh/config`;
+- `apply --yes` scans the desired artifact and the current live file before
+  writing the live file or creating the raw pre-apply backup payload.
+
+Save/apply planning must emit this non-blocking content-review warning:
+
+```text
+ssh.config.review-required
+```
+
+The warning tells users to review `Include`, `IdentityFile`, `CertificateFile`,
+`LocalCommand`, `ProxyCommand`, and `Match exec` directives and not to store key
+material or tokens inline. `status` and `diff` must not emit this write warning.
+
+The `ssh-config-obvious-secrets` content safety policy must block save/apply
+before durable writes or backup creation when it detects obvious excluded
+material in the byte stream that would be persisted. Stable blocking diagnostic:
+
+```text
+ssh.config.excluded-content
+```
+
+Diagnostics must be metadata-only: code, public ref, resource id, operation,
+path, detector category, and pattern id are allowed; matched text, surrounding
+line content, token prefixes, raw config snippets, and entropy samples are not.
+The policy must detect obvious private-key headers, token-like secrets covered
+by the generic secret policy, SSH public key lines, OpenSSH certificate key
+lines, known_hosts-style lines including hashed hosts, and authorized_keys-style
+lines. Normal config directives such as `IdentityFile ~/.ssh/id_ed25519` must
+not cause the referenced key file to be read or block merely because the
+directive names a key path.
+
+The bundled SSH recipe must reject symlinked `~/.ssh/config` before reading or
+writing the target:
+
+```text
+ssh.config.symlink-unsupported
+```
+
+Missing-state behavior is fail-closed for this slice:
+
+- missing named home location blocks status/diff/save/apply;
+- missing live `~/.ssh/config` blocks save and must not delete/tombstone desired
+  state;
+- missing live `~/.ssh/config` also blocks apply rather than creating the file
+  or intermediate directories;
+- missing desired artifact blocks apply and must not delete/tombstone live
+  state.
+
+The bundled SSH recipe must not walk `~/.ssh`, resolve `Include` files, read
+`IdentityFile`, `CertificateFile`, or `UserKnownHostsFile` targets, manage
+private keys, public keys, certificates, host keys, `known_hosts`,
+`authorized_keys`, ssh-agent/keychain/hardware-token state, sockets, control
+sockets, multiplexed connection state, generated state, permission repair, key
+generation/import/export, SSH installation, network access, `ssh -G`
+validation, or command execution.
+
+Explicit excluded refs such as `ssh:keys`, `ssh:private-keys`,
+`ssh:public-keys`, `ssh:identity`, `ssh:known_hosts`, `ssh:known-hosts`,
+`ssh:authorized_keys`, `ssh:authorized-keys`, `ssh:agent`, `ssh:sockets`,
+`ssh:control-sockets`, `ssh:config.d`, `ssh:includes`, `ssh:certificates`, and
+`ssh:host-keys` must return:
+
+```text
+ssh.ref.excluded
+```
+
+They must not resolve to filesystem paths, list directories, or read files.
 
 ### Save/apply Neovim config tree
 
