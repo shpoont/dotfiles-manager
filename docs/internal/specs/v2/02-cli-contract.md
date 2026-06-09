@@ -86,6 +86,7 @@ Advanced commands may exist outside the normal path:
 
 ```text
 dotfiles-manager recipe list
+dotfiles-manager recipe discover [target]
 dotfiles-manager recipe explain <target>
 dotfiles-manager app create <target>
 dotfiles-manager app edit <target>
@@ -93,9 +94,11 @@ dotfiles-manager app validate <target>
 dotfiles-manager app test <target> --roundtrip
 ```
 
-`recipe list` and `recipe explain <target>` are included in the MVP as read-only
-advanced commands. `recipe list` shows static bundled target metadata and does
-not resolve active profile selection. `recipe explain` explains target support,
+`recipe list`, `recipe discover [target]`, and `recipe explain <target>` are
+included in the MVP as read-only advanced commands. `recipe list` shows static
+bundled target metadata and does not resolve active profile selection or inspect
+installation state. `recipe discover` is the explicit opt-in live metadata
+probe for target install/config state. `recipe explain` explains target support,
 selected settings, settings groups, resources, drivers, lifecycle policy,
 redaction behavior, support levels, and capability limits without reading live
 target state.
@@ -113,6 +116,73 @@ metadata remains authoritative for the bundled entry.
 
 Text output must include deterministic target rows with target ID, source,
 trust status, support level, capability, platform support, and aliases.
+
+### `recipe discover` read-only contract
+
+`recipe discover [target]` is the explicit read-only install/config discovery
+surface. Unlike `recipe list`, it may inspect live target-owned metadata, but it
+must never read file contents, inspect desired artifacts, resolve active profile
+selection, query backups or ledger state, launch apps, run package managers,
+call native export/import commands, or execute target binaries. Command probes
+are PATH lookups only. Config probes are lstat-style metadata checks of declared
+live resource paths only.
+
+Discovery output must be deterministic in structure and ordering. It uses
+`command: recipe.discover`, `runId: recipe-discover`, `schemaVersion: 1`,
+canonical bundled target IDs, stable state strings, and stable diagnostic codes.
+Rows are sorted by canonical target ID; command probes, config probes, aliases,
+resources, and diagnostics are sorted deterministically. Discovery output must
+not include timestamps, durations, random IDs, raw config contents, desired
+artifact paths, backup payloads, or ledger payloads.
+
+Summary state values are:
+
+- `unsupported-platform` when the target's declared platform support excludes
+  the current OS; discovery skips command/config probes in this state;
+- `ambiguous` when a relevant command or config probe cannot be classified
+  safely, for example stat permission errors, malformed locations, wrong path
+  type, command lookup errors, or a symlink rejected by that resource;
+- `config-present` when at least one deduplicated declared config resource path
+  exists with the expected metadata type;
+- `installed` when a declared command probe is found but no config path exists;
+- `config-missing` when relevant config probes are all missing and no command is
+  found;
+- `not-applicable` for targets with no command/config probes such as
+  `custom.files`.
+
+JSON includes separate axes as well as the summary state:
+
+```yaml
+command: recipe.discover
+discovery:
+  targets:
+    - id: git
+      state: config-present
+      platformState: unknown | supported | unsupported
+      binaryState: installed | missing | ambiguous | not-applicable
+      configState: config-present | config-missing | ambiguous | not-applicable
+      commandProbes:
+        - kind: command
+          command: git
+          state: installed | missing | ambiguous
+      configProbes:
+        - kind: config
+          id: home:.gitconfig:file
+          locationId: home
+          path: .gitconfig
+          expectedType: file
+          actualType: file
+          state: present | missing | ambiguous
+          resources: [user-email, user-name]
+      diagnostics: []
+```
+
+For file resources, discovery expects a regular file. For file-tree resources,
+discovery checks only the declared root path and expects a directory. It must not
+expand include/exclude globs, recurse into trees, or inspect child paths. It
+uses lstat semantics. Resources that reject leaf symlinks, such as SSH config,
+return `ambiguous` with a stable symlink diagnostic when the declared path is a
+symlink; other symlinks are classified as present without following the target.
 
 JSON output uses `command: recipe.list` and a command-specific object:
 
@@ -337,7 +407,7 @@ Draft persisted preview envelope:
 ```yaml
 schema: dotfiles-manager.v2.preview
 schemaVersion: 1
-command: init | add | list | status | diff | save | apply | sync | backup.list | restore | migrate | recipe.explain
+command: init | add | list | status | diff | save | apply | sync | backup.list | restore | migrate | recipe.explain | recipe.discover
 runId: run-...
 profileStack: [global, os/macos, user/leon]
 summary:
