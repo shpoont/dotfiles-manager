@@ -178,6 +178,64 @@ A native operation must declare:
 - verification behavior;
 - sensitivity and redaction policy.
 
+The MVP reviewed-command schema is deliberately closed. A recipe-native
+operation is keyed by a public operation ID under `nativeOperations` and must
+declare:
+
+- `kind`: `export`, `import`, or `verify`;
+- `reviewed: true`;
+- `runner: command`;
+- `platforms`: explicit GOOS values supported by this operation;
+- `artifactForm`: `native`, `native-export`, or `opaque`;
+- `diffMode`: `metadata-only`, `structured`, or `opaque`;
+- `lifecycle`: a strict lifecycle enum value;
+- `workingDirectory: temp`;
+- `timeoutSeconds`: required, positive, and globally capped;
+- `expectedExitCodes`: required bounded list of numeric process exits;
+- `command.executable`: a fixed reviewed absolute executable path;
+- `command.args`: an argv array of whole typed tokens, not a shell string;
+- `stdin`, `stdout`, and `stderr` policies;
+- closed `env` entries, if any;
+- declared `inputs`, `outputs`, and `tempPaths`;
+- `redaction`: metadata-only/redacted policy summary.
+
+Command arguments and environment values must be typed whole tokens:
+
+- `literal`;
+- `input`;
+- `output`;
+- `temp`.
+
+Partial string interpolation such as `--out={{artifact}}` is not allowed.
+Represent that as two argv tokens: a literal flag and a typed path token.
+
+The runner must start with a non-inherited empty environment and an explicit
+manager-owned temporary working directory. It must not inherit caller cwd,
+caller environment, or process `PATH` for executable lookup. Executables are
+fixed reviewed paths or future bundled allowlisted command sources; shell and
+script-host executables are blocked, including POSIX shells, AppleScript inline
+execution, and Windows command/script hosts such as `cmd.exe`, PowerShell,
+`wscript.exe`, `cscript.exe`, and `mshta.exe`.
+
+Environment declarations are restricted to explicit manager-owned keys in the
+`DFM_` namespace, and execution-influencing names remain blocked even with that
+prefix, including path, dynamic-loader, language-runtime, Git, shell, home, and
+Windows process-environment names. Secret-like names are blocked until a future
+reviewed secret-input mechanism exists.
+
+Native operation IO roots are direction-aware:
+
+- `export` outputs may use only artifact or temp roots;
+- `import` inputs may use only artifact or temp roots;
+- `import` and `verify` outputs must use temp roots;
+- typed live-location paths are allowed only where the operation kind
+  explicitly permits them.
+
+Local recipes cannot make themselves executable by setting `reviewed: true`.
+Local native operations require evaluated external trust evidence whose recipe
+content hash and exact native-operation write surface still match at execution
+time.
+
 Unreviewed command-backed save/apply is not MVP. Bundled reviewed support may
 include constrained native import/export for apps such as Raycast when the tool
 can preserve safety and explain diff limitations.

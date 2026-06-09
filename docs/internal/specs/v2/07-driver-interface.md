@@ -262,6 +262,38 @@ may continue and return partial success.
 - cloud account/session migration;
 - service management.
 
+### Reviewed native command runner boundary
+
+The native runner is a constrained driver-like execution primitive, not a
+general scripting interface.
+
+The runner may execute only a declared native operation from reviewed recipe
+metadata. It must reject unknown operation IDs, unreviewed operations,
+unsupported platforms, missing or unknown recipe source, user-local recipes
+without matching external local trust evidence, unsafe executable resolution,
+undeclared IO references, implicit cwd, environment inheritance, path
+traversal, and capture policies that could print raw stdout or stderr.
+
+Execution uses:
+
+- an argv array;
+- a fixed reviewed absolute executable path or future bundled allowlisted
+  command source, never inherited `PATH` lookup;
+- typed whole-token path placeholders for declared inputs, outputs, and temp
+  paths;
+- a manager-owned temp working directory;
+- a non-inherited empty environment plus explicit safe `DFM_` env declarations;
+- a required timeout;
+- bounded stdout/stderr policies;
+- structured result metadata only.
+
+The runner result may include status, exit code, duration, timeout, byte counts,
+hashes, output-limit flags, and declared output IDs. It must not expose raw
+captured command output, raw argv containing local/sensitive paths, or inherited
+environment values. Execution failure diagnostics must be metadata-only and must
+not return raw `exec` errors when those can include local executable paths or
+argv details.
+
 ## Spec follow-ups / open decisions
 
 - Define final programming interface for drivers.

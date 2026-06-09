@@ -309,6 +309,12 @@ Native operation details must be summarized only. Output must not print raw argv
 environment variables, captured output, local paths containing secrets, or
 value-bearing defaults.
 
+The reviewed native-operation runner is an internal building block until native
+save/apply issues explicitly wire it. `recipe explain` may summarize declared
+native operations metadata-only, but existing `status`, `diff`, `save`, and
+`apply` paths must not invoke native operations merely because a recipe declares
+them.
+
 #### `recipe.explain` JSON output
 
 `recipe.explain --json` uses the existing CLI envelope with

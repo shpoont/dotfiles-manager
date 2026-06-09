@@ -226,7 +226,10 @@ Trust-record fingerprints are metadata-only:
   target/schema version, effective write-capable settings/resources,
   capabilities, named locations and defaults, paths, selectors, include/exclude
   globs, sensitivity, redaction, lifecycle, artifact form, scope default, and
-  native-operation summary;
+  exact native-operation execution metadata, including operation IDs, kind,
+  runner, platforms, artifact/diff modes, lifecycle, working directory,
+  executable, argv token structure, environment declarations, IO specs,
+  timeout, expected exits, capture policies, and redaction policy;
 - no live files, desired values, raw captures, app data, command output, or
   secrets are read or stored.
 
@@ -254,13 +257,29 @@ If constrained native command IO is implemented for bundled reviewed recipes,
 it must use:
 
 - argv arrays, not shell strings;
-- fixed executable or reviewed command source;
-- validated paths and named locations;
-- restricted environment;
+- fixed executable or reviewed command source, never inherited `PATH` lookup;
+- validated paths, named locations, and operation-kind-specific IO roots;
+- non-inherited empty environment plus explicit safe `DFM_` declarations;
 - timeout;
 - declared input/output files;
 - no secret printing;
 - verification after import/export.
+
+`reviewed: true` is not sufficient for user-local recipes. Bundled recipes may
+carry reviewed native metadata because the bundle is code-reviewed with the
+manager release. Local recipes with native operations require external trust
+evidence whose recipe content and native-operation write surface still match at
+execution time, and whose trust record explicitly reviewed native operations.
+Without that evidence, native operations are blocked before execution even if
+the local YAML says `reviewed: true`.
+
+The runner must reject environment inheritance, implicit working directories,
+partial-token interpolation, undeclared IO refs, unsafe executable resolution,
+shell/script-host executables, execution-influencing env names, and unbounded
+stdout/stderr capture before process execution. Diagnostics and explain output
+should summarize native operation metadata only; raw argv, raw `exec` errors,
+environment values, local paths, and captured output are not normal user-facing
+data.
 
 Unreviewed command-backed save/apply is deferred.
 

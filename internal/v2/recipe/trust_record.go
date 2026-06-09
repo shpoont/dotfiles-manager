@@ -81,21 +81,28 @@ type TrustResourceSurface struct {
 }
 
 type TrustNativeOperationsSurface struct {
-	Supported bool   `yaml:"supported" json:"supported"`
-	Count     int    `yaml:"count" json:"count"`
-	Summary   string `yaml:"summary" json:"summary"`
+	Supported  bool                          `yaml:"supported" json:"supported"`
+	Count      int                           `yaml:"count" json:"count"`
+	Summary    string                        `yaml:"summary" json:"summary"`
+	Operations []TrustNativeOperationSurface `yaml:"operations,omitempty" json:"operations,omitempty"`
+}
+
+type TrustNativeOperationSurface struct {
+	ID        string          `yaml:"id" json:"id"`
+	Operation NativeOperation `yaml:"operation" json:"operation"`
 }
 
 type TrustEvaluation struct {
-	Source             string                 `json:"source"`
-	Target             string                 `json:"target"`
-	Status             string                 `json:"status"`
-	RecordPath         string                 `json:"recordPath,omitempty"`
-	ContentSHA256      string                 `json:"contentSHA256,omitempty"`
-	WriteSurfaceSHA256 string                 `json:"writeSurfaceSHA256,omitempty"`
-	WriteSurface       TrustWriteSurface      `json:"writeSurface"`
-	Diagnostics        []ValidationDiagnostic `json:"diagnostics,omitempty"`
-	localEvidence      *localTrustEvidence
+	Source                   string                 `json:"source"`
+	Target                   string                 `json:"target"`
+	Status                   string                 `json:"status"`
+	RecordPath               string                 `json:"recordPath,omitempty"`
+	ContentSHA256            string                 `json:"contentSHA256,omitempty"`
+	WriteSurfaceSHA256       string                 `json:"writeSurfaceSHA256,omitempty"`
+	WriteSurface             TrustWriteSurface      `json:"writeSurface"`
+	ReviewedNativeOperations bool                   `json:"reviewedNativeOperations"`
+	Diagnostics              []ValidationDiagnostic `json:"diagnostics,omitempty"`
+	localEvidence            *localTrustEvidence
 }
 
 type localTrustEvidence struct {
@@ -222,6 +229,7 @@ func EvaluateRecipeTrust(repoRoot string, stateRoot string, source string, rec *
 	}
 
 	eval.Status = TrustStatusTrusted
+	eval.ReviewedNativeOperations = entry.ReviewedNativeOperations
 	eval.localEvidence = &localTrustEvidence{
 		status:             TrustStatusTrusted,
 		source:             RecipeSourceLocal,
@@ -259,6 +267,7 @@ func newTrustEvaluation(repoRoot string, stateRoot string, source string, rec *R
 	switch source {
 	case RecipeSourceBundled:
 		eval.Status = TrustStatusTrusted
+		eval.ReviewedNativeOperations = true
 		return eval, trustPaths{}, nil
 	case RecipeSourceLocal:
 		paths, err := validateTrustRoots(repoRoot, stateRoot)
@@ -307,6 +316,14 @@ func RecipeWriteSurface(rec *Recipe) (TrustWriteSurface, string, error) {
 			Count:     0,
 			Summary:   "none-declared-current-schema",
 		},
+	}
+	if len(rec.NativeOperations) > 0 {
+		surface.NativeOperations = TrustNativeOperationsSurface{
+			Supported:  true,
+			Count:      len(rec.NativeOperations),
+			Summary:    nativeOperationsSurfaceSummary(rec.NativeOperations),
+			Operations: nativeOperationsSurface(rec.NativeOperations),
+		}
 	}
 
 	locationIDs := map[string]bool{}
@@ -362,6 +379,63 @@ func RecipeWriteSurface(rec *Recipe) (TrustWriteSurface, string, error) {
 	}
 	hash, err := canonicalSHA256(surface)
 	return surface, hash, err
+}
+
+func nativeOperationsSurfaceSummary(operations map[string]NativeOperation) string {
+	if len(operations) == 0 {
+		return "none-declared-current-schema"
+	}
+	parts := make([]string, 0, len(operations))
+	for _, id := range sortedKeys(operations) {
+		op := operations[id]
+		parts = append(parts, id+":"+op.Kind+":"+op.Runner+":"+op.ArtifactForm+":"+op.DiffMode)
+	}
+	return strings.Join(parts, ",")
+}
+
+func nativeOperationsSurface(operations map[string]NativeOperation) []TrustNativeOperationSurface {
+	if len(operations) == 0 {
+		return nil
+	}
+	surface := make([]TrustNativeOperationSurface, 0, len(operations))
+	for _, id := range sortedKeys(operations) {
+		surface = append(surface, TrustNativeOperationSurface{ID: id, Operation: copyNativeOperation(operations[id])})
+	}
+	return surface
+}
+
+func copyNativeOperation(operation NativeOperation) NativeOperation {
+	copy := operation
+	copy.Platforms = append([]string(nil), operation.Platforms...)
+	copy.ExpectedExitCodes = append([]int(nil), operation.ExpectedExitCodes...)
+	copy.Command.Args = append([]NativeArg(nil), operation.Command.Args...)
+	copy.Env = copyNativeEnvValues(operation.Env)
+	copy.Inputs = copyNativePathSpecs(operation.Inputs)
+	copy.Outputs = copyNativePathSpecs(operation.Outputs)
+	copy.TempPaths = copyNativePathSpecs(operation.TempPaths)
+	return copy
+}
+
+func copyNativeEnvValues(values map[string]NativeEnvValue) map[string]NativeEnvValue {
+	if values == nil {
+		return nil
+	}
+	copy := make(map[string]NativeEnvValue, len(values))
+	for key, value := range values {
+		copy[key] = value
+	}
+	return copy
+}
+
+func copyNativePathSpecs(values map[string]NativePathSpec) map[string]NativePathSpec {
+	if values == nil {
+		return nil
+	}
+	copy := make(map[string]NativePathSpec, len(values))
+	for key, value := range values {
+		copy[key] = value
+	}
+	return copy
 }
 
 func validateLocalTrustEvidence(rec *Recipe, ctx WriteSafetyContext) []ValidationDiagnostic {
