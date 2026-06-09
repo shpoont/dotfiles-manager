@@ -446,6 +446,109 @@ The bundled recipe deliberately does **not** manage:
 Unsupported refs for these categories block visibly before live reads, so raw
 file contents are not printed as part of the block.
 
+## v2 selected settings: tmux config file example
+
+The bundled `tmux` recipe manages explicit whole-file user configuration files
+only:
+
+- `tmux:home.conf` -> `~/.tmux.conf`
+- `tmux:xdg.conf` -> `~/.config/tmux/tmux.conf`
+
+These are **alternative user config locations** from tmux's own lookup rules,
+not two files the manager assumes are both active. The manager syncs the exact
+setting you select; it does not decide which file tmux loaded, merge them, or
+inspect the running tmux server.
+
+Until the v2 `add` command ships, select the desired tmux config file in a
+profile layer:
+
+```yaml
+# profiles/layers/global.yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  tmux:
+    settings:
+      home.conf:
+        scope: user
+```
+
+Then use the same selected file-resource workflow:
+
+```bash
+dotfiles-manager recipe explain tmux
+dotfiles-manager status --user-id leon tmux:home.conf
+dotfiles-manager save --dry-run --user-id leon tmux:home.conf
+dotfiles-manager save --yes --user-id leon tmux:home.conf
+dotfiles-manager diff --user-id leon tmux:home.conf
+dotfiles-manager apply --dry-run --user-id leon tmux:home.conf
+dotfiles-manager apply --yes --user-id leon tmux:home.conf
+```
+
+For user-scoped tmux files, `save --yes` writes the desired artifact to:
+
+```text
+desired/user/<user>/targets/tmux/artifacts/<setting-id>
+```
+
+For example, `--user-id leon` and `tmux:home.conf` write:
+
+```text
+desired/user/leon/targets/tmux/artifacts/home.conf
+```
+
+The corresponding URI is:
+
+```text
+desired://user/leon/targets/tmux/artifacts/home.conf
+```
+
+The desired artifact contains the raw tmux config bytes because it is the file
+that will be applied later. Normal text and JSON output, diffs, ledgers, and
+backup metadata stay metadata-only and do not print raw tmux config contents.
+
+tmux loads user configuration according to tmux's own lookup rules when the
+server starts. Existing servers/sessions may not observe a changed config until
+you manually run an appropriate `tmux source-file ...` command or restart tmux.
+The manager deliberately does not run `source-file`, restart tmux, or mutate
+sessions. For `save` and `apply` plans, selected tmux config files emit this
+non-blocking warning diagnostic:
+
+```text
+tmux.lifecycle.manual-reload
+```
+
+`status` and `diff` do not emit this write warning.
+
+Missing-state behavior is fail-closed in the current whole-file slice:
+
+- if the named location root (`~` for `tmux:home.conf`, `~/.config` for
+  `tmux:xdg.conf`) is missing, status/diff/save/apply block rather than
+  creating it;
+- if the selected live config file is missing, `save --dry-run` / `save --yes`
+  block and do not delete or tombstone desired state;
+- if the selected live config file is missing, `apply --dry-run` / `apply --yes`
+  also block in this slice rather than creating the file or intermediate
+  directories;
+- if the desired artifact is missing, `apply --dry-run` / `apply --yes` block
+  and do not delete or tombstone live state.
+
+The bundled recipe deliberately does **not** manage:
+
+- system tmux configuration files;
+- tmux server sockets, clients, sessions, windows, panes, or runtime state;
+- plugin installation, plugin clones, plugin caches, or generated plugin state
+  such as resurrect/continuum session-save files;
+- history, logs, pid files, temporary files, or arbitrary generated state;
+- deciding which alternative user config file tmux loaded;
+- manual reload actions such as `tmux source-file`, server restart, or session
+  mutation;
+- tmux command parsing, semantic validation, plugin validation, or secret
+  scanning.
+
+Unsupported tmux refs outside `tmux:home.conf` and `tmux:xdg.conf` are treated
+as unsupported settings and must not be resolved to filesystem paths or read.
+
 ## v2 selected file-tree resources: Neovim config example
 
 The bundled `nvim` recipe manages the Neovim configuration tree at

@@ -651,6 +651,61 @@ func TestLoadRuntimeUsesBundledNvimAndIgnoresLocalShadow(t *testing.T) {
 	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
 }
 
+func TestBundledTmuxRecipeAcceptsExplicitUserConfigFilesOnly(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledTmuxRecipe()
+	require.NoError(t, rec.ValidateTmux())
+	require.Equal(t, TmuxTarget, rec.Target)
+	require.Equal(t, "tmux", rec.DisplayName)
+	require.Equal(t, "read-write", rec.Capability)
+	require.Equal(t, "~", rec.Locations["home"].Default)
+	require.Equal(t, "~/.config", rec.Locations["config"].Default)
+	require.Len(t, rec.Settings, 2)
+	require.Len(t, rec.Resources, 2)
+
+	for _, settingID := range tmuxSettingIDs() {
+		setting, ok := rec.Settings[settingID]
+		require.True(t, ok, "setting %s", settingID)
+		require.Equal(t, settingID, setting.Resource)
+		require.Equal(t, "experimental", setting.SupportLevel)
+		require.Equal(t, "read-write", setting.Capability)
+		require.Equal(t, "file", setting.ArtifactForm)
+		require.Equal(t, SensitivityPersonal, setting.Sensitivity)
+		require.Equal(t, RedactionRedactedForDisplay, setting.Redaction)
+		require.Equal(t, LifecycleWarn, setting.Lifecycle)
+		require.Equal(t, "user", setting.ScopeDefault)
+		requireTmuxFileResource(t, rec.Resources[setting.Resource], settingID)
+	}
+	require.NotContains(t, rec.Settings, "sessions")
+	require.NotContains(t, rec.Resources, "plugins")
+}
+
+func TestLoadRuntimeUsesBundledTmuxAndIgnoresLocalShadow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, TmuxTarget, strings.Replace(validSelectedPathRecipe(TmuxTarget, JSONFileDriverID, "config.json"), "  identity.email:\n", "  sessions:\n", 1))
+
+	runtime, err := LoadRuntime(root, TmuxTarget)
+	require.NoError(t, err)
+	require.Equal(t, RecipeSourceBundled, runtime.Source)
+	require.Equal(t, "recipe://bundled/tmux", runtime.RecipeRef)
+	require.Equal(t, TrustStatusTrusted, runtime.TrustStatus)
+	require.NotNil(t, runtime.Recipe)
+	require.NoError(t, runtime.Recipe.ValidateTmux())
+	require.Contains(t, runtime.Recipe.Settings, "home.conf")
+	require.Contains(t, runtime.Recipe.Settings, "xdg.conf")
+	require.NotContains(t, runtime.Recipe.Settings, "sessions")
+
+	eval, err := EvaluateRecipeTrust(root, t.TempDir(), runtime.Source, runtime.Recipe)
+	require.NoError(t, err)
+	require.Equal(t, TrustStatusTrusted, eval.Status)
+	diagnostics := runtime.Recipe.WriteSafetyDiagnostics(eval.WriteSafetyContext(WriteSafetyContext{}))
+	requireDiagnosticCodes(t, diagnostics, TmuxManualReloadWarningCode)
+	require.NoError(t, runtime.Recipe.ValidateWriteSafety(eval.WriteSafetyContext(WriteSafetyContext{})))
+}
+
 func TestBundledZshRecipeAcceptsSelectedStartupFilesOnly(t *testing.T) {
 	t.Parallel()
 
@@ -1066,6 +1121,174 @@ func TestNvimRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 	}
 }
 
+func TestTmuxRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Recipe)
+		wantErr string
+	}{
+		{name: "wrong target", mutate: func(r *Recipe) { r.Target = "tmux.extra" }, wantErr: "target must be"},
+		{name: "read only capability", mutate: func(r *Recipe) { r.Capability = "read-only" }, wantErr: "capability must be read-write"},
+		{name: "extra location", mutate: func(r *Recipe) { r.Locations["runtime"] = Location{Default: "/tmp/tmux"} }, wantErr: "only home and config locations"},
+		{name: "missing home location", mutate: func(r *Recipe) {
+			delete(r.Locations, "home")
+			for id, resource := range r.Resources {
+				if resource.Location == "home" {
+					resource.Location = "config"
+					r.Resources[id] = resource
+				}
+			}
+		}, wantErr: "must declare home location"},
+		{name: "wrong home default", mutate: func(r *Recipe) { r.Locations["home"] = Location{Default: "~/.tmux"} }, wantErr: "home location default must be ~"},
+		{name: "missing config location", mutate: func(r *Recipe) {
+			delete(r.Locations, "config")
+			for id, resource := range r.Resources {
+				if resource.Location == "config" {
+					resource.Location = "home"
+					r.Resources[id] = resource
+				}
+			}
+		}, wantErr: "must declare config location"},
+		{name: "wrong config default", mutate: func(r *Recipe) { r.Locations["config"] = Location{Default: "~/.tmux"} }, wantErr: "config location default must be ~/.config"},
+		{name: "extra setting", mutate: func(r *Recipe) { r.Settings["sessions"] = r.Settings["home.conf"] }, wantErr: "only supported user config file settings"},
+		{name: "extra resource", mutate: func(r *Recipe) {
+			r.Resources["socket"] = Resource{Driver: FileDriverID, Location: "home", Path: ".tmux/socket"}
+		}, wantErr: "exactly one file resource"},
+		{name: "setting support metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.SupportLevel = "stable"
+			r.Settings["home.conf"] = setting
+		}, wantErr: "supportLevel must be experimental"},
+		{name: "setting scope metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.ScopeDefault = "machine"
+			r.Settings["home.conf"] = setting
+		}, wantErr: "scopeDefault must be user"},
+		{name: "setting capability metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.Capability = "read-only"
+			r.Settings["home.conf"] = setting
+		}, wantErr: "capability must be read-write"},
+		{name: "setting artifact form", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.ArtifactForm = "file-tree"
+			r.Settings["home.conf"] = setting
+		}, wantErr: "artifactForm must be file"},
+		{name: "setting sensitivity", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.Sensitivity = SensitivityLow
+			r.Settings["home.conf"] = setting
+		}, wantErr: "sensitivity must be personal"},
+		{name: "setting redaction", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.Redaction = RedactionKnownSafe
+			r.Settings["home.conf"] = setting
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "setting lifecycle", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.Lifecycle = LifecycleAllowed
+			r.Settings["home.conf"] = setting
+		}, wantErr: "lifecycle must be warn"},
+		{name: "setting resource id", mutate: func(r *Recipe) {
+			setting := r.Settings["home.conf"]
+			setting.Resource = "xdg.conf"
+			r.Settings["home.conf"] = setting
+		}, wantErr: "resource must be home.conf"},
+		{name: "wrong resource driver", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Driver = FileTreeDriverID
+			r.Resources["home.conf"] = resource
+		}, wantErr: "driver must be"},
+		{name: "wrong resource path", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Path = ".tmux/plugins"
+			r.Resources["home.conf"] = resource
+		}, wantErr: "path must be .tmux.conf"},
+		{name: "wrong xdg resource path", mutate: func(r *Recipe) {
+			resource := r.Resources["xdg.conf"]
+			resource.Path = "tmux/plugins/tmux.conf"
+			r.Resources["xdg.conf"] = resource
+		}, wantErr: "path must be tmux/tmux.conf"},
+		{name: "wrong resource location", mutate: func(r *Recipe) {
+			resource := r.Resources["xdg.conf"]
+			resource.Location = "home"
+			r.Resources["xdg.conf"] = resource
+		}, wantErr: "location must be config"},
+		{name: "wrong resource capability", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Capability = "read-only"
+			r.Resources["home.conf"] = resource
+		}, wantErr: "capability must be read-write"},
+		{name: "wrong resource sensitivity", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Sensitivity = SensitivityLow
+			r.Resources["home.conf"] = resource
+		}, wantErr: "sensitivity must be personal"},
+		{name: "wrong resource redaction", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Redaction = RedactionKnownSafe
+			r.Resources["home.conf"] = resource
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "wrong resource lifecycle", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Lifecycle = LifecycleAllowed
+			r.Resources["home.conf"] = resource
+		}, wantErr: "lifecycle must be warn"},
+		{name: "selector declared", mutate: func(r *Recipe) {
+			resource := r.Resources["home.conf"]
+			resource.Selector = &Selector{Path: []string{"set"}}
+			r.Resources["home.conf"] = resource
+		}, wantErr: "must not declare selector"},
+		{name: "include exclude declared", mutate: func(r *Recipe) {
+			resource := r.Resources["xdg.conf"]
+			resource.Exclude = []string{"plugins/**"}
+			r.Resources["xdg.conf"] = resource
+		}, wantErr: "must not declare include/exclude"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := cloneBundledTmuxRecipe(t)
+			tc.mutate(rec)
+			err := rec.ValidateTmux()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestTmuxHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "custom file", tmuxSettingLabel("custom.file"))
+	require.Equal(t, "", tmuxLocationID("unknown"))
+	require.Equal(t, "", tmuxResourcePath("unknown"))
+
+	rec := cloneBundledTmuxRecipe(t)
+	setting := rec.Settings["xdg.conf"]
+	setting.Resource = "xdg.conf"
+	rec.Settings["unsupported"] = setting
+	delete(rec.Settings, "home.conf")
+	group := rec.SettingsGroups["user-config-files"]
+	group.Settings = []string{"unsupported", "xdg.conf"}
+	rec.SettingsGroups["user-config-files"] = group
+	err := rec.ValidateTmux()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing setting home.conf")
+
+	rec = cloneBundledTmuxRecipe(t)
+	setting = rec.Settings["home.conf"]
+	setting.Resource = "missing-resource"
+	rec.Settings["home.conf"] = setting
+	err = rec.ValidateTmux()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "references unknown resource missing-resource")
+}
+
 func TestZshRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 	t.Parallel()
 
@@ -1396,6 +1619,20 @@ func requireZshFileResource(t *testing.T, resource Resource, settingID string) {
 	require.Nil(t, resource.Selector)
 }
 
+func requireTmuxFileResource(t *testing.T, resource Resource, settingID string) {
+	t.Helper()
+	require.Equal(t, FileDriverID, resource.Driver)
+	require.Equal(t, tmuxLocationID(settingID), resource.Location)
+	require.Equal(t, tmuxResourcePath(settingID), resource.Path)
+	require.Equal(t, "read-write", resource.Capability)
+	require.Equal(t, SensitivityPersonal, resource.Sensitivity)
+	require.Equal(t, RedactionRedactedForDisplay, resource.Redaction)
+	require.Equal(t, LifecycleWarn, resource.Lifecycle)
+	require.Empty(t, resource.Include)
+	require.Empty(t, resource.Exclude)
+	require.Nil(t, resource.Selector)
+}
+
 func requireNvimFileTreeResource(t *testing.T, resource Resource) {
 	t.Helper()
 	require.Equal(t, FileTreeDriverID, resource.Driver)
@@ -1428,6 +1665,15 @@ func cloneBundledNvimRecipe(t *testing.T) *Recipe {
 	data, err := yaml.Marshal(BundledNvimRecipe())
 	require.NoError(t, err)
 	rec, err := Decode("nvim.yaml", strings.NewReader(string(data)))
+	require.NoError(t, err)
+	return rec
+}
+
+func cloneBundledTmuxRecipe(t *testing.T) *Recipe {
+	t.Helper()
+	data, err := yaml.Marshal(BundledTmuxRecipe())
+	require.NoError(t, err)
+	rec, err := Decode("tmux.yaml", strings.NewReader(string(data)))
 	require.NoError(t, err)
 	return rec
 }

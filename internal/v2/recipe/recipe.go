@@ -25,6 +25,7 @@ const (
 	GitTarget                     = "git"
 	NvimTarget                    = "nvim"
 	StarshipTarget                = "starship"
+	TmuxTarget                    = "tmux"
 	ZshTarget                     = "zsh"
 	FileDriverID                  = "file"
 	FileTreeDriverID              = "file-tree"
@@ -79,6 +80,7 @@ const (
 	ZshBlockedCompletionCacheCode = "zsh.blocked.completion-cache"
 	ZshBlockedPluginStateCode     = "zsh.blocked.plugin-state"
 	ZshBlockedSessionStateCode    = "zsh.blocked.session-state"
+	TmuxManualReloadWarningCode   = "tmux.lifecycle.manual-reload"
 )
 
 var (
@@ -550,6 +552,110 @@ func (r *Recipe) ValidateNvim() error {
 	return nil
 }
 
+func (r *Recipe) ValidateTmux() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Target != TmuxTarget {
+		return fmt.Errorf("tmux recipe target must be %q, got %q", TmuxTarget, r.Target)
+	}
+	if r.Capability != "read-write" {
+		return fmt.Errorf("tmux recipe capability must be read-write, got %s", r.Capability)
+	}
+	home, ok := r.Locations["home"]
+	if !ok {
+		return fmt.Errorf("tmux recipe must declare home location")
+	}
+	if strings.TrimSpace(home.Default) != "~" {
+		return fmt.Errorf("tmux home location default must be ~")
+	}
+	config, ok := r.Locations["config"]
+	if !ok {
+		return fmt.Errorf("tmux recipe must declare config location")
+	}
+	if strings.TrimSpace(config.Default) != "~/.config" {
+		return fmt.Errorf("tmux config location default must be ~/.config")
+	}
+	if len(r.Locations) != 2 {
+		return fmt.Errorf("tmux recipe must declare only home and config locations")
+	}
+	if len(r.Settings) != len(tmuxSettingIDs()) {
+		return fmt.Errorf("tmux recipe must declare only supported user config file settings")
+	}
+	if len(r.Resources) != len(tmuxSettingIDs()) {
+		return fmt.Errorf("tmux recipe must declare exactly one file resource per supported user config file")
+	}
+	for _, settingID := range tmuxSettingIDs() {
+		if err := r.validateTmuxSetting(settingID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Recipe) validateTmuxSetting(settingID string) error {
+	setting, ok := r.Settings[settingID]
+	if !ok {
+		return fmt.Errorf("tmux recipe missing setting %s", settingID)
+	}
+	if setting.ScopeDefault != "user" {
+		return fmt.Errorf("tmux setting %s scopeDefault must be user", settingID)
+	}
+	if setting.SupportLevel != "experimental" {
+		return fmt.Errorf("tmux setting %s supportLevel must be experimental", settingID)
+	}
+	if setting.Capability != "read-write" {
+		return fmt.Errorf("tmux setting %s capability must be read-write", settingID)
+	}
+	if setting.ArtifactForm != "file" {
+		return fmt.Errorf("tmux setting %s artifactForm must be file", settingID)
+	}
+	if setting.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("tmux setting %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if setting.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("tmux setting %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if setting.Lifecycle != LifecycleWarn {
+		return fmt.Errorf("tmux setting %s lifecycle must be %s", settingID, LifecycleWarn)
+	}
+	if setting.Resource != settingID {
+		return fmt.Errorf("tmux setting %s resource must be %s", settingID, settingID)
+	}
+	resource, ok := r.Resources[setting.Resource]
+	if !ok {
+		return fmt.Errorf("tmux setting %s references unknown resource %s", settingID, setting.Resource)
+	}
+	if resource.Driver != FileDriverID {
+		return fmt.Errorf("tmux setting %s driver must be %q, got %q", settingID, FileDriverID, resource.Driver)
+	}
+	if resource.Location != tmuxLocationID(settingID) {
+		return fmt.Errorf("tmux setting %s location must be %s", settingID, tmuxLocationID(settingID))
+	}
+	if resource.Path != tmuxResourcePath(settingID) {
+		return fmt.Errorf("tmux setting %s path must be %s", settingID, tmuxResourcePath(settingID))
+	}
+	if resource.Capability != "read-write" {
+		return fmt.Errorf("tmux resource %s capability must be read-write", settingID)
+	}
+	if resource.Sensitivity != SensitivityPersonal {
+		return fmt.Errorf("tmux resource %s sensitivity must be %s", settingID, SensitivityPersonal)
+	}
+	if resource.Redaction != RedactionRedactedForDisplay {
+		return fmt.Errorf("tmux resource %s redaction must be %s", settingID, RedactionRedactedForDisplay)
+	}
+	if resource.Lifecycle != LifecycleWarn {
+		return fmt.Errorf("tmux resource %s lifecycle must be %s", settingID, LifecycleWarn)
+	}
+	if resource.Selector != nil {
+		return fmt.Errorf("tmux resource %s must not declare selector", settingID)
+	}
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("tmux resource %s must not declare include/exclude globs", settingID)
+	}
+	return nil
+}
+
 func (r *Recipe) validateNvimSetting(settingID string) error {
 	setting, ok := r.Settings[settingID]
 	if !ok {
@@ -807,6 +913,32 @@ func zshSettingIDs() []string {
 
 func nvimSettingIDs() []string {
 	return []string{"config"}
+}
+
+func tmuxSettingIDs() []string {
+	return []string{"home.conf", "xdg.conf"}
+}
+
+func tmuxLocationID(settingID string) string {
+	switch settingID {
+	case "home.conf":
+		return "home"
+	case "xdg.conf":
+		return "config"
+	default:
+		return ""
+	}
+}
+
+func tmuxResourcePath(settingID string) string {
+	switch settingID {
+	case "home.conf":
+		return ".tmux.conf"
+	case "xdg.conf":
+		return "tmux/tmux.conf"
+	default:
+		return ""
+	}
 }
 
 func nvimExcludeGlobs() []string {

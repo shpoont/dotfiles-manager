@@ -373,7 +373,7 @@ CLI result schema is promoted.
 
 ```bash
 dotfiles-manager init
-dotfiles-manager add git nvim starship
+dotfiles-manager add git nvim starship tmux zsh
 dotfiles-manager status
 dotfiles-manager apply --dry-run
 dotfiles-manager apply
@@ -458,6 +458,79 @@ session state, and plugin-manager/generated state must block as unsupported
 before live reads and must not print raw file contents.
 The Zsh recipe must not parse arbitrary shell scripts, discover `ZDOTDIR`,
 restart shells, re-source shells, or install/manage plugin managers.
+
+### Save one tmux config file
+
+For the current MVP tranche, the bundled `tmux` runtime manages only selected
+whole-file user config refs:
+
+- `tmux:home.conf` -> `~/.tmux.conf`
+- `tmux:xdg.conf` -> `~/.config/tmux/tmux.conf`
+
+These refs are explicit alternatives from tmux's own user-config lookup model.
+The manager must not imply that both user config files are loaded together. It
+syncs only the selected file and does not decide which file tmux loaded, merge
+configs, inspect `config_files`, or validate running server state.
+
+`tmux:home.conf` uses `scopeDefault: user` and the named `home` location with
+default `~`. `tmux:xdg.conf` uses `scopeDefault: user` and the named `config`
+location with default `~/.config`. Both use `driver: file`, `artifactForm:
+file`, `sensitivity: personal`, `redaction: redacted-for-display`, and no
+selectors or include/exclude globs.
+
+The desired artifact path for a user-scoped tmux file is:
+
+```text
+desired/user/<user>/targets/tmux/artifacts/<setting-id>
+```
+
+For example, `--user-id leon` and `tmux:home.conf` write
+`desired/user/leon/targets/tmux/artifacts/home.conf`, with URI
+`desired://user/leon/targets/tmux/artifacts/home.conf`. It must never be stored
+in `settings.yaml`.
+
+The command behavior follows the generic selected whole-file resource path:
+
+- `status` and `diff` read metadata only and must not emit raw config bytes;
+- `save --dry-run` previews importing the selected live config file into the
+  desired artifact;
+- `save --yes` writes the desired artifact and verifies it;
+- `apply --dry-run` previews copying the desired artifact back to the selected
+  live config file;
+- `apply --yes` writes a pre-apply backup, applies the desired artifact, and
+  verifies it.
+
+tmux loads user configuration according to its own lookup rules when the server
+starts. Existing servers/sessions may require manual reload or restart before
+they observe changes. Save/apply planning must emit a non-blocking warning
+diagnostic with stable code:
+
+```text
+tmux.lifecycle.manual-reload
+```
+
+`status` and `diff` must not emit this write warning. The warning must not
+block dry-run or `--yes` execution by itself.
+
+Missing-state behavior is normative for this slice:
+
+- missing named location root blocks status/diff/save/apply;
+- missing live config file blocks save and must not delete/tombstone desired
+  state;
+- missing live config file also blocks apply in this whole-file slice rather
+  than creating the config file or intermediate directories;
+- missing desired artifact blocks apply and must not delete/tombstone live
+  state.
+
+The bundled tmux recipe must not manage system configuration, server sockets,
+clients, sessions, windows, panes, runtime state, plugin installation, plugin
+clones/caches, generated plugin state such as resurrect/continuum session-save
+files, history, logs, pid files, temporary files, manual reload actions
+(`tmux source-file`), server restart, session mutation, command parsing,
+semantic validation, plugin validation, or secret scanning.
+
+Unsupported tmux refs outside `tmux:home.conf` and `tmux:xdg.conf` must remain
+unsupported settings and must not be resolved to filesystem paths or read.
 
 ### Save/apply Neovim config tree
 

@@ -451,6 +451,10 @@ func bundledExplain(target string) (RecipeExplain, bool) {
 		explain := bundledNvimExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
+	case TmuxTarget:
+		explain := bundledTmuxExplain()
+		applyBundledTargetMetadata(&explain, bundledTarget)
+		return explain, true
 	case ZshTarget:
 		explain := bundledZshExplain()
 		applyBundledTargetMetadata(&explain, bundledTarget)
@@ -697,6 +701,69 @@ func bundledZshExplain() RecipeExplain {
 			ID:            id,
 			LocationID:    "home",
 			Path:          zshResourcePath(id),
+			DriverID:      FileDriverID,
+			SupportedOps:  []string{"read", "diff", "preview", "backup", "apply", "verify"},
+			BackupRestore: "pre-apply backup of the existing live file is written to local state; metadata output stays redacted",
+			Normalization: "byte-preserving file metadata",
+			DiffMode:      "file metadata-only",
+		})
+	}
+	explain.Drivers = driverExplains(FileDriverID)
+	return explain
+}
+
+func bundledTmuxExplain() RecipeExplain {
+	explain := RecipeExplain{
+		Target:           ExplainTarget{Ref: TmuxTarget, DisplayName: "tmux", SupportLevel: "experimental", Capability: "read-write", PlatformSupport: "linux-darwin"},
+		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/tmux", TrustStatus: "trusted", Version: "1"},
+		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
+		SettingGroups:    []any{},
+		NativeOperations: []any{},
+		Safety: ExplainSafety{
+			RedactionSummary: "metadata-only explanation; tmux config file contents are personal and are not read or emitted by normal output",
+			LifecycleSummary: "tmux loads user configuration according to its own lookup rules when the server starts; save/apply emits a non-blocking manual-reload warning but the manager does not run source-file, restart tmux, or control sessions",
+			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
+			DoNotManage: []string{
+				"system tmux configuration files",
+				"tmux server sockets, clients, sessions, windows, panes, and runtime state",
+				"plugin installation, plugin clones, plugin caches, and generated plugin state such as resurrect/continuum session-save files",
+				"history, logs, pid files, temporary files, and arbitrary generated state",
+				"deciding which alternative user config file tmux will load, merging config files, or validating active tmux server state",
+				"manual reload actions such as tmux source-file, server restart, or session mutation",
+				"tmux command parsing, semantic validation, plugin validation, or secret scanning",
+			},
+		},
+	}
+	for _, id := range tmuxSettingIDs() {
+		explain.Settings = append(explain.Settings, ExplainSetting{
+			Ref:             TmuxTarget + ":" + id,
+			ID:              id,
+			Label:           tmuxSettingLabel(id),
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			DefaultScope:    "user",
+			ArtifactForm:    "file",
+			SelectionStatus: "unknown",
+			Sensitivity:     SensitivityPersonal,
+			Lifecycle:       LifecycleWarn,
+			ResourceID:      id,
+			Driver:          FileDriverID,
+			DiffLimitations: []string{
+				"whole-file metadata-only diff; raw tmux config contents are omitted",
+			},
+			ApplyLimitations: []string{
+				"writes only the selected explicit tmux user config file",
+				"tmux:home.conf and tmux:xdg.conf are alternative user config locations, not files the manager assumes are both loaded",
+				"does not decide the active tmux config file, merge configs, or validate loaded server state",
+				"does not run tmux source-file, restart tmux, install plugins, or mutate sessions",
+				"save blocks when the live config file is missing and does not delete or tombstone desired state",
+				"apply blocks when the desired artifact is missing or when the live config file is missing in the current file-resource slice",
+			},
+		})
+		explain.Resources = append(explain.Resources, ExplainResource{
+			ID:            id,
+			LocationID:    tmuxLocationID(id),
+			Path:          tmuxResourcePath(id),
 			DriverID:      FileDriverID,
 			SupportedOps:  []string{"read", "diff", "preview", "backup", "apply", "verify"},
 			BackupRestore: "pre-apply backup of the existing live file is written to local state; metadata output stays redacted",

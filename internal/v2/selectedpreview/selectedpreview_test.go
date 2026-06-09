@@ -265,6 +265,134 @@ func TestBuildZshBlockedRefsDoNotReadRawFiles(t *testing.T) {
 	}
 }
 
+func TestBuildUsesBundledTmuxFileResourceRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		settingID  string
+		locationID string
+		relPath    string
+	}{
+		{settingID: "home.conf", locationID: "home", relPath: ".tmux.conf"},
+		{settingID: "xdg.conf", locationID: "config", relPath: filepath.Join("tmux", "tmux.conf")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.settingID, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := setupTmuxFixture(t, tc.settingID)
+			writeFile(t, filepath.Join(fixture.liveRoot, tc.relPath), "raw-live-tmux-"+tc.settingID+"\n")
+			writeFileResourceDesired(t, fixture, recipe.TmuxTarget, tc.settingID, "raw-desired-tmux-"+tc.settingID+"\n")
+			roots := map[string]map[string]string{recipe.TmuxTarget: {tc.locationID: fixture.liveRoot}}
+
+			for _, command := range []string{CommandStatus, CommandDiff, CommandSave, CommandApply} {
+				t.Run(command, func(t *testing.T) {
+					report, err := Build(Options{Command: command, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tmux:" + tc.settingID, UserID: "leon", DryRun: command == CommandSave || command == CommandApply, LocationRoots: roots})
+					require.NoError(t, err)
+					require.Len(t, report.Items, 1)
+					item := report.Items[0]
+					require.Equal(t, recipe.RecipeSourceBundled, item.Recipe.Source)
+					require.Equal(t, "recipe://bundled/tmux", item.Recipe.RecipeRef)
+					require.Equal(t, recipe.TrustStatusTrusted, item.Recipe.TrustStatus)
+					require.Equal(t, "tmux:"+tc.settingID, item.SettingRef)
+					require.Equal(t, recipe.FileDriverID, item.Resource.DriverID)
+					require.Equal(t, tc.settingID, item.Resource.ID)
+					require.Equal(t, tc.locationID, item.Resource.LocationID)
+					require.Equal(t, filepath.ToSlash(tc.relPath), filepath.ToSlash(item.Resource.RelPath))
+					require.Equal(t, SelectorInfo{Kind: "file", Summary: filepath.ToSlash(tc.relPath)}, item.Selector)
+					require.Equal(t, "desired://user/leon/targets/tmux/artifacts/"+tc.settingID, item.DesiredURI)
+					require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "tmux", "artifacts", tc.settingID)), item.DesiredRelPath)
+					require.True(t, item.Current.Exists)
+					require.Equal(t, "present", item.Desired.Status)
+					require.Equal(t, "file", item.Desired.Kind)
+					require.True(t, item.Desired.Snapshot.Exists)
+					require.NotNil(t, item.Preview)
+					if command == CommandDiff {
+						require.NotNil(t, item.Diff)
+						require.Equal(t, "metadata-only", item.Diff.Mode)
+						require.Equal(t, "raw file contents omitted", item.Diff.Redaction)
+					}
+					if command == CommandSave || command == CommandApply {
+						requireDiagnostic(t, item, recipe.TmuxManualReloadWarningCode)
+						require.NotEqual(t, SummaryBlocked, report.Summary.Status)
+					} else {
+						requireNoDiagnostic(t, item, recipe.TmuxManualReloadWarningCode)
+					}
+					payload := mustJSON(t, report)
+					require.NotContains(t, payload, "raw-live-tmux-"+tc.settingID)
+					require.NotContains(t, payload, "raw-desired-tmux-"+tc.settingID)
+					require.NotContains(t, Text(report), "raw-live-tmux-"+tc.settingID)
+					require.NotContains(t, Text(report), "raw-desired-tmux-"+tc.settingID)
+				})
+			}
+		})
+	}
+}
+
+func TestBuildTmuxMissingFileSemanticsAreFailClosed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing live blocks save without deleting desired", func(t *testing.T) {
+		t.Parallel()
+		fixture := setupTmuxFixture(t, "home.conf")
+		desiredPath := writeFileResourceDesired(t, fixture, recipe.TmuxTarget, "home.conf", "raw-desired-tmux-home\n")
+		roots := map[string]map[string]string{recipe.TmuxTarget: {"home": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tmux:home.conf", UserID: "leon", DryRun: true, LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.False(t, item.Current.Exists)
+		require.Equal(t, "present", item.Desired.Status)
+		requireDiagnosticMessageContains(t, item, "live file is missing")
+		require.Equal(t, "raw-desired-tmux-home\n", readFile(t, desiredPath))
+		require.NotContains(t, mustJSON(t, report), "raw-desired-tmux-home")
+	})
+
+	t.Run("missing live blocks apply instead of creating config file", func(t *testing.T) {
+		t.Parallel()
+		fixture := setupTmuxFixture(t, "xdg.conf")
+		desiredPath := writeFileResourceDesired(t, fixture, recipe.TmuxTarget, "xdg.conf", "raw-desired-tmux-xdg\n")
+		roots := map[string]map[string]string{recipe.TmuxTarget: {"config": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tmux:xdg.conf", UserID: "leon", DryRun: true, LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.False(t, item.Current.Exists)
+		require.Equal(t, "present", item.Desired.Status)
+		requireDiagnosticMessageContains(t, item, "live file is missing")
+		require.Equal(t, "raw-desired-tmux-xdg\n", readFile(t, desiredPath))
+		require.NoFileExists(t, filepath.Join(fixture.liveRoot, "tmux", "tmux.conf"))
+		require.NoDirExists(t, filepath.Join(fixture.liveRoot, "tmux"))
+		require.NotContains(t, mustJSON(t, report), "raw-desired-tmux-xdg")
+	})
+
+	t.Run("missing desired blocks apply without deleting live", func(t *testing.T) {
+		t.Parallel()
+		fixture := setupTmuxFixture(t, "home.conf")
+		livePath := filepath.Join(fixture.liveRoot, ".tmux.conf")
+		writeFile(t, livePath, "raw-live-tmux-home\n")
+		roots := map[string]map[string]string{recipe.TmuxTarget: {"home": fixture.liveRoot}}
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tmux:home.conf", UserID: "leon", DryRun: true, LocationRoots: roots})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		require.True(t, item.Current.Exists)
+		require.Equal(t, "missing", item.Desired.Status)
+		requireDiagnosticMessageContains(t, item, "desired artifact is missing")
+		require.Equal(t, "raw-live-tmux-home\n", readFile(t, livePath))
+		require.NotContains(t, mustJSON(t, report), "raw-live-tmux-home")
+	})
+}
+
 func TestBuildRejectsRefsAndMissingMatches(t *testing.T) {
 	t.Parallel()
 
@@ -293,6 +421,16 @@ func requireNoDiagnostic(t *testing.T, item Item, code string) {
 	for _, diagnostic := range item.Diagnostics {
 		require.NotEqual(t, code, diagnostic.Code, "unexpected diagnostic in %+v", item.Diagnostics)
 	}
+}
+
+func requireDiagnosticMessageContains(t *testing.T, item Item, text string) {
+	t.Helper()
+	for _, diagnostic := range item.Diagnostics {
+		if strings.Contains(diagnostic.Message, text) {
+			return
+		}
+	}
+	require.Failf(t, "missing diagnostic message", "wanted message containing %q in %+v", text, item.Diagnostics)
 }
 
 func mustJSON(t *testing.T, report *Report) string {
@@ -336,6 +474,15 @@ func setupZshFixture(t *testing.T, settingID string) fixture {
 	stateRoot := t.TempDir()
 	writeV2Root(t, repoRoot, recipe.ZshTarget, settingID)
 	return fixture{repoRoot: repoRoot, liveRoot: homeRoot, stateRoot: stateRoot, t: t}
+}
+
+func setupTmuxFixture(t *testing.T, settingID string) fixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	locationRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, recipe.TmuxTarget, settingID)
+	return fixture{repoRoot: repoRoot, liveRoot: locationRoot, stateRoot: stateRoot, t: t}
 }
 
 func (f fixture) writeLiveYAML(email string) {

@@ -189,6 +189,14 @@ func defaultBundledTargets() []BundledTarget {
 			Summary:         "Manage selected prompt-wide Starship TOML options.",
 		},
 		{
+			ID:              TmuxTarget,
+			DisplayName:     "tmux",
+			SupportLevel:    "experimental",
+			Capability:      "read-write",
+			PlatformSupport: "linux-darwin",
+			Summary:         "Manage explicit tmux user config files without controlling sessions or runtime state.",
+		},
+		{
 			ID:              ZshTarget,
 			DisplayName:     "Zsh",
 			SupportLevel:    "experimental",

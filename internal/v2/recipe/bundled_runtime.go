@@ -43,6 +43,13 @@ func LoadRuntime(repoRoot string, targetID string) (RuntimeRecipe, error) {
 			}
 			runtime.Recipe = rec
 			return runtime, nil
+		case TmuxTarget:
+			rec := BundledTmuxRecipe()
+			if err := rec.ValidateTmux(); err != nil {
+				return runtime, fmt.Errorf("validate bundled tmux recipe: %w", err)
+			}
+			runtime.Recipe = rec
+			return runtime, nil
 		case NvimTarget:
 			rec := BundledNvimRecipe()
 			if err := rec.ValidateNvim(); err != nil {
@@ -258,6 +265,75 @@ func BundledNvimRecipe() *Recipe {
 				Exclude:     nvimExcludeGlobs(),
 			},
 		},
+	}
+}
+
+func BundledTmuxRecipe() *Recipe {
+	settings := map[string]Setting{}
+	resources := map[string]Resource{}
+	for _, id := range tmuxSettingIDs() {
+		settings[id] = bundledTmuxSetting(id)
+		resources[id] = bundledTmuxResource(id)
+	}
+	return &Recipe{
+		Schema:        Schema,
+		SchemaVersion: SupportedVersion,
+		Target:        TmuxTarget,
+		DisplayName:   "tmux",
+		SupportLevel:  "experimental",
+		Capability:    "read-write",
+		Locations: map[string]Location{
+			"home":   {Default: "~"},
+			"config": {Default: "~/.config"},
+		},
+		SettingsGroups: map[string]SettingsGroup{
+			"user-config-files": {
+				Label:        "User config files",
+				Description:  "Alternative tmux user configuration file locations; tmux decides which user config file is loaded.",
+				SupportLevel: "experimental",
+				Capability:   "read-write",
+				Settings:     tmuxSettingIDs(),
+			},
+		},
+		Settings:  settings,
+		Resources: resources,
+	}
+}
+
+func bundledTmuxSetting(id string) Setting {
+	return Setting{
+		Label:        tmuxSettingLabel(id),
+		SupportLevel: "experimental",
+		Capability:   "read-write",
+		ArtifactForm: "file",
+		Sensitivity:  SensitivityPersonal,
+		Redaction:    RedactionRedactedForDisplay,
+		Lifecycle:    LifecycleWarn,
+		ScopeDefault: "user",
+		Resource:     id,
+	}
+}
+
+func bundledTmuxResource(id string) Resource {
+	return Resource{
+		Driver:      FileDriverID,
+		Location:    tmuxLocationID(id),
+		Path:        tmuxResourcePath(id),
+		Capability:  "read-write",
+		Sensitivity: SensitivityPersonal,
+		Redaction:   RedactionRedactedForDisplay,
+		Lifecycle:   LifecycleWarn,
+	}
+}
+
+func tmuxSettingLabel(id string) string {
+	switch id {
+	case "home.conf":
+		return "~/.tmux.conf"
+	case "xdg.conf":
+		return "~/.config/tmux/tmux.conf"
+	default:
+		return fallbackLabel(id)
 	}
 }
 
