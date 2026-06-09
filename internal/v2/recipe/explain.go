@@ -56,16 +56,16 @@ type ExplainSummary struct {
 }
 
 type RecipeExplain struct {
-	Target           ExplainTarget       `json:"target"`
-	Recipe           ExplainRecipeSource `json:"recipe"`
-	Selection        ExplainSelection    `json:"selection"`
-	Settings         []ExplainSetting    `json:"settings"`
-	SettingGroups    []any               `json:"settingGroups"`
-	Resources        []ExplainResource   `json:"resources"`
-	Drivers          []ExplainDriver     `json:"drivers"`
-	NativeOperations []any               `json:"nativeOperations"`
-	Safety           ExplainSafety       `json:"safety"`
-	Diagnostics      []ExplainDiagnostic `json:"diagnostics"`
+	Target           ExplainTarget            `json:"target"`
+	Recipe           ExplainRecipeSource      `json:"recipe"`
+	Selection        ExplainSelection         `json:"selection"`
+	Settings         []ExplainSetting         `json:"settings"`
+	SettingGroups    []any                    `json:"settingGroups"`
+	Resources        []ExplainResource        `json:"resources"`
+	Drivers          []ExplainDriver          `json:"drivers"`
+	NativeOperations []ExplainNativeOperation `json:"nativeOperations"`
+	Safety           ExplainSafety            `json:"safety"`
+	Diagnostics      []ExplainDiagnostic      `json:"diagnostics"`
 }
 
 type ExplainTarget struct {
@@ -137,6 +137,29 @@ type ExplainDriver struct {
 	Summary     string   `json:"summary"`
 	Operations  []string `json:"operations"`
 	Limitations []string `json:"limitations"`
+}
+
+type ExplainNativeOperation struct {
+	ID                  string   `json:"id"`
+	Kind                string   `json:"kind"`
+	Reviewed            bool     `json:"reviewed"`
+	Runner              string   `json:"runner"`
+	PlatformSupport     string   `json:"platformSupport"`
+	ArtifactForm        string   `json:"artifactForm"`
+	DiffMode            string   `json:"diffMode"`
+	Lifecycle           string   `json:"lifecycle"`
+	TimeoutSeconds      int      `json:"timeoutSeconds"`
+	ExpectedExitSummary string   `json:"expectedExitSummary"`
+	WorkingDirectory    string   `json:"workingDirectory"`
+	Stdin               string   `json:"stdin"`
+	Stdout              string   `json:"stdout"`
+	Stderr              string   `json:"stderr"`
+	InputIDs            []string `json:"inputIds"`
+	OutputIDs           []string `json:"outputIds"`
+	TempPathIDs         []string `json:"tempPathIds"`
+	Redaction           string   `json:"redaction"`
+	CommandSummary      string   `json:"commandSummary"`
+	VerificationSummary string   `json:"verificationSummary"`
 }
 
 type ExplainSafety struct {
@@ -293,6 +316,12 @@ func ExplainText(report *ExplainReport) string {
 			lines = append(lines, fmt.Sprintf("  %s: %s", driver.ID, driver.Summary))
 		}
 	}
+	if len(report.RecipeExplain.NativeOperations) > 0 {
+		lines = append(lines, "native operations:")
+		for _, operation := range report.RecipeExplain.NativeOperations {
+			lines = append(lines, fmt.Sprintf("  %s kind=%s runner=%s artifact=%s diff=%s timeout=%ds lifecycle=%s command=%s", operation.ID, operation.Kind, operation.Runner, operation.ArtifactForm, operation.DiffMode, operation.TimeoutSeconds, operation.Lifecycle, operation.CommandSummary))
+		}
+	}
 	if len(report.RecipeExplain.Safety.DoNotManage) > 0 || report.RecipeExplain.Safety.RedactionSummary != "" {
 		lines = append(lines, "safety:")
 		if report.RecipeExplain.Safety.RedactionSummary != "" {
@@ -331,7 +360,7 @@ func baseExplainReport() *ExplainReport {
 		Items:         []any{},
 		RecipeExplain: RecipeExplain{
 			SettingGroups:    []any{},
-			NativeOperations: []any{},
+			NativeOperations: []ExplainNativeOperation{},
 		},
 	}
 }
@@ -489,7 +518,7 @@ func bundledCustomFilesExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/custom.files", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; live and desired values are not read",
 			LifecycleSummary: "file resources do not require app lifecycle actions; target-specific lifecycle is user-owned",
@@ -515,7 +544,7 @@ func bundledGitExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/git", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; git config values are not read or emitted",
 			LifecycleSummary: "git identity selected keys do not require shutting down Git",
@@ -541,7 +570,7 @@ func bundledStarshipExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/starship", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; selected Starship scalar values are low sensitivity but live and desired values are not emitted by normal output",
 			LifecycleSummary: "Starship reads configuration during prompt rendering; the manager does not stop or restart applications for these selected keys",
@@ -592,7 +621,7 @@ func bundledNvimExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/nvim", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; Neovim config file contents are personal and are not read or emitted by normal output",
 			LifecycleSummary: "Neovim config files are applied as files only; the manager does not start, stop, restart, or connect to Neovim",
@@ -658,7 +687,7 @@ func bundledZshExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/zsh", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; Zsh startup file contents are personal and are not read or emitted by normal output",
 			LifecycleSummary: "Zsh startup files affect shell startup; save/apply previews emit a warning and the manager does not restart or re-source shells",
@@ -722,7 +751,7 @@ func bundledTmuxExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/tmux", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; tmux config file contents are personal and are not read or emitted by normal output",
 			LifecycleSummary: "tmux loads user configuration according to its own lookup rules when the server starts; save/apply emits a non-blocking manual-reload warning but the manager does not run source-file, restart tmux, or control sessions",
@@ -785,7 +814,7 @@ func bundledSSHExplain() RecipeExplain {
 		Recipe:           ExplainRecipeSource{Source: "bundled", RecipeRef: "recipe://bundled/ssh", TrustStatus: "trusted", Version: "1"},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety: ExplainSafety{
 			RedactionSummary: "metadata-only explanation; SSH config file contents are personal and are not read or emitted by normal output",
 			LifecycleSummary: "SSH config does not require process lifecycle control; save/apply emits a content-review warning but the manager does not stop ssh, ssh-agent, keychain, hardware tokens, or sessions",
@@ -872,7 +901,7 @@ func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus
 		Recipe:           ExplainRecipeSource{Source: source, RecipeRef: recipeRef, TrustStatus: trustStatus, Version: fmt.Sprintf("%d", rec.SchemaVersion)},
 		Selection:        ExplainSelection{Status: "unknown", Reason: "active profile selection was not resolved because recipe explain is metadata-only", ProfileStack: []string{}},
 		SettingGroups:    []any{},
-		NativeOperations: []any{},
+		NativeOperations: []ExplainNativeOperation{},
 		Safety:           ExplainSafety{RedactionSummary: "metadata-only explanation; live and desired values are not read", LifecycleSummary: "not declared in current recipe model", TrustSummary: "local recipe is untrusted for writes until a later trust workflow", DoNotManage: []string{"value-bearing defaults", "undeclared resources", "driver operations during explanation"}},
 	}
 	for _, settingID := range sortedKeys(rec.Settings) {
@@ -884,8 +913,54 @@ func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus
 		resource := rec.Resources[resourceID]
 		explain.Resources = append(explain.Resources, explainResource(resourceID, resource))
 	}
+	for _, operationID := range sortedKeys(rec.NativeOperations) {
+		explain.NativeOperations = append(explain.NativeOperations, explainNativeOperation(operationID, rec.NativeOperations[operationID]))
+	}
 	explain.Drivers = driverExplains(uniqueDrivers(explain.Resources)...)
 	return explain
+}
+
+func explainNativeOperation(operationID string, operation NativeOperation) ExplainNativeOperation {
+	return ExplainNativeOperation{
+		ID:                  operationID,
+		Kind:                operation.Kind,
+		Reviewed:            operation.Reviewed,
+		Runner:              operation.Runner,
+		PlatformSupport:     nativeOperationPlatformSupport(operation.Platforms),
+		ArtifactForm:        operation.ArtifactForm,
+		DiffMode:            operation.DiffMode,
+		Lifecycle:           operation.Lifecycle,
+		TimeoutSeconds:      operation.TimeoutSeconds,
+		ExpectedExitSummary: fmt.Sprintf("%d declared code(s)", len(operation.ExpectedExitCodes)),
+		WorkingDirectory:    operation.WorkingDirectory,
+		Stdin:               operation.Stdin.Mode,
+		Stdout:              streamPolicySummary(operation.Stdout),
+		Stderr:              streamPolicySummary(operation.Stderr),
+		InputIDs:            sortedKeys(operation.Inputs),
+		OutputIDs:           sortedKeys(operation.Outputs),
+		TempPathIDs:         sortedKeys(operation.TempPaths),
+		Redaction:           operation.Redaction,
+		CommandSummary:      "reviewed argv command; executable and args are not printed by recipe explain",
+		VerificationSummary: "declared native operation metadata only; recipe explain does not execute operations",
+	}
+}
+
+func nativeOperationPlatformSupport(platforms []string) string {
+	if len(platforms) == 0 {
+		return "unknown"
+	}
+	return strings.Join(append([]string(nil), platforms...), ",")
+}
+
+func streamPolicySummary(policy NativeStreamPolicy) string {
+	switch policy.Mode {
+	case "capture":
+		return fmt.Sprintf("bounded capture (%d bytes)", policy.MaxBytes)
+	case "discard":
+		return "discard"
+	default:
+		return fallbackUnknown(policy.Mode)
+	}
 }
 
 func explainResource(resourceID string, resource Resource) ExplainResource {

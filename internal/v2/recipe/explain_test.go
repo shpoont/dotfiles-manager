@@ -320,6 +320,67 @@ func TestExplainLocalSelectedPathRecipeMetadata(t *testing.T) {
 	}
 }
 
+func TestExplainLocalNativeOperationIsMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeNamedRecipe(t, root, "native-test", stringsForExplainTest(`schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: native-test
+displayName: Native Test
+supportLevel: experimental
+capability: read-write
+locations:
+  home:
+    default: "~"
+settings:
+  settings:
+    scopeDefault: user
+    resource: marker
+    artifactForm: native
+resources:
+  marker:
+    driver: file
+    location: home
+    path: .native-test/marker
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin]
+    artifactForm: native
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /definitely/not/a/real/native-tool
+      args:
+        - literal: "--out"
+        - output: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    outputs:
+      bundle:
+        root: artifact
+        path: exports/settings.bundle
+    redaction: metadata-only
+`))
+
+	report, err := Explain(ExplainOptions{Target: "native-test", RepoRoot: root})
+	require.NoError(t, err)
+	require.Len(t, report.RecipeExplain.NativeOperations, 1)
+	require.Equal(t, "export-settings", report.RecipeExplain.NativeOperations[0].ID)
+	require.Equal(t, "reviewed argv command; executable and args are not printed by recipe explain", report.RecipeExplain.NativeOperations[0].CommandSummary)
+	require.NotContains(t, ExplainText(report), "/definitely/not/a/real/native-tool")
+}
+
 func TestExplainErrorsAndExitCodes(t *testing.T) {
 	t.Parallel()
 

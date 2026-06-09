@@ -46,6 +46,14 @@ const (
 )
 
 const (
+	MaxNativeOperationTimeoutSeconds = 300
+	MaxNativeCaptureBytes            = 64 * 1024
+	maxNativeOperationTimeoutSeconds = MaxNativeOperationTimeoutSeconds
+	maxNativeCaptureBytes            = MaxNativeCaptureBytes
+	maxNativeExpectedExitCodes       = 16
+)
+
+const (
 	RecipeSourceBundled = "bundled"
 	RecipeSourceLocal   = "local"
 )
@@ -96,16 +104,17 @@ var (
 )
 
 type Recipe struct {
-	Schema         string                   `yaml:"schema"`
-	SchemaVersion  int                      `yaml:"schemaVersion"`
-	Target         string                   `yaml:"target"`
-	DisplayName    string                   `yaml:"displayName"`
-	SupportLevel   string                   `yaml:"supportLevel"`
-	Capability     string                   `yaml:"capability"`
-	Locations      map[string]Location      `yaml:"locations"`
-	SettingsGroups map[string]SettingsGroup `yaml:"settingsGroups,omitempty"`
-	Settings       map[string]Setting       `yaml:"settings"`
-	Resources      map[string]Resource      `yaml:"resources"`
+	Schema           string                     `yaml:"schema"`
+	SchemaVersion    int                        `yaml:"schemaVersion"`
+	Target           string                     `yaml:"target"`
+	DisplayName      string                     `yaml:"displayName"`
+	SupportLevel     string                     `yaml:"supportLevel"`
+	Capability       string                     `yaml:"capability"`
+	Locations        map[string]Location        `yaml:"locations"`
+	SettingsGroups   map[string]SettingsGroup   `yaml:"settingsGroups,omitempty"`
+	Settings         map[string]Setting         `yaml:"settings"`
+	Resources        map[string]Resource        `yaml:"resources"`
+	NativeOperations map[string]NativeOperation `yaml:"nativeOperations,omitempty"`
 }
 
 type Location struct {
@@ -146,6 +155,62 @@ type Resource struct {
 	Include             []string        `yaml:"include,omitempty"`
 	Exclude             []string        `yaml:"exclude,omitempty"`
 	Selector            *Selector       `yaml:"selector,omitempty"`
+}
+
+type NativeOperation struct {
+	Kind              string                    `yaml:"kind"`
+	Reviewed          bool                      `yaml:"reviewed"`
+	Runner            string                    `yaml:"runner"`
+	Platforms         []string                  `yaml:"platforms"`
+	ArtifactForm      string                    `yaml:"artifactForm"`
+	DiffMode          string                    `yaml:"diffMode"`
+	Lifecycle         string                    `yaml:"lifecycle"`
+	WorkingDirectory  string                    `yaml:"workingDirectory"`
+	TimeoutSeconds    int                       `yaml:"timeoutSeconds"`
+	ExpectedExitCodes []int                     `yaml:"expectedExitCodes"`
+	Command           NativeCommand             `yaml:"command"`
+	Stdin             NativeStdinPolicy         `yaml:"stdin"`
+	Stdout            NativeStreamPolicy        `yaml:"stdout"`
+	Stderr            NativeStreamPolicy        `yaml:"stderr"`
+	Env               map[string]NativeEnvValue `yaml:"env,omitempty"`
+	Inputs            map[string]NativePathSpec `yaml:"inputs,omitempty"`
+	Outputs           map[string]NativePathSpec `yaml:"outputs,omitempty"`
+	TempPaths         map[string]NativePathSpec `yaml:"tempPaths,omitempty"`
+	Redaction         string                    `yaml:"redaction"`
+}
+
+type NativeCommand struct {
+	Executable string      `yaml:"executable"`
+	Args       []NativeArg `yaml:"args,omitempty"`
+}
+
+type NativeArg struct {
+	Literal string `yaml:"literal,omitempty"`
+	Input   string `yaml:"input,omitempty"`
+	Output  string `yaml:"output,omitempty"`
+	Temp    string `yaml:"temp,omitempty"`
+}
+
+type NativeEnvValue struct {
+	Literal string `yaml:"literal,omitempty"`
+	Input   string `yaml:"input,omitempty"`
+	Output  string `yaml:"output,omitempty"`
+	Temp    string `yaml:"temp,omitempty"`
+}
+
+type NativePathSpec struct {
+	Root     string `yaml:"root"`
+	Location string `yaml:"location,omitempty"`
+	Path     string `yaml:"path"`
+}
+
+type NativeStdinPolicy struct {
+	Mode string `yaml:"mode"`
+}
+
+type NativeStreamPolicy struct {
+	Mode     string `yaml:"mode"`
+	MaxBytes int    `yaml:"maxBytes,omitempty"`
 }
 
 type ReviewWarning struct {
@@ -434,7 +499,214 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		}
 	}
 
+	for _, operationID := range sortedKeys(r.NativeOperations) {
+		operation := r.NativeOperations[operationID]
+		addNativeOperationDiagnostics(add, operationID, operation)
+	}
+
 	return normalizeDiagnostics(diagnostics)
+}
+
+func addNativeOperationDiagnostics(add func(string, string, string), operationID string, operation NativeOperation) {
+	operationPath := "$.nativeOperations." + operationID
+	if err := ValidatePublicID("nativeOperation", operationID); err != nil {
+		add("nativeOperation.id.invalid", operationPath, err.Error())
+	}
+	if !knownNativeOperationKind(operation.Kind) {
+		add("nativeOperation.kind.unsupported", operationPath+".kind", fmt.Sprintf("native operation %s unsupported kind: %s", operationID, operation.Kind))
+	}
+	if !operation.Reviewed {
+		add("nativeOperation.reviewed.required", operationPath+".reviewed", fmt.Sprintf("native operation %s must be reviewed before execution", operationID))
+	}
+	if operation.Runner != "command" {
+		add("nativeOperation.runner.unsupported", operationPath+".runner", fmt.Sprintf("native operation %s unsupported runner: %s", operationID, operation.Runner))
+	}
+	if len(operation.Platforms) == 0 {
+		add("nativeOperation.platforms.required", operationPath+".platforms", fmt.Sprintf("native operation %s must declare supported platforms", operationID))
+	}
+	for idx, platform := range operation.Platforms {
+		if !knownNativePlatform(platform) {
+			add("nativeOperation.platform.unsupported", operationPath+fmt.Sprintf(".platforms[%d]", idx), fmt.Sprintf("native operation %s unsupported platform: %s", operationID, platform))
+		}
+	}
+	if !knownNativeArtifactForm(operation.ArtifactForm) {
+		add("nativeOperation.artifactForm.unsupported", operationPath+".artifactForm", fmt.Sprintf("native operation %s unsupported artifactForm: %s", operationID, operation.ArtifactForm))
+	}
+	if !knownNativeDiffMode(operation.DiffMode) {
+		add("nativeOperation.diffMode.unsupported", operationPath+".diffMode", fmt.Sprintf("native operation %s unsupported diffMode: %s", operationID, operation.DiffMode))
+	}
+	if !knownLifecycle(operation.Lifecycle) {
+		add("nativeOperation.lifecycle.unsupported", operationPath+".lifecycle", fmt.Sprintf("native operation %s unsupported lifecycle: %s", operationID, operation.Lifecycle))
+	}
+	if operation.WorkingDirectory != "temp" {
+		add("nativeOperation.workingDirectory.unsupported", operationPath+".workingDirectory", fmt.Sprintf("native operation %s must use explicit temp workingDirectory", operationID))
+	}
+	if operation.TimeoutSeconds <= 0 || operation.TimeoutSeconds > maxNativeOperationTimeoutSeconds {
+		add("nativeOperation.timeout.invalid", operationPath+".timeoutSeconds", fmt.Sprintf("native operation %s timeoutSeconds must be 1..%d", operationID, maxNativeOperationTimeoutSeconds))
+	}
+	if len(operation.ExpectedExitCodes) == 0 || len(operation.ExpectedExitCodes) > maxNativeExpectedExitCodes {
+		add("nativeOperation.expectedExitCodes.invalid", operationPath+".expectedExitCodes", fmt.Sprintf("native operation %s must declare 1..%d expected exit codes", operationID, maxNativeExpectedExitCodes))
+	}
+	seenExit := map[int]bool{}
+	for idx, code := range operation.ExpectedExitCodes {
+		if code < 0 || code > 255 || seenExit[code] {
+			add("nativeOperation.expectedExitCode.invalid", operationPath+fmt.Sprintf(".expectedExitCodes[%d]", idx), fmt.Sprintf("native operation %s invalid expected exit code: %d", operationID, code))
+		}
+		seenExit[code] = true
+	}
+	addNativeCommandDiagnostics(add, operationPath, operationID, operation)
+	addNativeStdinDiagnostics(add, operationPath+".stdin", operationID, operation.Stdin)
+	addNativeStreamDiagnostics(add, operationPath+".stdout", operationID, "stdout", operation.Stdout)
+	addNativeStreamDiagnostics(add, operationPath+".stderr", operationID, "stderr", operation.Stderr)
+	addNativeEnvDiagnostics(add, operationPath, operationID, operation)
+	addNativePathSpecsDiagnostics(add, operationPath+".inputs", operationID, "input", operation.Kind, operation.Inputs)
+	addNativePathSpecsDiagnostics(add, operationPath+".outputs", operationID, "output", operation.Kind, operation.Outputs)
+	addNativePathSpecsDiagnostics(add, operationPath+".tempPaths", operationID, "temp", operation.Kind, operation.TempPaths)
+	if !knownNativeRedaction(operation.Redaction) {
+		add("nativeOperation.redaction.unsupported", operationPath+".redaction", fmt.Sprintf("native operation %s unsupported redaction policy: %s", operationID, operation.Redaction))
+	}
+}
+
+func addNativeCommandDiagnostics(add func(string, string, string), operationPath string, operationID string, operation NativeOperation) {
+	executable := strings.TrimSpace(operation.Command.Executable)
+	if executable == "" {
+		add("nativeOperation.command.executable.required", operationPath+".command.executable", fmt.Sprintf("native operation %s command executable is required", operationID))
+	} else {
+		if executable != operation.Command.Executable {
+			add("nativeOperation.command.executable.invalid", operationPath+".command.executable", fmt.Sprintf("native operation %s command executable must not have surrounding whitespace", operationID))
+		}
+		if !filepath.IsAbs(executable) {
+			add("nativeOperation.command.executable.notAbsolute", operationPath+".command.executable", fmt.Sprintf("native operation %s command executable must be an absolute reviewed path", operationID))
+		}
+		cleaned := filepath.Clean(executable)
+		if cleaned != executable || strings.Contains(filepath.ToSlash(executable), "../") {
+			add("nativeOperation.command.executable.invalidPath", operationPath+".command.executable", fmt.Sprintf("native operation %s command executable path must be clean and non-traversing", operationID))
+		}
+		if blockedNativeExecutable(filepath.Base(executable)) {
+			add("nativeOperation.command.executable.blocked", operationPath+".command.executable", fmt.Sprintf("native operation %s command executable is blocked: %s", operationID, filepath.Base(executable)))
+		}
+	}
+	for idx, arg := range operation.Command.Args {
+		if countNativeArgChoices(arg.Literal, arg.Input, arg.Output, arg.Temp) != 1 {
+			add("nativeOperation.command.arg.invalid", operationPath+fmt.Sprintf(".command.args[%d]", idx), fmt.Sprintf("native operation %s args must be exactly one typed token", operationID))
+			continue
+		}
+		if arg.Literal != "" && strings.Contains(arg.Literal, "\x00") {
+			add("nativeOperation.command.arg.invalid", operationPath+fmt.Sprintf(".command.args[%d].literal", idx), fmt.Sprintf("native operation %s literal arg contains a NUL byte", operationID))
+		}
+		if strings.Contains(arg.Literal, "{{") || strings.Contains(arg.Literal, "}}") {
+			add("nativeOperation.command.arg.interpolationUnsupported", operationPath+fmt.Sprintf(".command.args[%d].literal", idx), fmt.Sprintf("native operation %s literal arg must not contain interpolation syntax", operationID))
+		}
+		if arg.Input != "" && !declaresNativePath(operation.Inputs, arg.Input) {
+			add("nativeOperation.command.arg.inputUnknown", operationPath+fmt.Sprintf(".command.args[%d].input", idx), fmt.Sprintf("native operation %s arg references undeclared input %s", operationID, arg.Input))
+		}
+		if arg.Output != "" && !declaresNativePath(operation.Outputs, arg.Output) {
+			add("nativeOperation.command.arg.outputUnknown", operationPath+fmt.Sprintf(".command.args[%d].output", idx), fmt.Sprintf("native operation %s arg references undeclared output %s", operationID, arg.Output))
+		}
+		if arg.Temp != "" && !declaresNativePath(operation.TempPaths, arg.Temp) {
+			add("nativeOperation.command.arg.tempUnknown", operationPath+fmt.Sprintf(".command.args[%d].temp", idx), fmt.Sprintf("native operation %s arg references undeclared temp path %s", operationID, arg.Temp))
+		}
+	}
+	if strings.EqualFold(filepath.Base(executable), "osascript") {
+		for idx, arg := range operation.Command.Args {
+			if arg.Literal == "-e" {
+				add("nativeOperation.command.osascriptInlineBlocked", operationPath+fmt.Sprintf(".command.args[%d].literal", idx), fmt.Sprintf("native operation %s must not use osascript -e inline script mode", operationID))
+			}
+		}
+	}
+}
+
+func addNativeStdinDiagnostics(add func(string, string, string), path string, operationID string, policy NativeStdinPolicy) {
+	if policy.Mode != "none" {
+		add("nativeOperation.stdin.unsupported", path+".mode", fmt.Sprintf("native operation %s stdin mode must be none", operationID))
+	}
+}
+
+func addNativeStreamDiagnostics(add func(string, string, string), path string, operationID string, stream string, policy NativeStreamPolicy) {
+	switch policy.Mode {
+	case "discard":
+		if policy.MaxBytes != 0 {
+			add("nativeOperation.stream.maxBytes.invalid", path+".maxBytes", fmt.Sprintf("native operation %s %s discard mode must not set maxBytes", operationID, stream))
+		}
+	case "capture":
+		if policy.MaxBytes <= 0 || policy.MaxBytes > maxNativeCaptureBytes {
+			add("nativeOperation.stream.maxBytes.invalid", path+".maxBytes", fmt.Sprintf("native operation %s %s capture maxBytes must be 1..%d", operationID, stream, maxNativeCaptureBytes))
+		}
+	default:
+		add("nativeOperation.stream.mode.unsupported", path+".mode", fmt.Sprintf("native operation %s unsupported %s mode: %s", operationID, stream, policy.Mode))
+	}
+}
+
+func addNativeEnvDiagnostics(add func(string, string, string), operationPath string, operationID string, operation NativeOperation) {
+	for _, key := range sortedKeys(operation.Env) {
+		value := operation.Env[key]
+		path := operationPath + ".env." + key
+		if !validNativeEnvKey(key) {
+			add("nativeOperation.env.key.invalid", path, fmt.Sprintf("native operation %s invalid env key: %s", operationID, key))
+		}
+		if !safeNativeEnvKey(key) {
+			add("nativeOperation.env.key.unsupported", path, fmt.Sprintf("native operation %s env key is not in the supported DFM_ manager namespace: %s", operationID, key))
+		}
+		if sensitiveNativeEnvKey(key) {
+			add("nativeOperation.env.key.sensitive", path, fmt.Sprintf("native operation %s env key appears sensitive and is blocked: %s", operationID, key))
+		}
+		if countNativeArgChoices(value.Literal, value.Input, value.Output, value.Temp) != 1 {
+			add("nativeOperation.env.value.invalid", path, fmt.Sprintf("native operation %s env value must be exactly one typed token", operationID))
+			continue
+		}
+		if strings.Contains(value.Literal, "\x00") || strings.Contains(value.Literal, "\n") || strings.Contains(value.Literal, "\r") {
+			add("nativeOperation.env.value.invalid", path+".literal", fmt.Sprintf("native operation %s literal env value contains unsupported control characters", operationID))
+		}
+		if strings.Contains(value.Literal, "{{") || strings.Contains(value.Literal, "}}") {
+			add("nativeOperation.env.value.interpolationUnsupported", path+".literal", fmt.Sprintf("native operation %s literal env value must not contain interpolation syntax", operationID))
+		}
+		if value.Input != "" && !declaresNativePath(operation.Inputs, value.Input) {
+			add("nativeOperation.env.inputUnknown", path+".input", fmt.Sprintf("native operation %s env references undeclared input %s", operationID, value.Input))
+		}
+		if value.Output != "" && !declaresNativePath(operation.Outputs, value.Output) {
+			add("nativeOperation.env.outputUnknown", path+".output", fmt.Sprintf("native operation %s env references undeclared output %s", operationID, value.Output))
+		}
+		if value.Temp != "" && !declaresNativePath(operation.TempPaths, value.Temp) {
+			add("nativeOperation.env.tempUnknown", path+".temp", fmt.Sprintf("native operation %s env references undeclared temp path %s", operationID, value.Temp))
+		}
+	}
+}
+
+func addNativePathSpecsDiagnostics(add func(string, string, string), path string, operationID string, role string, kind string, specs map[string]NativePathSpec) {
+	for _, id := range sortedKeys(specs) {
+		spec := specs[id]
+		specPath := path + "." + id
+		if err := ValidatePublicID("nativePath", id); err != nil {
+			add("nativeOperation.path.id.invalid", specPath, err.Error())
+		}
+		if !knownNativePathRoot(spec.Root) {
+			add("nativeOperation.path.root.unsupported", specPath+".root", fmt.Sprintf("native operation %s unsupported %s root: %s", operationID, role, spec.Root))
+		}
+		if spec.Root == "location" && strings.TrimSpace(spec.Location) == "" {
+			add("nativeOperation.path.location.required", specPath+".location", fmt.Sprintf("native operation %s %s %s requires a named location", operationID, role, id))
+		}
+		if spec.Root != "location" && spec.Location != "" {
+			add("nativeOperation.path.location.unexpected", specPath+".location", fmt.Sprintf("native operation %s %s %s must not set location for root %s", operationID, role, id, spec.Root))
+		}
+		if !safeNativeRelPath(spec.Path) {
+			add("nativeOperation.path.path.invalid", specPath+".path", fmt.Sprintf("native operation %s %s %s path must be relative, clean, and non-traversing", operationID, role, id))
+		}
+		if role == "output" && kind == "export" && spec.Root == "location" {
+			add("nativeOperation.path.output.exportRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s export outputs must use artifact or temp root", operationID))
+		}
+		if role == "output" && kind == "verify" && spec.Root != "temp" {
+			add("nativeOperation.path.output.verifyRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s verify outputs must use temp root", operationID))
+		}
+		if role == "output" && kind == "import" && spec.Root != "temp" {
+			add("nativeOperation.path.output.importRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s import outputs must use temp root", operationID))
+		}
+		if role == "input" && kind == "export" && spec.Root == "artifact" {
+			add("nativeOperation.path.input.exportArtifactUnsupported", specPath+".root", fmt.Sprintf("native operation %s export inputs must not read desired artifacts", operationID))
+		}
+		if role == "input" && kind == "import" && spec.Root == "location" {
+			add("nativeOperation.path.input.importRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s import inputs must use artifact or temp root", operationID))
+		}
+	}
 }
 
 func (r *Recipe) ValidateGit() error {
@@ -1621,11 +1893,151 @@ func knownScope(value string) bool {
 
 func knownArtifactForm(value string) bool {
 	switch value {
-	case "file", "file-tree", "scalar", "structured", "native-export", "opaque", "metadata-only":
+	case "file", "file-tree", "scalar", "structured", "native", "native-export", "opaque", "metadata-only":
 		return true
 	default:
 		return false
 	}
+}
+
+func knownNativeOperationKind(value string) bool {
+	switch value {
+	case "export", "import", "verify":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownNativePlatform(value string) bool {
+	switch value {
+	case "darwin", "linux", "windows":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownNativeArtifactForm(value string) bool {
+	switch value {
+	case "native", "native-export", "opaque":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownNativeDiffMode(value string) bool {
+	switch value {
+	case "metadata-only", "structured", "opaque":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownNativeRedaction(value string) bool {
+	switch value {
+	case "metadata-only", "redacted-counts", "blocked-save":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownNativePathRoot(value string) bool {
+	switch value {
+	case "artifact", "temp", "location":
+		return true
+	default:
+		return false
+	}
+}
+
+func countNativeArgChoices(values ...string) int {
+	count := 0
+	for _, value := range values {
+		if value != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func declaresNativePath(specs map[string]NativePathSpec, id string) bool {
+	if strings.TrimSpace(id) != id || id == "" {
+		return false
+	}
+	_, ok := specs[id]
+	return ok
+}
+
+func blockedNativeExecutable(base string) bool {
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case "sh", "sh.exe", "bash", "bash.exe", "zsh", "zsh.exe", "fish", "fish.exe",
+		"osascript", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+		"wscript", "wscript.exe", "cscript", "cscript.exe", "mshta", "mshta.exe",
+		"rundll32", "rundll32.exe", "regsvr32", "regsvr32.exe":
+		return true
+	default:
+		return false
+	}
+}
+
+func validNativeEnvKey(key string) bool {
+	if key == "" || strings.TrimSpace(key) != key {
+		return false
+	}
+	for i, r := range key {
+		if (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func safeNativeEnvKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	if !strings.HasPrefix(upper, "DFM_") {
+		return false
+	}
+	for _, marker := range []string{"PATH", "LD_", "DYLD_", "PYTHONPATH", "NODE_OPTIONS", "RUBYOPT", "GIT_", "SHELL", "HOME", "COMSPEC", "PATHEXT", "SYSTEMROOT"} {
+		if strings.Contains(upper, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+func sensitiveNativeEnvKey(key string) bool {
+	upper := strings.ToUpper(key)
+	for _, marker := range []string{"TOKEN", "KEY", "PASSWORD", "PASS", "SECRET", "CREDENTIAL", "AUTH"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func safeNativeRelPath(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed != value {
+		return false
+	}
+	if filepath.IsAbs(trimmed) || strings.Contains(trimmed, "\\") {
+		return false
+	}
+	cleaned := pathpkg.Clean(trimmed)
+	if cleaned != trimmed || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return false
+	}
+	for _, segment := range strings.Split(cleaned, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func knownSensitivity(value string) bool {
