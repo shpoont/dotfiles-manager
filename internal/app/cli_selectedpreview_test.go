@@ -519,6 +519,92 @@ func TestV2BundledZshSelectedStartupFileStatusDiffSaveApplyEndToEnd(t *testing.T
 	require.NotContains(t, stdout, currentBody)
 }
 
+func TestV2BundledTmuxSelectedConfigFileStatusDiffSaveApplyEndToEnd(t *testing.T) {
+	fixture := setupCLIV2BundledTmuxFixture(t, "home.conf")
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.homeDir, ".tmux.conf")
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "tmux", "artifacts", "home.conf")
+	currentBody := "CURRENT-TMUX-CONFIG\n"
+	changedBody := "CHANGED-TMUX-CONFIG\n"
+	writeCLIFile(t, livePath, currentBody)
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "tmux:home.conf"})
+	require.NoError(t, err)
+	require.Equal(t, "status", payload["command"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "tmux:home.conf", item["settingRef"])
+	require.Equal(t, "desired://user/leon/targets/tmux/artifacts/home.conf", item["desiredUri"])
+	resource := item["resource"].(map[string]any)
+	require.Equal(t, "file", resource["driverId"])
+	require.Equal(t, ".tmux.conf", resource["relPath"])
+	recipeInfo := item["recipe"].(map[string]any)
+	require.Equal(t, "bundled", recipeInfo["source"])
+	require.Equal(t, "recipe://bundled/tmux", recipeInfo["recipeRef"])
+	requireNoCLIDiagnosticCode(t, item, v2recipe.TmuxManualReloadWarningCode)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "tmux:home.conf"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	require.Equal(t, "would-promote", item["plannedAction"])
+	requireCLIDiagnosticCode(t, item, v2recipe.TmuxManualReloadWarningCode)
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "tmux:home.conf"})
+	require.NoError(t, err)
+	require.FileExists(t, desiredPath)
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, desiredPath)))
+	items = payload["items"].([]any)
+	requireCLIDiagnosticCode(t, items[0].(map[string]any), v2recipe.TmuxManualReloadWarningCode)
+	require.NotContains(t, stdout, currentBody)
+
+	writeCLIFile(t, livePath, changedBody)
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"diff", "--json", "--user-id", "leon", "tmux:home.conf"})
+	require.NoError(t, err)
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	diffInfo := item["diff"].(map[string]any)
+	require.Equal(t, "metadata-only", diffInfo["mode"])
+	require.Equal(t, "raw file contents omitted", diffInfo["redaction"])
+	requireNoCLIDiagnosticCode(t, item, v2recipe.TmuxManualReloadWarningCode)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "tmux:home.conf"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	require.Equal(t, changedBody, string(mustReadCLIFile(t, livePath)))
+	items = payload["items"].([]any)
+	requireCLIDiagnosticCode(t, items[0].(map[string]any), v2recipe.TmuxManualReloadWarningCode)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "tmux:home.conf"})
+	require.NoError(t, err)
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, livePath)))
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	requireCLIDiagnosticCode(t, item, v2recipe.TmuxManualReloadWarningCode)
+	mutation := item["mutation"].(map[string]any)
+	require.NotEmpty(t, mutation["backupRefs"])
+	runID := mutation["runId"].(string)
+	stateRoot, stateErr := v2ledger.DefaultStateRoot(fixture.repoRoot)
+	require.NoError(t, stateErr)
+	ledgerBody := string(mustReadCLIFile(t, filepath.Join(stateRoot, "ledger", "ledger.jsonl")))
+	require.NotContains(t, ledgerBody, changedBody)
+	require.NotContains(t, ledgerBody, currentBody)
+	backupMetadata := string(mustReadCLIFile(t, filepath.Join(stateRoot, "backups", runID, "backup.yaml")))
+	require.NotContains(t, backupMetadata, changedBody)
+	require.NotContains(t, backupMetadata, currentBody)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+}
+
 func TestV2BundledZshBlockedRefDoesNotReadRawFiles(t *testing.T) {
 	fixture := setupCLIV2BundledZshFixture(t, "zshenv")
 	setCWD(t, fixture.repoRoot)
@@ -723,6 +809,16 @@ func setupCLIV2BundledZshFixture(t *testing.T, settingID string) cliV2SelectedPr
 	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
 	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
 	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  zsh:\n    settings:\n      "+settingID+":\n        scope: user\n")
+	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
+}
+
+func setupCLIV2BundledTmuxFixture(t *testing.T, settingID string) cliV2SelectedPreviewFixture {
+	t.Helper()
+	homeDir := setTempHome(t)
+	repoRoot := t.TempDir()
+	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  tmux:\n    settings:\n      "+settingID+":\n        scope: user\n")
 	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
 }
 

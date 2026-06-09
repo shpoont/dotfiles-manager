@@ -141,12 +141,18 @@ func lifecycleWarningCode(target string) string {
 	if target == ZshTarget {
 		return ZshRiskShellStartupFileCode
 	}
+	if target == TmuxTarget {
+		return TmuxManualReloadWarningCode
+	}
 	return "writeSafety.lifecycle.warn"
 }
 
 func lifecycleWarningMessage(target string, subject string) string {
 	if target == ZshTarget {
 		return "Zsh startup file save/apply can affect shell startup behavior; review carefully before writing"
+	}
+	if target == TmuxTarget {
+		return "tmux config save/apply does not reload existing tmux servers or sessions; run tmux source-file manually or restart tmux if needed"
 	}
 	return fmt.Sprintf("%s lifecycle policy requires a user-visible warning", subject)
 }

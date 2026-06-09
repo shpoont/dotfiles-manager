@@ -177,6 +177,17 @@ func TestWriteSafetyUsesStableZshStartupWarningCode(t *testing.T) {
 	require.NoError(t, rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceBundled, Trusted: true}))
 }
 
+func TestWriteSafetyUsesStableTmuxManualReloadWarningCode(t *testing.T) {
+	t.Parallel()
+
+	rec := BundledTmuxRecipe()
+	diagnostics := rec.WriteSafetyDiagnostics(WriteSafetyContext{Source: RecipeSourceBundled, Trusted: true})
+	requireDiagnosticCodes(t, diagnostics, TmuxManualReloadWarningCode)
+	require.NotEmpty(t, warningDiagnostics(diagnostics))
+	require.Empty(t, blockingDiagnostics(diagnostics))
+	require.NoError(t, rec.ValidateWriteSafety(WriteSafetyContext{Source: RecipeSourceBundled, Trusted: true}))
+}
+
 func TestSafetyValidationDiagnosticsDoNotEchoInvalidSafetyValues(t *testing.T) {
 	t.Parallel()
 
