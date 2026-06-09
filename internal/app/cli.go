@@ -14,6 +14,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/config"
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/shpoont/dotfiles-manager/internal/logging"
+	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
@@ -65,6 +66,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newDiffCmd(opts))
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
+	rootCmd.AddCommand(newAddCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))
 	rootCmd.AddCommand(newRecipeCmd(opts))
 
@@ -250,6 +252,45 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live apply without interactive prompting")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
+func newAddCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+	var yes bool
+	var nonInteractive bool
+	var profileLayer string
+	var scope string
+	var settings []string
+
+	cmd := &cobra.Command{
+		Use:   "add <target>",
+		Short: "Add a supported v2 target to the active profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAddCommand(cmd, opts, v2addtarget.Options{
+				Target:         args[0],
+				Settings:       settings,
+				Scope:          scope,
+				ProfileLayer:   profileLayer,
+				DryRun:         dryRun,
+				Yes:            yes,
+				NonInteractive: nonInteractive,
+				JSONMode:       jsonOutput,
+				Input:          cmd.InOrStdin(),
+				PromptOutput:   cmd.OutOrStdout(),
+			}, jsonOutput)
+		},
+	}
+
+	cmd.Flags().StringArrayVar(&settings, "setting", nil, "Setting id or target:setting ref to add (repeatable or comma-separated)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Scope for selected settings: shared|user|machine|machine-user")
+	cmd.Flags().StringVar(&profileLayer, "profile", "", "Active profile layer to update")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Plan profile selection changes without writing")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Accept safe recipe defaults without prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail with missing-choice diagnostics when input is required")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -825,6 +866,58 @@ func runRecipeDiscoverCommand(cmd *cobra.Command, opts *rootOptions, target stri
 	return err
 }
 
+func runAddCommand(cmd *cobra.Command, opts *rootOptions, addOpts v2addtarget.Options, jsonOutput bool) error {
+	repoStart, err := addRepoStart(opts)
+	if err != nil {
+		report, addErr := v2addtarget.Run(addOpts)
+		if report == nil {
+			report = &v2addtarget.Report{
+				Schema:        v2recipe.ExplainSchema,
+				SchemaVersion: 1,
+				Command:       v2addtarget.Command,
+				RunID:         v2addtarget.RunID,
+				DryRun:        addOpts.DryRun,
+				Summary:       v2addtarget.Summary{Status: "error", Failed: 1},
+				Error:         &v2addtarget.ErrorObject{Code: v2addtarget.CodeRepoInvalid, Message: err.Error()},
+			}
+		}
+		_ = addErr
+		if emitErr := emitAddReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+			return emitErr
+		}
+		if !jsonOutput {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		}
+		return err
+	}
+	repoRoot, err := v2resolution.FindRoot(repoStart)
+	if err != nil {
+		addOpts.RepoRoot = repoStart
+	} else {
+		addOpts.RepoRoot = repoRoot
+	}
+
+	report, runErr := v2addtarget.Run(addOpts)
+	if emitErr := emitAddReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	if runErr != nil && !jsonOutput {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), runErr.Error())
+	}
+	return runErr
+}
+
+func addRepoStart(opts *rootOptions) (string, error) {
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		abs, err := filepath.Abs(strings.TrimSpace(opts.configPath))
+		if err != nil {
+			return "", err
+		}
+		return filepath.Dir(abs), nil
+	}
+	return os.Getwd()
+}
+
 func recipeExplainRepoRoot(opts *rootOptions) (string, error) {
 	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
 		abs, err := filepath.Abs(strings.TrimSpace(opts.configPath))
@@ -872,6 +965,19 @@ func emitRecipeDiscoverReport(stdout io.Writer, report *v2recipe.DiscoverReport,
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2recipe.DiscoverText(report))
+	return err
+}
+
+func emitAddReport(stdout io.Writer, report *v2addtarget.Report, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2addtarget.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2addtarget.Text(report))
 	return err
 }
 

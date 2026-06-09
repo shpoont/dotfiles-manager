@@ -80,6 +80,61 @@ The MVP command set is:
 
 `sync` must never mean blind automatic two-way merge.
 
+### `add <target>` profile-selection contract
+
+The first implemented `add` tranche accepts one bundled target per invocation:
+
+```text
+dotfiles-manager add <target> [--setting <id>]... [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
+```
+
+It writes profile-layer **selection metadata only**. It must not write desired
+values, live target files, backups, ledgers, app state, or trust records. Actual
+values are imported later by `save` and deployed later by `apply`.
+
+`add` uses `recipe explain` metadata to identify add-selectable settings and may
+use `recipe discover` metadata as an advisory install/config hint. Discovery
+must remain read-only and advisory. Unsupported-platform discovery blocks the
+add by default; no force flag is part of this tranche.
+
+Profile-layer writes are constrained:
+
+- `--profile` must name an existing layer from the active profile stack only.
+- The destination layer must be an existing regular file under
+  `profiles/layers/` in the v2 repository root.
+- Missing layer files, symlinked layer files, non-regular files, traversal,
+  absolute paths, and out-of-repo resolved paths must fail closed.
+- Writes must be atomic and preserve the layer file permissions.
+- Patching must preserve unrelated YAML content, other targets, other
+  selections, and unknown fields. It must not use a lossy struct rewrite that
+  drops data unknown to the current implementation.
+
+Conflict checks apply across the full active profile stack, not only the
+destination layer. If the selected setting already exists anywhere in the active
+stack with the same effective scope and artifact, `add` reports it unchanged
+and does not duplicate it in another layer. If it exists with a different scope
+or artifact, or the new write would silently shadow another active-layer
+selection, `add` blocks with a stable conflict diagnostic.
+
+Artifact writes must match the existing resolver/defaulting behavior. Scalar
+settings may use the resolver's scope-only `settings.yaml#<setting>` default.
+File, file-tree, native, and opaque settings must write explicit canonical
+profile-layer artifact metadata such as `artifact: artifacts/<setting-id>` so
+they resolve to desired artifact payload paths rather than settings values.
+
+Prompt rules for `add`:
+
+- `--json`, `--non-interactive`, and `--yes` must never prompt.
+- JSON mode must not mix prompt text with JSON output.
+- `--yes` may accept recommended recipe settings and recipe default scopes.
+- `--yes` must not choose a profile layer when the active stack has multiple
+  layers; `--profile` is required in that case.
+- When a required choice is missing and prompting is disabled, `add` exits `4`
+  with diagnostic code `add.choice-required` and machine-readable
+  `missingChoices` entries.
+- `--dry-run` performs the same target, profile, setting, scope, and conflict
+  validation and emits the same planned changes, but writes nothing.
+
 ### Advanced authoring commands
 
 Advanced commands may exist outside the normal path:
@@ -443,7 +498,12 @@ CLI result schema is promoted.
 
 ```bash
 dotfiles-manager init
-dotfiles-manager add git nvim ssh starship tmux zsh
+dotfiles-manager add git --yes
+dotfiles-manager add nvim --yes
+dotfiles-manager add ssh --yes
+dotfiles-manager add starship --yes
+dotfiles-manager add tmux --yes
+dotfiles-manager add zsh --yes
 dotfiles-manager status
 dotfiles-manager apply --dry-run
 dotfiles-manager apply
@@ -458,8 +518,8 @@ dotfiles-manager save --yes --user-id leon git:user.email
 ```
 
 For the current MVP tranche, `git:user.email` and `git:user.name` are selected
-through profile YAML before the user-facing `add` command is implemented. The
-bundled Git runtime manages only `~/.gitconfig` `[user] email` and `[user] name`.
+with `dotfiles-manager add git --yes` or by an equivalent profile-layer entry.
+The bundled Git runtime manages only `~/.gitconfig` `[user] email` and `[user] name`.
 `save --yes` is the supported import/promotion command for selected Git identity
 values: after an explicit selection and `save --dry-run`, it writes the current
 safe live value into the desired settings artifact. If the desired artifact is
