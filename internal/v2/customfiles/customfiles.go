@@ -97,6 +97,18 @@ func PlanApply(req Request) (*Plan, error) {
 	return buildPlan(req, OperationApply)
 }
 
+func PlanFileSave(req Request) (*Plan, error) {
+	return buildFileResourcePlan(req, OperationSave)
+}
+
+func PlanFileApply(req Request) (*Plan, error) {
+	return buildFileResourcePlan(req, OperationApply)
+}
+
+func PlanFileRead(req Request) (*Plan, error) {
+	return buildFileResourceReadPlan(req)
+}
+
 func Save(req Request, opts ExecuteOptions) (*Result, error) {
 	plan, err := PlanSave(req)
 	if err != nil {
@@ -291,6 +303,126 @@ func buildPlan(req Request, op Operation) (*Plan, error) {
 	return plan, nil
 }
 
+func buildFileResourcePlan(req Request, op Operation) (*Plan, error) {
+	plan, err := buildFileResourceReadPlan(req)
+	if err != nil {
+		return nil, err
+	}
+	plan.Operation = op
+	driver := filedriver.Driver{}
+	switch op {
+	case OperationSave:
+		if !plan.SourceState.Exists {
+			return nil, fmt.Errorf("file-resource save %s blocked: live file is missing; delete/tombstone semantics are out of scope", plan.Setting.Ref())
+		}
+		plan.DesiredFinalState = plan.SourceState
+		preview, err := driver.PreviewApply(plan.DesiredTarget, plan.SourceState)
+		if err != nil {
+			return nil, fmt.Errorf("preview save %s: %w", plan.Setting.Ref(), err)
+		}
+		plan.Preview = preview
+	case OperationApply:
+		liveState := plan.SourceState
+		desiredState := plan.DestinationState
+		if !liveState.Exists {
+			return nil, fmt.Errorf("file-resource apply %s blocked: live file is missing; creating live files without a backup is out of scope", plan.Setting.Ref())
+		}
+		if !desiredState.Exists {
+			return nil, fmt.Errorf("file-resource apply %s blocked: desired artifact is missing; delete/tombstone semantics are out of scope", plan.Setting.Ref())
+		}
+		plan.SourceState = desiredState
+		plan.DestinationState = liveState
+		plan.DesiredFinalState = desiredState
+		preview, err := driver.PreviewApply(plan.LiveTarget, desiredState)
+		if err != nil {
+			return nil, fmt.Errorf("preview apply %s: %w", plan.Setting.Ref(), err)
+		}
+		plan.Preview = preview
+	default:
+		return nil, fmt.Errorf("unsupported file-resource operation: %s", op)
+	}
+	return plan, nil
+}
+
+func buildFileResourceReadPlan(req Request) (*Plan, error) {
+	if req.Profile == nil {
+		return nil, fmt.Errorf("resolved profile is required")
+	}
+	if req.Recipe == nil {
+		return nil, fmt.Errorf("file-resource recipe is required")
+	}
+	if err := req.Recipe.Validate(); err != nil {
+		return nil, err
+	}
+	setting, err := resolveSetting(req.Profile, req.Recipe.Target, req.SettingRef)
+	if err != nil {
+		return nil, err
+	}
+	resourceID, resource, err := req.Recipe.ResourceForSetting(setting.SettingID)
+	if err != nil {
+		return nil, err
+	}
+	if resource.Driver == recipe.FileTreeDriverID {
+		return nil, fmt.Errorf("file-tree resource %s is not supported by the selected file-resource command path", resourceID)
+	}
+	if resource.Driver != recipe.FileDriverID {
+		return nil, fmt.Errorf("unsupported file-resource driver: %s", resource.Driver)
+	}
+	resourceRelPath, err := recipe.ValidateResourcePath(resource.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resource %s path: %w", resourceID, err)
+	}
+	locationRoot, err := req.Recipe.LocationRoot(resource.Location, req.LocationRoots)
+	if err != nil {
+		return nil, err
+	}
+
+	setting, err = withConventionalFileArtifact(setting)
+	if err != nil {
+		return nil, err
+	}
+
+	liveTarget := filedriver.Target{LocationID: resource.Location, Root: locationRoot, RelPath: resourceRelPath}
+	desiredTarget, desiredRel, err := desiredTargetForSetting(req.Profile.RepoRoot, setting)
+	if err != nil {
+		return nil, err
+	}
+
+	driver := filedriver.Driver{}
+	liveState, err := driver.ReadCurrent(liveTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read live %s: %w", setting.Ref(), err)
+	}
+	desiredState, err := driver.ReadCurrent(desiredTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read desired %s: %w", setting.Ref(), err)
+	}
+	resolvedLive, err := filedriver.ResolveTarget(liveTarget)
+	if err != nil {
+		return nil, fmt.Errorf("resolve live %s: %w", setting.Ref(), err)
+	}
+	preview := filedriver.Preview{
+		Target:     liveTarget,
+		Path:       resolvedLive.AbsPath,
+		Change:     driver.Diff(liveState, desiredState),
+		Normalizer: filedriver.NormalizerID,
+	}
+
+	return &Plan{
+		Setting:           setting,
+		ResourceID:        resourceID,
+		Resource:          resource,
+		RepoRoot:          req.Profile.RepoRoot,
+		DesiredRelPath:    desiredRel,
+		LiveTarget:        liveTarget,
+		DesiredTarget:     desiredTarget,
+		SourceState:       liveState,
+		DestinationState:  desiredState,
+		DesiredFinalState: desiredState,
+		Preview:           preview,
+	}, nil
+}
+
 func buildTreePlan(profile *resolution.ResolvedProfile, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, resourceRelPath string, locationRoot string, op Operation) (*Plan, error) {
 	include, exclude, err := filetreedriver.NormalizeGlobs(resource.Include, resource.Exclude)
 	if err != nil {
@@ -381,6 +513,28 @@ func resolveSetting(profile *resolution.ResolvedProfile, targetID string, ref st
 		return resolution.ResolvedSetting{}, fmt.Errorf("setting ref is required when target %s has %d resolved settings", targetID, len(matches))
 	}
 	return matches[0], nil
+}
+
+func withConventionalFileArtifact(setting resolution.ResolvedSetting) (resolution.ResolvedSetting, error) {
+	desiredRel := filepath.ToSlash(setting.DesiredRelPath)
+	if strings.Contains(desiredRel, "/artifacts/") {
+		return setting, nil
+	}
+	const settingsSuffix = "/settings.yaml"
+	if !strings.HasSuffix(desiredRel, settingsSuffix) {
+		return resolution.ResolvedSetting{}, fmt.Errorf("file-resource setting %s must use a desired artifact under artifacts/..., got %s", setting.Ref(), desiredRel)
+	}
+	artifactRel, err := filedriver.ValidateRelativePath(setting.SettingID)
+	if err != nil {
+		return resolution.ResolvedSetting{}, fmt.Errorf("file-resource conventional artifact for %s: %w", setting.Ref(), err)
+	}
+	targetRel := strings.TrimSuffix(desiredRel, settingsSuffix)
+	artifactPath := filepath.ToSlash(filepath.Join(targetRel, "artifacts", artifactRel))
+	setting.DesiredRelPath = filepath.FromSlash(artifactPath)
+	setting.DesiredPath = filepath.Join(setting.DesiredPath, "..", "artifacts", filepath.FromSlash(artifactRel))
+	setting.DesiredPath = filepath.Clean(setting.DesiredPath)
+	setting.DesiredURI = fmt.Sprintf("desired://%s/%s/targets/%s/artifacts/%s", setting.Scope, setting.Subject, setting.TargetID, artifactRel)
+	return setting, nil
 }
 
 func desiredTargetForSetting(repoRoot string, setting resolution.ResolvedSetting) (filedriver.Target, string, error) {

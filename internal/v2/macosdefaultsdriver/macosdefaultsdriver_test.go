@@ -278,6 +278,9 @@ func TestRunnerClassificationAndBoundedBuffers(t *testing.T) {
 	require.Empty(t, unlimited.Bytes())
 
 	req := Request{Domain: "com.example.app", Key: "Flag"}
+	require.Equal(t, "stdout exceeded configured output limit", outputLimitError{stream: "stdout"}.Error())
+	require.Equal(t, "defaults export timed out", timeoutError{}.Error())
+	require.Equal(t, "macOS defaults are available only on darwin", unsupportedRuntimeError{}.Error())
 	for _, err := range []error{timeoutError{}, outputLimitError{stream: "stdout"}, unsupportedRuntimeError{}, fmt.Errorf("boom")} {
 		classified := classifyRunnerError(req, err)
 		require.Error(t, classified)

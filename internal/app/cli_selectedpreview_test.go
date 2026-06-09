@@ -434,6 +434,135 @@ func TestV2BundledStarshipDeleteIntentAppliesSelectedKeyOnly(t *testing.T) {
 	require.NotContains(t, stdout, secretFormat)
 }
 
+func TestV2FileResourceStatusDiffSaveApplyEndToEnd(t *testing.T) {
+	fixture := setupCLIV2FileResourceFixture(t, false)
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.txt")
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.files", "artifacts", "config")
+	currentBody := "CURRENT-FILE-CONTENT\n"
+	changedBody := "CHANGED-FILE-CONTENT\n"
+	writeCLIFile(t, livePath, currentBody)
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	require.Equal(t, "status", payload["command"])
+	items := payload["items"].([]any)
+	item := items[0].(map[string]any)
+	require.Equal(t, "test.files:config", item["settingRef"])
+	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", item["desiredUri"])
+	require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "test.files", "artifacts", "config")), item["desiredRelPath"])
+	resource := item["resource"].(map[string]any)
+	require.Equal(t, "file", resource["driverId"])
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	items = payload["items"].([]any)
+	item = items[0].(map[string]any)
+	require.Equal(t, "would-promote", item["plannedAction"])
+	require.NoFileExists(t, desiredPath)
+	require.NotContains(t, stdout, currentBody)
+
+	_, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	require.FileExists(t, desiredPath)
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, desiredPath)))
+	require.NotContains(t, stdout, currentBody)
+
+	writeCLIFile(t, livePath, changedBody)
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"diff", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	items = payload["items"].([]any)
+	diffInfo := items[0].(map[string]any)["diff"].(map[string]any)
+	require.Equal(t, "metadata-only", diffInfo["mode"])
+	require.Equal(t, "raw file contents omitted", diffInfo["redaction"])
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["dryRun"])
+	require.Equal(t, changedBody, string(mustReadCLIFile(t, livePath)))
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, livePath)))
+	items = payload["items"].([]any)
+	mutation := items[0].(map[string]any)["mutation"].(map[string]any)
+	require.NotEmpty(t, mutation["backupRefs"])
+	runID := mutation["runId"].(string)
+	stateRoot, stateErr := v2ledger.DefaultStateRoot(fixture.repoRoot)
+	require.NoError(t, stateErr)
+	ledgerBody := string(mustReadCLIFile(t, filepath.Join(stateRoot, "ledger", "ledger.jsonl")))
+	require.NotContains(t, ledgerBody, changedBody)
+	require.NotContains(t, ledgerBody, currentBody)
+	backupMetadata := string(mustReadCLIFile(t, filepath.Join(stateRoot, "backups", runID, "backup.yaml")))
+	require.NotContains(t, backupMetadata, changedBody)
+	require.NotContains(t, backupMetadata, currentBody)
+	require.NotContains(t, stdout, changedBody)
+	require.NotContains(t, stdout, currentBody)
+}
+
+func TestV2FileResourceMissingFilesBlockDeleteSemantics(t *testing.T) {
+	t.Run("missing live blocks save and preserves desired", func(t *testing.T) {
+		fixture := setupCLIV2FileResourceFixture(t, false)
+		setCWD(t, fixture.repoRoot)
+		desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.files", "artifacts", "config")
+		writeCLIFile(t, desiredPath, "DESIRED-STAYS\n")
+
+		payload, stdout, err := runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "test.files:config"})
+		require.NoError(t, err)
+		require.Equal(t, "blocked", payload["summary"].(map[string]any)["status"])
+		require.Equal(t, "DESIRED-STAYS\n", string(mustReadCLIFile(t, desiredPath)))
+		require.NotContains(t, stdout, "DESIRED-STAYS")
+
+		payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.files:config"})
+		require.Error(t, err)
+		require.Equal(t, "selectedlive.planBlocked", payload["error"].(map[string]any)["code"])
+		require.Equal(t, "DESIRED-STAYS\n", string(mustReadCLIFile(t, desiredPath)))
+		require.NotContains(t, stdout, "DESIRED-STAYS")
+	})
+
+	t.Run("missing desired blocks apply and preserves live without backup", func(t *testing.T) {
+		fixture := setupCLIV2FileResourceFixture(t, false)
+		setCWD(t, fixture.repoRoot)
+		livePath := filepath.Join(fixture.liveRoot, "config.txt")
+		writeCLIFile(t, livePath, "LIVE-STAYS\n")
+		stateRoot, stateErr := v2ledger.DefaultStateRoot(fixture.repoRoot)
+		require.NoError(t, stateErr)
+
+		payload, stdout, err := runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "test.files:config"})
+		require.NoError(t, err)
+		require.Equal(t, "blocked", payload["summary"].(map[string]any)["status"])
+		require.Equal(t, "LIVE-STAYS\n", string(mustReadCLIFile(t, livePath)))
+		require.NotContains(t, stdout, "LIVE-STAYS")
+
+		payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.files:config"})
+		require.Error(t, err)
+		require.Equal(t, "selectedlive.planBlocked", payload["error"].(map[string]any)["code"])
+		require.Equal(t, "LIVE-STAYS\n", string(mustReadCLIFile(t, livePath)))
+		require.NoDirExists(t, filepath.Join(stateRoot, "backups"))
+		require.NotContains(t, stdout, "LIVE-STAYS")
+	})
+}
+
+func TestV2FileResourceExplicitArtifactBinding(t *testing.T) {
+	fixture := setupCLIV2FileResourceFixture(t, true)
+	setCWD(t, fixture.repoRoot)
+	writeCLIFile(t, filepath.Join(fixture.liveRoot, "config.txt"), "EXPLICIT-BINDING-LIVE\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "test.files:config"})
+	require.NoError(t, err)
+	items := payload["items"].([]any)
+	item := items[0].(map[string]any)
+	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", item["desiredUri"])
+	require.Equal(t, "would-promote", item["plannedAction"])
+	require.NotContains(t, stdout, "EXPLICIT-BINDING-LIVE")
+}
+
 type cliV2SelectedPreviewFixture struct {
 	repoRoot string
 	liveRoot string
@@ -483,6 +612,57 @@ func setupCLIV2BundledStarshipFixture(t *testing.T, settingID string) cliV2Selec
 	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
 	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  starship:\n    settings:\n      "+settingID+":\n        scope: user\n")
 	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, homeDir: homeDir}
+}
+
+func setupCLIV2FileResourceFixture(t *testing.T, explicitArtifact bool) cliV2SelectedPreviewFixture {
+	t.Helper()
+	homeDir := setTempHome(t)
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	artifactLine := ""
+	if explicitArtifact {
+		artifactLine = "        artifact: artifacts/config\n"
+	}
+	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  test.files:\n    settings:\n      config:\n        scope: user\n"+artifactLine)
+	writeCLIFile(t, filepath.Join(repoRoot, "recipes", "local", "test.files", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.files
+displayName: Test files
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: `+liveRoot+`
+settings:
+  config:
+    label: Config file
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-file
+resources:
+  config-file:
+    driver: file
+    location: config
+    path: config.txt
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+`)
+	rec, err := v2recipe.LoadLocal(repoRoot, "test.files")
+	require.NoError(t, err)
+	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
+	require.NoError(t, err)
+	_, err = v2recipe.RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+	require.NoError(t, err)
+	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, liveRoot: liveRoot, homeDir: homeDir}
 }
 
 func cliSelectedPreviewRecipeBody(liveRoot string) string {

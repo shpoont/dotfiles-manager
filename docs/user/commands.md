@@ -360,9 +360,60 @@ This slice manages only the four root-level TOML keys above. It does not yet
 auto-discover `STARSHIP_CONFIG` non-default locations, manage shell init,
 install Starship, or manage full-file Starship configuration with comments,
 palettes, modules, presets, custom commands, or formatting. TOML selected-key
-apply may canonicalize/reformat the file and may not preserve comments. Use
-`custom.files` for whole-file management until broader app file resources are
-implemented.
+apply may canonicalize/reformat the file and may not preserve comments. Use a
+whole-file recipe resource when you want byte-preserving file management instead
+of selected TOML-key management.
+
+## v2 selected whole-file resources
+
+The v2 selected command flow also supports single-file recipe resources. A file
+resource is a whole file selected by a recipe, not a scalar key inside
+`settings.yaml`.
+
+For a selected file setting, the default desired artifact is:
+
+```text
+desired/<scope>/<subject>/targets/<target>/artifacts/<setting-id>
+```
+
+For example, a user-scoped `test.files:config` setting for `--user-id leon`
+uses:
+
+```text
+desired/user/leon/targets/test.files/artifacts/config
+```
+
+The corresponding URI is:
+
+```text
+desired://user/leon/targets/test.files/artifacts/config
+```
+
+Normal commands are the same as selected scalar settings:
+
+```bash
+dotfiles-manager status --user-id leon test.files:config
+dotfiles-manager save --dry-run --user-id leon test.files:config
+dotfiles-manager save --yes --user-id leon test.files:config
+dotfiles-manager diff --user-id leon test.files:config
+dotfiles-manager apply --dry-run --user-id leon test.files:config
+dotfiles-manager apply --yes --user-id leon test.files:config
+```
+
+`save --yes` copies the current live file bytes into the desired artifact after
+preview. `apply --yes` backs up the live file, writes the desired artifact bytes
+to the live path, and verifies the result.
+
+Diff and normal command output are metadata-only for file resources in this
+slice: they show refs, paths, existence, size/hash metadata, change kind, and
+backup/ledger refs, but they do not print raw file contents. The desired artifact
+itself contains the raw file bytes because that is the state to apply later.
+
+Delete/tombstone behavior is intentionally not supported yet. A missing live
+file blocks `save`; it does not remove an existing desired artifact. A missing
+desired artifact blocks `apply`; it does not delete the live file. Creating live
+files during apply is also out of scope because the current apply path requires a
+pre-mutation live-file backup.
 
 ## `[path]` scoping
 

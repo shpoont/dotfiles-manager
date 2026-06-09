@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
@@ -154,6 +155,12 @@ func Run(opts Options) (*Result, error) {
 			locationRoots = map[string]string{}
 		}
 		_ = source
+		if resource.Driver == recipe.FileDriverID {
+			item := executeFileResource(command, runID, started, store, profile, setting, rec, resourceID, resource, locationRoots, preItem)
+			items = append(items, item)
+			markReportItem(report, setting.Ref(), item)
+			continue
+		}
 		switch command {
 		case selectedpreview.CommandSave:
 			item := executeSave(repoRoot, runID, setting, rec, trustContext, resourceID, resource, locationRoots, preItem)
@@ -275,6 +282,48 @@ func executeApply(repoRoot string, runID string, started time.Time, store *v2led
 	}
 	item := selectedValueItemFromApply(runID, setting, resourceID, resource, preItem, result)
 	return item
+}
+
+func executeFileResource(command string, runID string, started time.Time, store *v2ledger.Store, profile *resolution.ResolvedProfile, setting resolution.ResolvedSetting, rec *recipe.Recipe, resourceID string, resource recipe.Resource, roots map[string]string, preItem selectedpreview.Item) v2ledger.ItemRecord {
+	req := customfiles.Request{Profile: profile, Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots}
+	var plan *customfiles.Plan
+	var err error
+	switch command {
+	case selectedpreview.CommandSave:
+		plan, err = customfiles.PlanFileSave(req)
+	case selectedpreview.CommandApply:
+		plan, err = customfiles.PlanFileApply(req)
+	default:
+		err = fmt.Errorf("unsupported file-resource live command: %s", command)
+	}
+	if err != nil {
+		return failedItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: "selectedlive.fileResource.plan", Message: err.Error(), Path: preItem.Resource.Path}, nil)
+	}
+
+	execOpts := customfiles.ExecuteOptions{}
+	if command == selectedpreview.CommandApply {
+		execOpts.BackupHook = fileResourceBackupHook(store, runID, started, plan)
+	}
+	result, err := customfiles.Execute(plan, execOpts)
+	if err != nil {
+		item := v2ledger.BuildCustomFilesItemRecord(plan, nil, err, runID)
+		return item
+	}
+	item := v2ledger.BuildCustomFilesItemRecord(plan, result, nil, runID)
+	if item.Result == v2ledger.ItemResultVerified && !result.Mutated {
+		item.Result = v2ledger.ItemResultUnchanged
+	}
+	return v2ledger.NormalizeItemRecord(item)
+}
+
+func fileResourceBackupHook(store *v2ledger.Store, runID string, started time.Time, plan *customfiles.Plan) customfiles.BackupHook {
+	return func(req customfiles.BackupRequest) (customfiles.BackupResult, error) {
+		item, err := store.WriteCustomFilesBackup(runID, started, plan, req)
+		if err != nil {
+			return customfiles.BackupResult{}, err
+		}
+		return customfiles.BackupResult{ID: item.Ref, Before: req.Before.Snapshot()}, nil
+	}
 }
 
 func selectedValueItemFromApply(runID string, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, preItem selectedpreview.Item, result *selectedvalue.ApplyResult) v2ledger.ItemRecord {

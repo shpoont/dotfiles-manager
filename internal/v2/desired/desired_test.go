@@ -145,6 +145,11 @@ func TestSelectedValueSettingsReadWriteMissingPresentDeleteAndUnmanaged(t *testi
 	uri := "desired://user/leon/targets/git/settings#user.email"
 	safety := safeDecision(t, recipe.IniFileDriverID)
 
+	require.NoError(t, ValidateSelectedValueWriteSafety(WriteRequest{RepoRoot: root, URI: uri, Value: SetString("leon@example.com"), Safety: safety}))
+	err := ValidateSelectedValueWriteSafety(WriteRequest{RepoRoot: root, URI: "desired://user/leon/targets/git/artifacts/config", Value: SetString("leon@example.com"), Safety: safety})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "settings URI")
+
 	read, err := ReadSelectedValue(root, uri)
 	require.NoError(t, err)
 	require.Equal(t, StatusMissing, read.Status)

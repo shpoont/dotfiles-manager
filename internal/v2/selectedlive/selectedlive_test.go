@@ -755,6 +755,10 @@ func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {
 	driverDiagnostic := safeDiagnostic("fallback", &filedriver.Error{Code: filedriver.CodeNotFound, Op: "read"}, "config.yaml")
 	require.Equal(t, "selectedlive.driver.not-found", driverDiagnostic.Code)
 	require.Equal(t, "selected-value driver read failed", driverDiagnostic.Message)
+	readonly := readOnlyDiagnostic(baseItem)
+	require.Equal(t, "selectedlive.driver.readOnly", readonly.Code)
+	require.Contains(t, readonly.Message, "read-only")
+	require.Equal(t, "/tmp/config.yaml", readonly.Path)
 
 	_, err = parseRef("Bad")
 	require.Error(t, err)
@@ -803,6 +807,97 @@ func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {
 	require.Equal(t, 1, finish.Summary.Applied)
 	require.Equal(t, 1, finish.Summary.Saved)
 	require.Equal(t, 1, finish.Summary.Blocked)
+}
+
+func TestFileResourceSaveApplyRunMutatesAndRecordsMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save promotes live file to desired artifact", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveFileResourceFixture(t)
+		fixture.writeLive("raw-live-file\n")
+		fixture.trustRecipe()
+
+		result, err := Run(fixture.options(selectedpreview.CommandSave, "run-file-save", true))
+		require.NoError(t, err)
+		require.NotNil(t, result.RunRecord)
+		require.Len(t, result.LedgerEntries, 1)
+		require.Equal(t, v2ledger.ItemResultVerified, result.RunRecord.Items[0].Result)
+		require.Equal(t, recipe.FileDriverID, result.RunRecord.Items[0].Driver)
+		require.Contains(t, readFile(t, fixture.desiredArtifactPath()), "raw-live-file")
+
+		runRecord := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-file-save.json"))
+		ledgerPayload := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+		reportJSON := mustJSON(t, result.Report)
+		for _, payload := range []string{runRecord, ledgerPayload, reportJSON} {
+			require.NotContains(t, payload, "raw-live-file")
+		}
+	})
+
+	t.Run("apply backs up live file and restores desired file", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveFileResourceFixture(t)
+		fixture.writeLive("raw-old-file\n")
+		fixture.writeDesiredArtifact("raw-new-file\n")
+		fixture.trustRecipe()
+
+		result, err := Run(fixture.options(selectedpreview.CommandApply, "run-file-apply", true))
+		require.NoError(t, err)
+		require.NotNil(t, result.RunRecord)
+		require.NotNil(t, result.Backup)
+		require.Len(t, result.RunRecord.Items[0].BackupRefs, 1)
+		require.Equal(t, v2ledger.ItemResultVerified, result.RunRecord.Items[0].Result)
+		require.Equal(t, "raw-new-file\n", readFile(t, fixture.livePath()))
+
+		runRecord := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-file-apply.json"))
+		ledgerPayload := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+		backupMetadata := readFile(t, filepath.Join(fixture.stateRoot, "backups", "run-file-apply", "backup.yaml"))
+		reportJSON := mustJSON(t, result.Report)
+		for _, payload := range []string{runRecord, ledgerPayload, backupMetadata, reportJSON} {
+			require.NotContains(t, payload, "raw-old-file")
+			require.NotContains(t, payload, "raw-new-file")
+		}
+
+		payloadRel := result.Backup.Items[0].PayloadRelPath
+		require.Contains(t, readFile(t, filepath.Join(fixture.stateRoot, "backups", "run-file-apply", filepath.FromSlash(payloadRel))), "raw-old-file")
+	})
+}
+
+func TestDirectFileResourceExecuteBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unsupported command fails without mutation", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveFileResourceFixture(t)
+		fixture.writeLive("raw-live-file\n")
+		fixture.writeDesiredArtifact("raw-desired-file\n")
+		fixture.trustRecipe()
+		profile, setting, rec, resourceID, resource, preItem := fileResourceExecutionContext(t, fixture)
+
+		item := executeFileResource(selectedpreview.CommandStatus, "run-file-unsupported", fixedSelectedLiveTime(), mustStore(t, fixture.stateRoot), profile, setting, rec, resourceID, resource, nil, preItem)
+		require.Equal(t, v2ledger.ItemResultFailed, item.Result)
+		require.Equal(t, "selectedlive.fileResource.plan", item.Diagnostics[0].Code)
+		require.Contains(t, item.Diagnostics[0].Message, "unsupported file-resource live command")
+		require.Equal(t, "raw-live-file\n", readFile(t, fixture.livePath()))
+	})
+
+	t.Run("unchanged apply records unchanged result", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveFileResourceFixture(t)
+		fixture.writeLive("same-file\n")
+		fixture.writeDesiredArtifact("same-file\n")
+		fixture.trustRecipe()
+		profile, setting, rec, resourceID, resource, preItem := fileResourceExecutionContext(t, fixture)
+
+		item := executeFileResource(selectedpreview.CommandApply, "run-file-unchanged", fixedSelectedLiveTime(), mustStore(t, fixture.stateRoot), profile, setting, rec, resourceID, resource, nil, preItem)
+		require.Equal(t, v2ledger.ItemResultUnchanged, item.Result)
+		require.Empty(t, item.BackupRefs)
+		require.Equal(t, "same-file\n", readFile(t, fixture.livePath()))
+	})
 }
 
 func TestMacOSDefaultsReadOnlyRunBlocksSaveApplyBeforeLiveExecution(t *testing.T) {
@@ -878,5 +973,120 @@ resources:
     lifecycle: allowed
     selector:
       key: AppleShowAllFiles
+`
+}
+
+type liveFileResourceFixture struct {
+	repoRoot  string
+	liveRoot  string
+	stateRoot string
+	recipe    *recipe.Recipe
+	t         *testing.T
+}
+
+func setupLiveFileResourceFixture(t *testing.T) liveFileResourceFixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  file.app:\n    settings:\n      config:\n        scope: user\n")
+	body := liveFileResourceRecipeBody(liveRoot)
+	writeLiveFile(t, filepath.Join(repoRoot, "recipes", "local", "file.app", "recipe.yaml"), body)
+	rec, err := recipe.Decode("file-resource.yaml", strings.NewReader(body))
+	require.NoError(t, err)
+	return liveFileResourceFixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func (f liveFileResourceFixture) options(command string, runID string, confirmed bool) Options {
+	return Options{
+		Command:   command,
+		RepoRoot:  f.repoRoot,
+		StateRoot: f.stateRoot,
+		Ref:       "file.app:config",
+		UserID:    "leon",
+		Confirmed: confirmed,
+		RunID:     runID,
+		Now: func() time.Time {
+			return fixedSelectedLiveTime()
+		},
+	}
+}
+
+func (f liveFileResourceFixture) livePath() string {
+	return filepath.Join(f.liveRoot, "config.txt")
+}
+
+func (f liveFileResourceFixture) desiredArtifactPath() string {
+	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "file.app", "artifacts", "config")
+}
+
+func (f liveFileResourceFixture) writeLive(body string) {
+	writeLiveFile(f.t, f.livePath(), body)
+}
+
+func (f liveFileResourceFixture) writeDesiredArtifact(body string) {
+	writeLiveFile(f.t, f.desiredArtifactPath(), body)
+}
+
+func (f liveFileResourceFixture) trustRecipe() {
+	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
+	require.NoError(f.t, err)
+}
+
+func fileResourceExecutionContext(t *testing.T, fixture liveFileResourceFixture) (*resolution.ResolvedProfile, resolution.ResolvedSetting, *recipe.Recipe, string, recipe.Resource, selectedpreview.Item) {
+	t.Helper()
+	profile, err := resolution.Resolve(fixture.repoRoot, resolution.ResolveOptions{UserID: "leon"})
+	require.NoError(t, err)
+	require.Len(t, profile.Settings, 1)
+	setting := profile.Settings[0]
+	rec, _, _, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting)
+	require.NoError(t, err)
+	preItem := selectedpreview.Item{
+		TargetRef:      setting.TargetID,
+		SettingRef:     setting.Ref(),
+		DesiredURI:     "desired://user/leon/targets/file.app/artifacts/config",
+		DesiredRelPath: filepath.Join("desired", "user", "leon", "targets", "file.app", "artifacts", "config"),
+		Resource: selectedpreview.ResourceInfo{
+			ID:       resourceID,
+			DriverID: resource.Driver,
+			Path:     fixture.livePath(),
+		},
+		PlannedAction: selectedpreview.PlannedActionWouldApply,
+	}
+	return profile, setting, rec, resourceID, resource, preItem
+}
+
+func liveFileResourceRecipeBody(liveRoot string) string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: file.app
+displayName: File App
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ` + liveRoot + `
+settings:
+  config:
+    label: Config file
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-file
+resources:
+  config-file:
+    driver: file
+    location: config
+    path: config.txt
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
 `
 }
