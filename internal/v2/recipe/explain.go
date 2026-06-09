@@ -611,7 +611,7 @@ func explainResource(resourceID string, resource Resource) ExplainResource {
 	explained := ExplainResource{ID: resourceID, LocationID: resource.Location, Path: resource.Path, DriverID: resource.Driver, SupportedOps: []string{"metadata explanation"}, BackupRestore: "unknown", Normalization: "unknown", DiffMode: "unknown", Include: append([]string(nil), resource.Include...), Exclude: append([]string(nil), resource.Exclude...)}
 	switch resource.Driver {
 	case FileDriverID:
-		explained.BackupRestore = "supported when used by custom.files"
+		explained.BackupRestore = "supported for selected file resources and custom.files"
 		explained.Normalization = "byte-preserving metadata"
 		explained.DiffMode = "file"
 	case FileTreeDriverID:

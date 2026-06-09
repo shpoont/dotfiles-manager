@@ -371,6 +371,59 @@ func setupCustomFileTreeFixture(t *testing.T) (string, string, *resolution.Resol
 	return root, liveRoot, profile, rec
 }
 
+func setupGenericFileResourceFixture(t *testing.T) (string, string, *resolution.ResolvedProfile, *recipe.Recipe) {
+	t.Helper()
+
+	root := t.TempDir()
+	liveRoot := filepath.Join(t.TempDir(), "test-files")
+	require.NoError(t, os.MkdirAll(liveRoot, 0o755))
+	writeV2Root(t, root)
+	writeStack(t, root)
+	writeFile(t, filepath.Join(root, "profiles", "layers", "global.yaml"), `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  test.files:
+    settings:
+      config:
+        scope: user
+`)
+	writeFile(t, filepath.Join(root, "recipes", "local", "test.files", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.files
+displayName: Test files
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: `+liveRoot+`
+settings:
+  config:
+    label: Config file
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-file
+resources:
+  config-file:
+    driver: file
+    location: config
+    path: config.txt
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+`)
+	profile, err := resolution.Resolve(root, resolution.ResolveOptions{UserID: "leon", MachineID: "mbp"})
+	require.NoError(t, err)
+	rec, err := recipe.LoadLocal(root, "test.files")
+	require.NoError(t, err)
+	return root, liveRoot, profile, rec
+}
+
 func writeV2Root(t *testing.T, root string) {
 	t.Helper()
 	writeFile(t, filepath.Join(root, resolution.RootConfigFile), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
@@ -478,6 +531,13 @@ func requireFile(t *testing.T, path string, want string) {
 	require.Equal(t, want, string(got))
 }
 
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return got
+}
+
 func assertMissing(t *testing.T, path string) {
 	t.Helper()
 	_, err := os.Stat(path)
@@ -551,6 +611,99 @@ func TestCustomFilesAmbiguousAndInvalidDesiredArtifacts(t *testing.T) {
 	_, err = PlanSave(Request{Profile: &settingsArtifact, Recipe: rec, SettingRef: "custom.files:file", LocationRoots: map[string]string{"config": liveRoot}})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "artifacts")
+}
+
+func TestFileResourcePlanUsesConventionalArtifactAndBlocksDeletes(t *testing.T) {
+	t.Parallel()
+
+	root, liveRoot, profile, rec := setupGenericFileResourceFixture(t)
+	livePath := filepath.Join(liveRoot, "config.txt")
+	desiredPath := filepath.Join(root, "desired", "user", "leon", "targets", "test.files", "artifacts", "config")
+	req := Request{Profile: profile, Recipe: rec, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}}
+
+	writeFile(t, livePath, "live\n")
+	readPlan, err := PlanFileRead(req)
+	require.NoError(t, err)
+	require.Equal(t, Operation(""), readPlan.Operation)
+	require.Equal(t, filedriver.ChangeDelete, readPlan.Preview.Change.Kind)
+	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", readPlan.Setting.DesiredURI)
+
+	savePlan, err := PlanFileSave(req)
+	require.NoError(t, err)
+	require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "test.files", "artifacts", "config")), filepath.ToSlash(savePlan.DesiredRelPath))
+	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", savePlan.Setting.DesiredURI)
+	require.Equal(t, filedriver.ChangeCreate, savePlan.Preview.Change.Kind)
+
+	writeFile(t, desiredPath, "desired\n")
+	require.NoError(t, os.Remove(livePath))
+	_, err = PlanFileSave(req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "live file is missing")
+	require.Equal(t, "desired\n", string(mustReadFile(t, desiredPath)))
+
+	writeFile(t, livePath, "live\n")
+	require.NoError(t, os.Remove(desiredPath))
+	_, err = PlanFileApply(req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "desired artifact is missing")
+	require.Equal(t, "live\n", string(mustReadFile(t, livePath)))
+}
+
+func TestFileResourcePlanReadErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	_, liveRoot, profile, rec := setupGenericFileResourceFixture(t)
+	req := Request{Profile: profile, Recipe: rec, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}}
+
+	_, err := PlanFileRead(Request{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "resolved profile")
+
+	_, err = PlanFileRead(Request{Profile: profile})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "file-resource recipe")
+
+	fileTreeRecipe := *rec
+	fileTreeRecipe.Resources = map[string]recipe.Resource{}
+	for id, resource := range rec.Resources {
+		resource.Driver = recipe.FileTreeDriverID
+		fileTreeRecipe.Resources[id] = resource
+	}
+	_, err = PlanFileRead(Request{Profile: profile, Recipe: &fileTreeRecipe, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "file-tree resource")
+
+	unsupportedRecipe := *rec
+	unsupportedRecipe.Resources = map[string]recipe.Resource{}
+	for id, resource := range rec.Resources {
+		resource.Driver = recipe.YAMLFileDriverID
+		resource.Selector = &recipe.Selector{Path: []string{"user", "email"}}
+		unsupportedRecipe.Resources[id] = resource
+	}
+	_, err = PlanFileRead(Request{Profile: profile, Recipe: &unsupportedRecipe, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported file-resource driver")
+
+	missingLocationRecipe := *rec
+	missingLocationRecipe.Resources = map[string]recipe.Resource{}
+	for id, resource := range rec.Resources {
+		resource.Location = "missing-location"
+		missingLocationRecipe.Resources[id] = resource
+	}
+	_, err = PlanFileRead(Request{Profile: profile, Recipe: &missingLocationRecipe, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "location")
+
+	settingsArtifactProfile := *profile
+	settingsArtifactProfile.Settings = append([]resolution.ResolvedSetting{}, profile.Settings...)
+	settingsArtifactProfile.Settings[0].DesiredRelPath = filepath.Join("desired", "user", "leon", "targets", "test.files", "settings.json")
+	_, err = PlanFileRead(Request{Profile: &settingsArtifactProfile, Recipe: rec, SettingRef: "test.files:config", LocationRoots: map[string]string{"config": liveRoot}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "artifacts")
+
+	_, err = buildFileResourcePlan(req, Operation("bad"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported file-resource operation")
 }
 
 func TestCustomFilesAdditionalErrorBranches(t *testing.T) {

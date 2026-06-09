@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
+	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -146,6 +148,7 @@ type Snapshot struct {
 	Exists     bool   `json:"exists"`
 	SHA256     string `json:"sha256,omitempty"`
 	Normalizer string `json:"normalizer,omitempty"`
+	Size       int    `json:"size,omitempty"`
 }
 
 type PreviewInfo struct {
@@ -443,6 +446,36 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	if resource.Selector != nil {
 		item.Selector = selectorFromRecipe(resource)
 	}
+	if resource.Driver == recipe.FileTreeDriverID {
+		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: "selectedpreview.driver.unsupported", Severity: SeverityError, Message: "file-tree resources are not supported by the selected command path in this slice", Ref: item.SettingRef, ResourceID: resourceID, DriverID: resource.Driver})
+		return finishBlocked(item, v2status.StateUnsupported, "File-tree resources are not supported by selected command preview.")
+	}
+	if resource.Driver == recipe.FileDriverID {
+		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+		item.Recipe.TrustStatus = trustEval.Status
+		if trustEval.Status != recipe.TrustStatusTrusted {
+			for _, diagnostic := range trustEval.Diagnostics {
+				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(diagnostic, item.SettingRef, runtime.Source, resourceID, resource.Driver))
+			}
+			if len(item.Diagnostics) == 0 {
+				item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "file-resource preview requires trusted recipe evidence before live reads", item.SettingRef))
+			}
+			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before file-resource preview can read live state.")
+		}
+
+		if err := rec.ValidateWriteSafety(trustContext); err != nil {
+			for _, validation := range recipe.ValidationDiagnostics(err) {
+				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
+			}
+			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks file-resource preview.")
+		}
+
+		locationRoots := roots[setting.TargetID]
+		if locationRoots == nil {
+			locationRoots = map[string]string{}
+		}
+		return buildFileResourceItem(repoRoot, command, item, rec, setting, locationRoots)
+	}
 	if !isSelectedValueDriver(resource.Driver) {
 		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: "selectedpreview.driver.unsupported", Severity: SeverityError, Message: fmt.Sprintf("driver %s is not a selected-value driver", resource.Driver), Ref: item.SettingRef, ResourceID: resourceID, DriverID: resource.Driver})
 		return finishBlocked(item, v2status.StateUnsupported, "Resource driver is not supported by selected-value preview.")
@@ -576,6 +609,62 @@ func evaluateTrust(repoRoot string, stateRoot string, source string, rec *recipe
 		return recipe.TrustEvaluation{Status: recipe.TrustStatusBlocked, Diagnostics: []recipe.ValidationDiagnostic{{Code: "selectedpreview.trust.evaluate", Severity: recipe.ValidationSeverityError, Message: err.Error(), Path: "$"}}}, recipe.WriteSafetyContext{}
 	}
 	return eval, eval.WriteSafetyContext(recipe.WriteSafetyContext{})
+}
+
+func buildFileResourceItem(repoRoot string, command string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string) Item {
+	profile := &resolution.ResolvedProfile{RepoRoot: repoRoot, Settings: []resolution.ResolvedSetting{setting}}
+	req := customfiles.Request{Profile: profile, Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots}
+
+	var plan *customfiles.Plan
+	var err error
+	switch command {
+	case CommandSave:
+		plan, err = customfiles.PlanFileSave(req)
+	case CommandApply:
+		plan, err = customfiles.PlanFileApply(req)
+	default:
+		plan, err = customfiles.PlanFileRead(req)
+	}
+	if err != nil {
+		item.Diagnostics = append(item.Diagnostics, fileResourceDiagnostic("selectedpreview.fileResource.plan", err, item))
+		return finishBlocked(item, v2status.StateBlockedSafety, "File-resource planning is blocked; no files will be mutated.")
+	}
+
+	item.DesiredURI = plan.Setting.DesiredURI
+	item.DesiredRelPath = filepath.ToSlash(plan.Setting.DesiredRelPath)
+	item.Resource.Path = plan.Preview.Path
+	item.Selector = SelectorInfo{Kind: "file", Summary: plan.Resource.Path}
+
+	current := plan.SourceState
+	desiredState := plan.DestinationState
+	if plan.Operation == customfiles.OperationApply {
+		current = plan.DestinationState
+		desiredState = plan.SourceState
+	}
+	item.Current = fromFileState(current)
+	item.Desired.Status = desiredStatus(desiredState.Exists)
+	item.Desired.Kind = "file"
+	item.Desired.Snapshot = fromFileState(desiredState)
+	item.Preview = &PreviewInfo{ChangeKind: string(plan.Preview.Change.Kind), Intent: fileResourceIntent(command, current, desiredState)}
+	if command == CommandDiff {
+		diffKind := string(plan.Preview.Change.Kind)
+		if !desiredState.Exists {
+			diffKind = "missing-desired"
+		}
+		item.Diff = fileDiffInfo(diffKind)
+	}
+
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedFileState(desiredState), Current: normalizedFileState(current)})
+	item.State = stateItem.State
+	item.NoBaseline = stateItem.NoBaseline
+	item.Message = stateItem.Message
+	item.AllowedActions = stateItem.Actions
+	item.PlannedAction = plannedAction(command, item)
+	if command == CommandSave && !plan.DestinationState.Exists && plan.SourceState.Exists {
+		item.PlannedAction = PlannedActionWouldPromote
+		item.Message = "Existing live file can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
+	}
+	return item
 }
 
 func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, command string, trustContext recipe.WriteSafetyContext, defaultsRunner macosdefaultsdriver.Runner) Item {
@@ -879,6 +968,51 @@ func diffInfo(kind string) *DiffInfo {
 		kind = "unknown"
 	}
 	return &DiffInfo{Kind: kind, Mode: "metadata-only", Redaction: "raw selected values omitted", Message: "Selected scalar diff is redacted; compare normalized metadata only."}
+}
+
+func fileDiffInfo(kind string) *DiffInfo {
+	if kind == "" {
+		kind = "unknown"
+	}
+	return &DiffInfo{Kind: kind, Mode: "metadata-only", Redaction: "raw file contents omitted", Message: "File-resource diff is metadata-only in this slice; compare existence, size, hash, and normalizer."}
+}
+
+func fromFileState(state filedriver.State) Snapshot {
+	snapshot := state.Snapshot()
+	return Snapshot{Exists: snapshot.Exists, SHA256: snapshot.SHA256, Normalizer: state.Normalizer, Size: snapshot.Size}
+}
+
+func normalizedFileState(state filedriver.State) v2status.NormalizedState {
+	return v2status.NormalizedState{Exists: state.Exists, Hash: state.SHA256, Normalizer: state.Normalizer}
+}
+
+func desiredStatus(exists bool) string {
+	if exists {
+		return "present"
+	}
+	return "missing"
+}
+
+func fileResourceIntent(command string, current filedriver.State, desiredState filedriver.State) string {
+	switch command {
+	case CommandSave:
+		if current.Exists {
+			return desired.IntentSet
+		}
+	case CommandApply:
+		if desiredState.Exists {
+			return desired.IntentSet
+		}
+	}
+	return ""
+}
+
+func fileResourceDiagnostic(code string, err error, item Item) Diagnostic {
+	message := "file-resource planning failed"
+	if err != nil {
+		message = err.Error()
+	}
+	return Diagnostic{Code: code, Severity: SeverityError, Message: message, Ref: item.SettingRef, Path: item.Resource.Path, ResourceID: item.Resource.ID, DriverID: item.Resource.DriverID}
 }
 
 func finishBlocked(item Item, state v2status.StateCode, message string) Item {

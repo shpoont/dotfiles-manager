@@ -281,6 +281,13 @@ func writeFile(t *testing.T, path string, body string) {
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(data)
+}
+
 func TestBuildMissingDesiredCoversStatusDiffSaveApply(t *testing.T) {
 	t.Parallel()
 
@@ -445,7 +452,8 @@ func TestBuildSaveApplyBlockSecretRuntimeValuesBeforeLiveWrites(t *testing.T) {
 func TestBuildReportsUnsupportedAndInvalidRecipeShapes(t *testing.T) {
 	t.Parallel()
 
-	fileFixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+	fileTreeBody := strings.Replace(fileRecipeBody("file.app", fixtureLiveRootPlaceholder), "driver: file", "driver: file-tree", 1)
+	fileFixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileTreeBody)
 	report, err := Build(Options{Command: CommandStatus, RepoRoot: fileFixture.repoRoot, StateRoot: fileFixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon"})
 	require.NoError(t, err)
 	require.Equal(t, SummaryBlocked, report.Summary.Status)
@@ -464,6 +472,154 @@ func TestBuildReportsUnsupportedAndInvalidRecipeShapes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, v2status.StateUnsupported, report.Items[0].State)
 	requireDiagnostic(t, report.Items[0], "selectedpreview.recipe.invalid")
+}
+
+func TestBuildFileResourceCommandsUseMetadataOnlyDesiredArtifacts(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+	writeFile(t, filepath.Join(fixture.liveRoot, "config.txt"), "raw-live-file\n")
+	writeFileResourceDesired(t, fixture, "file.app", "identity.email", "raw-desired-file\n")
+	fixture.trustRecipe()
+
+	for _, command := range []string{CommandStatus, CommandDiff, CommandSave, CommandApply} {
+		t.Run(command, func(t *testing.T) {
+			report, err := Build(Options{
+				Command:   command,
+				RepoRoot:  fixture.repoRoot,
+				StateRoot: fixture.stateRoot,
+				Ref:       "file.app:identity.email",
+				UserID:    "leon",
+				DryRun:    command == CommandSave || command == CommandApply,
+			})
+			require.NoError(t, err)
+			require.Len(t, report.Items, 1)
+			item := report.Items[0]
+			require.Equal(t, recipe.FileDriverID, item.Resource.DriverID)
+			require.Equal(t, "config.txt", item.Resource.RelPath)
+			require.True(t, filepath.IsAbs(item.Resource.Path))
+			require.Equal(t, SelectorInfo{Kind: "file", Summary: "config.txt"}, item.Selector)
+			require.Equal(t, "desired://user/leon/targets/file.app/artifacts/identity.email", item.DesiredURI)
+			require.Equal(t, filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "file.app", "artifacts", "identity.email")), item.DesiredRelPath)
+			require.True(t, item.Current.Exists)
+			require.Equal(t, len("raw-live-file\n"), item.Current.Size)
+			require.Equal(t, "present", item.Desired.Status)
+			require.Equal(t, "file", item.Desired.Kind)
+			require.True(t, item.Desired.Snapshot.Exists)
+			require.Equal(t, len("raw-desired-file\n"), item.Desired.Snapshot.Size)
+			require.NotNil(t, item.Preview)
+			require.Equal(t, "update", item.Preview.ChangeKind)
+			if command == CommandSave || command == CommandApply {
+				require.Equal(t, desired.IntentSet, item.Preview.Intent)
+				require.Contains(t, item.PlannedAction, "would-")
+			}
+			if command == CommandDiff {
+				require.NotNil(t, item.Diff)
+				require.Equal(t, "metadata-only", item.Diff.Mode)
+				require.Equal(t, "raw file contents omitted", item.Diff.Redaction)
+				require.Equal(t, "update", item.Diff.Kind)
+			}
+			payload := mustJSON(t, report)
+			require.NotContains(t, payload, "raw-live-file")
+			require.NotContains(t, payload, "raw-desired-file")
+			require.NotContains(t, Text(report), "raw-live-file")
+			require.NotContains(t, Text(report), "raw-desired-file")
+		})
+	}
+}
+
+func TestBuildFileResourceMissingStatesDoNotDelete(t *testing.T) {
+	t.Parallel()
+
+	t.Run("save blocks missing live and preserves desired", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+		desiredPath := writeFileResourceDesired(t, fixture, "file.app", "identity.email", "keep-desired\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		requireDiagnostic(t, item, "selectedpreview.fileResource.plan")
+		require.Contains(t, item.Diagnostics[0].Message, "live file is missing")
+		require.Equal(t, "keep-desired\n", readFile(t, desiredPath))
+	})
+
+	t.Run("apply blocks missing desired and preserves live", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+		livePath := filepath.Join(fixture.liveRoot, "config.txt")
+		writeFile(t, livePath, "keep-live\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Equal(t, SummaryBlocked, report.Summary.Status)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, v2status.StateBlockedSafety, item.State)
+		requireDiagnostic(t, item, "selectedpreview.fileResource.plan")
+		require.Contains(t, item.Diagnostics[0].Message, "desired artifact is missing")
+		require.Equal(t, "keep-live\n", readFile(t, livePath))
+	})
+
+	t.Run("diff reports missing desired without delete intent", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+		writeFile(t, filepath.Join(fixture.liveRoot, "config.txt"), "live-only\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandDiff, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon"})
+		require.NoError(t, err)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.NotNil(t, item.Diff)
+		require.Equal(t, "missing-desired", item.Diff.Kind)
+		require.Empty(t, item.Preview.Intent)
+	})
+
+	t.Run("save promotes existing live file into missing desired artifact", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+		writeFile(t, filepath.Join(fixture.liveRoot, "config.txt"), "promote-live\n")
+		fixture.trustRecipe()
+
+		report, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon", DryRun: true})
+		require.NoError(t, err)
+		require.Len(t, report.Items, 1)
+		item := report.Items[0]
+		require.Equal(t, PlannedActionWouldPromote, item.PlannedAction)
+		require.Contains(t, item.Message, "promoted into a desired artifact")
+		require.Equal(t, "missing", item.Desired.Status)
+		require.Equal(t, desired.IntentSet, item.Preview.Intent)
+		require.Equal(t, "create", item.Preview.ChangeKind)
+	})
+}
+
+func TestBuildFileResourceRequiresTrustBeforeLiveRead(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "file.app", "identity.email", fileRecipeBody("file.app", fixtureLiveRootPlaceholder))
+	writeFile(t, filepath.Join(fixture.liveRoot, "config.txt"), "raw-live-file\n")
+	writeFileResourceDesired(t, fixture, "file.app", "identity.email", "raw-desired-file\n")
+
+	report, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "file.app:identity.email", UserID: "leon"})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, report.Summary.Status)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, v2status.StateBlockedSafety, item.State)
+	require.Empty(t, item.Current.SHA256)
+	requireDiagnostic(t, item, "trust.local.missingRecord")
+	require.NotContains(t, mustJSON(t, report), "raw-live-file")
+	require.NotContains(t, mustJSON(t, report), "raw-desired-file")
 }
 
 func TestErrorReportAndHelperBranches(t *testing.T) {
@@ -563,6 +719,13 @@ resources:
     redaction: redacted-for-display
     lifecycle: allowed
 `
+}
+
+func writeFileResourceDesired(t *testing.T, fixture fixture, target string, artifact string, body string) string {
+	t.Helper()
+	path := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", target, "artifacts", artifact)
+	writeFile(t, path, body)
+	return path
 }
 
 func TestRemainingHelperBranches(t *testing.T) {
