@@ -405,7 +405,7 @@ func requireLedgerEntries(t *testing.T, stateRoot string) []LedgerEntry {
 	path := filepath.Join(stateRoot, "ledger", "ledger.jsonl")
 	file, err := os.Open(path)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var entries []LedgerEntry
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

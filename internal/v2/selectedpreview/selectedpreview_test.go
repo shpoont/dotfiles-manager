@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
@@ -245,6 +247,107 @@ func TestBuildUsesBundledZshFileResourceRuntime(t *testing.T) {
 			require.NotContains(t, Text(report), "raw-desired-zshrc")
 		})
 	}
+}
+
+func TestBuildNativeExportDiffAndSaveDryRunUseMetadataOnlyArtifacts(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupNativeExportFixture(t, false)
+	fixture.trustNativeRecipe()
+	executor := &recordingNativeExecutor{body: "native-export-secret"}
+
+	diffReport, err := Build(Options{
+		Command:        CommandDiff,
+		RepoRoot:       fixture.repoRoot,
+		StateRoot:      fixture.stateRoot,
+		Ref:            "native.app:settings",
+		UserID:         "leon",
+		MachineID:      "mbp",
+		NativeExecutor: executor,
+		Now:            fixedPreviewTime,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, executor.calls)
+	require.Len(t, diffReport.Items, 1)
+	diffItem := diffReport.Items[0]
+	require.Equal(t, recipe.NativeExportDriverID, diffItem.Resource.DriverID)
+	require.NotNil(t, diffItem.Diff)
+	require.Equal(t, "metadata-only", diffItem.Diff.Mode)
+	require.Contains(t, diffItem.Diff.Message, "internal app settings are not semantically compared")
+	require.True(t, diffItem.Current.Exists)
+	require.Equal(t, "missing", diffItem.Desired.Status)
+	require.NoDirExists(t, fixture.desiredArtifactPath())
+	require.NotContains(t, mustJSON(t, diffReport), "native-export-secret")
+	require.NotContains(t, Text(diffReport), "native-export-secret")
+
+	saveReport, err := Build(Options{
+		Command:        CommandSave,
+		RepoRoot:       fixture.repoRoot,
+		StateRoot:      fixture.stateRoot,
+		Ref:            "native.app:settings",
+		UserID:         "leon",
+		MachineID:      "mbp",
+		DryRun:         true,
+		NativeExecutor: executor,
+		Now:            fixedPreviewTime,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, executor.calls)
+	require.Equal(t, PlannedActionWouldPromote, saveReport.Items[0].PlannedAction)
+	require.NoDirExists(t, fixture.desiredArtifactPath())
+	require.NotContains(t, mustJSON(t, saveReport), "native-export-secret")
+}
+
+func TestBuildNativeExportStatusAndApplyDoNotExecuteRunner(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupNativeExportFixture(t, false)
+	fixture.trustNativeRecipe()
+	executor := &recordingNativeExecutor{body: "must-not-run"}
+
+	statusReport, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "native.app:settings", UserID: "leon", NativeExecutor: executor})
+	require.NoError(t, err)
+	require.Equal(t, 0, executor.calls)
+	require.Equal(t, v2status.StateUnknown, statusReport.Items[0].State)
+	require.Contains(t, statusReport.Items[0].Message, "does not run the export operation")
+
+	applyReport, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "native.app:settings", UserID: "leon", DryRun: true, NativeExecutor: executor})
+	require.NoError(t, err)
+	require.Equal(t, 0, executor.calls)
+	require.Equal(t, v2status.StateUnsupported, applyReport.Items[0].State)
+	requireDiagnostic(t, applyReport.Items[0], "selectedpreview.nativeExport.applyUnsupported")
+}
+
+func TestBuildNativeExportReviewGateBlocksBeforeRunner(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupNativeExportFixture(t, true)
+	fixture.trustNativeRecipe()
+	executor := &recordingNativeExecutor{body: "reviewed"}
+
+	blocked, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "native.app:settings", UserID: "leon", DryRun: true, NativeExecutor: executor})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, blocked.Summary.Status)
+	require.Equal(t, 0, executor.calls)
+	requireDiagnostic(t, blocked.Items[0], "nativeexport.review.required")
+
+	confirmed, err := Build(Options{Command: CommandSave, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "native.app:settings", UserID: "leon", DryRun: true, Confirmed: true, NativeExecutor: executor, Now: fixedPreviewTime})
+	require.NoError(t, err)
+	require.NotEqual(t, SummaryBlocked, confirmed.Summary.Status)
+	require.Equal(t, 1, executor.calls)
+}
+
+func TestBuildNativeExportUntrustedLocalRecipeDoesNotExecuteRunner(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupNativeExportFixture(t, false)
+	executor := &recordingNativeExecutor{body: "must-not-run"}
+
+	report, err := Build(Options{Command: CommandDiff, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "native.app:settings", UserID: "leon", NativeExecutor: executor})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, report.Summary.Status)
+	require.Equal(t, 0, executor.calls)
+	requireDiagnostic(t, report.Items[0], "trust.local.missingRecord")
 }
 
 func TestBuildZshOptInStartupFilesEmitWriteWarnings(t *testing.T) {
@@ -721,6 +824,131 @@ func (f fixture) writeDesiredUnmanaged() {
 func (f fixture) trustRecipe() {
 	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
 	require.NoError(f.t, err)
+}
+
+func setupNativeExportFixture(t *testing.T, reviewRequired bool) fixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeNativeExportRoot(t, repoRoot)
+	body := nativeExportRecipeBody(reviewRequired)
+	writeFile(t, filepath.Join(repoRoot, "recipes", "local", "native.app", "recipe.yaml"), body)
+	rec := decodeRecipe(t, body)
+	return fixture{repoRoot: repoRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func (f fixture) trustNativeRecipe() {
+	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
+	require.NoError(f.t, err)
+	path := filepath.Join(f.stateRoot, "trust", "trust-record.yaml")
+	payload := readFile(f.t, path)
+	payload = strings.Replace(payload, "reviewedNativeOperations: false", "reviewedNativeOperations: true", 1)
+	writeFile(f.t, path, payload)
+}
+
+func (f fixture) desiredArtifactPath() string {
+	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "native.app", "artifacts", "settings")
+}
+
+func writeNativeExportRoot(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeFile(t, filepath.Join(root, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeFile(t, filepath.Join(root, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  native.app:\n    settings:\n      settings:\n        scope: user\n        artifact: artifacts/settings\n")
+}
+
+func nativeExportRecipeBody(reviewRequired bool) string {
+	review := ""
+	if reviewRequired {
+		review = `
+    review:
+      required: true
+      reasons: [opaque, account-bound]
+      message: Review native export before running`
+	}
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: native.app
+displayName: Native App
+supportLevel: experimental
+capability: export-only
+settings:
+  settings:
+    label: Settings bundle
+    supportLevel: experimental
+    capability: export-only
+    artifactForm: native-export
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: settings
+resources:
+  settings:
+    driver: native-export
+    nativeOperation: export-settings
+    capability: export-only
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: export
+        - output: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    outputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
+    exportMetadata:
+      capturedCategories: [settings]
+      secretExclusions: [tokens]
+      accountExclusions: [sessions]
+      limitations:
+        - Internal app settings are not semantically compared` + review + `
+`
+}
+
+var fixedPreviewTime = func() time.Time {
+	return time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+}
+
+type recordingNativeExecutor struct {
+	body  string
+	calls int
+}
+
+func (e *recordingNativeExecutor) Run(ctx context.Context, spec nativeops.ExecSpec) nativeops.ExecResult {
+	e.calls++
+	if len(spec.Args) < 2 {
+		return nativeops.ExecResult{ExitCode: 2, Err: errors.New("missing output arg")}
+	}
+	if err := os.WriteFile(spec.Args[1], []byte(e.body), 0o644); err != nil {
+		return nativeops.ExecResult{ExitCode: 1, Err: err}
+	}
+	return nativeops.ExecResult{ExitCode: 0, Stdout: nativeops.CaptureSummary{Mode: spec.Stdout.Mode}, Stderr: nativeops.CaptureSummary{Mode: spec.Stderr.Mode}}
 }
 
 func writeV2Root(t *testing.T, root string, target string, settingID string) {

@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
@@ -228,6 +229,84 @@ func TestNoYesChangedRequiresConfirmationButNoopDoesNot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, selectedpreview.SummaryOK, result.Report.Summary.Status)
 	require.NoDirExists(t, filepath.Join(noop.stateRoot, "ledger"))
+}
+
+func TestNativeExportSaveRequiresYesBeforeDesiredWrite(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLiveNativeExportFixture(t)
+	fixture.trustNativeRecipe()
+	executor := &liveRecordingNativeExecutor{body: "native-live-secret"}
+
+	result, err := Run(fixture.nativeOptions("run-native-confirm", false, executor))
+	require.Error(t, err)
+	var previewErr *selectedpreview.Error
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodeConfirmationRequired, previewErr.Code)
+	require.Equal(t, 1, executor.calls)
+	require.NoDirExists(t, fixture.desiredArtifactPath())
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "ledger"))
+	require.NotContains(t, mustJSON(t, result.Report), "native-live-secret")
+}
+
+func TestNativeExportSaveYesWritesDesiredArtifactAndMetadataOnlyLedger(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLiveNativeExportFixture(t)
+	fixture.trustNativeRecipe()
+	executor := &liveRecordingNativeExecutor{body: "native-live-secret"}
+
+	result, err := Run(fixture.nativeOptions("run-native-save", true, executor))
+	require.NoError(t, err)
+	require.NotNil(t, result.RunRecord)
+	require.Len(t, result.LedgerEntries, 1)
+	require.Equal(t, v2ledger.ItemResultVerified, result.RunRecord.Items[0].Result)
+	require.FileExists(t, filepath.Join(fixture.desiredArtifactPath(), "metadata.json"))
+	require.Contains(t, readFile(t, filepath.Join(fixture.desiredArtifactPath(), "payload", "bundle.txt")), "native-live-secret")
+
+	reportJSON := mustJSON(t, result.Report)
+	runRecord := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-native-save.json"))
+	ledgerPayload := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+	for _, payload := range []string{reportJSON, runRecord, ledgerPayload} {
+		require.NotContains(t, payload, "native-live-secret")
+		require.NotContains(t, payload, "/usr/bin/native-safe-tool")
+		require.NotContains(t, payload, fixture.stateRoot)
+	}
+}
+
+func TestNativeExportLiveFailureItemsStayMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	setting := resolution.ResolvedSetting{
+		TargetID:       "native.app",
+		SettingID:      "settings",
+		Scope:          "user",
+		Subject:        "leon",
+		DesiredURI:     "desired://user/leon/targets/native.app/artifacts/settings",
+		DesiredRelPath: "desired/user/leon/targets/native.app/artifacts/settings",
+		DesiredPath:    filepath.Join(t.TempDir(), "desired", "artifact"),
+	}
+	resource := recipe.Resource{Driver: recipe.NativeExportDriverID, NativeOperation: "export-settings"}
+	preItem := selectedpreview.Item{
+		Desired: selectedpreview.DesiredInfo{Snapshot: selectedpreview.Snapshot{Exists: true, SHA256: "before", Normalizer: "native-export.payload-tree.v1"}},
+		Current: selectedpreview.Snapshot{Exists: true, SHA256: "current", Normalizer: "native-export.payload-tree.v1"},
+	}
+
+	apply := executeNativeExport(selectedpreview.CommandApply, "run-native-fail", setting, "settings", resource, preItem)
+	require.Equal(t, v2ledger.ItemResultFailed, apply.Result)
+	require.Equal(t, "selectedlive.nativeExport.applyUnsupported", apply.Diagnostics[0].Code)
+	require.Equal(t, "native-export.v1", apply.DriverVersion)
+	applyPayload, err := json.Marshal(apply)
+	require.NoError(t, err)
+	require.NotContains(t, string(applyPayload), "native-live-secret")
+
+	missingStaging := executeNativeExport(selectedpreview.CommandSave, "run-native-fail", setting, "settings", resource, preItem)
+	require.Equal(t, v2ledger.ItemResultFailed, missingStaging.Result)
+	require.Equal(t, "selectedlive.nativeExport.missingStaging", missingStaging.Diagnostics[0].Code)
+
+	fallback := failedNativeExportItemRecord("", "run-native-fail", setting, "settings", recipe.Resource{}, selectedpreview.Item{}, v2ledger.Diagnostic{})
+	require.Equal(t, "selectedlive.nativeExport.failed", fallback.Diagnostics[0].Code)
+	require.Equal(t, "native export live save failed", fallback.Diagnostics[0].Message)
 }
 
 func TestApplyMissingDesiredAndPolicyDeniedPathsBlockBeforeMutation(t *testing.T) {
@@ -478,13 +557,13 @@ func TestRunAndRuntimeContextErrorBranches(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Report.DryRun)
 
-	_, _, _, _, _, err = runtimeContext(fixture.repoRoot, fixture.stateRoot, resolutionSetting("missing.app", "identity.email"))
+	_, _, _, _, _, err = runtimeContext(fixture.repoRoot, fixture.stateRoot, resolutionSetting("missing.app", "identity.email"), false)
 	require.Error(t, err)
 
 	untrusted := setupLiveFixture(t, "create", "allow")
 	untrusted.writeLive("old@example.com")
 	untrusted.writeDesired("new@example.com")
-	_, _, _, _, _, err = runtimeContext(untrusted.repoRoot, untrusted.stateRoot, resolutionSetting("test.app", "identity.email"))
+	_, _, _, _, _, err = runtimeContext(untrusted.repoRoot, untrusted.stateRoot, resolutionSetting("test.app", "identity.email"), false)
 	require.Error(t, err)
 
 	badRunID := setupLiveFixture(t, "create", "allow")
@@ -585,6 +664,135 @@ func (f liveFixture) trustRecipe() {
 	require.NoError(f.t, err)
 }
 
+func setupLiveNativeExportFixture(t *testing.T) liveFixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	var err error
+	repoRoot, err = filepath.EvalSymlinks(repoRoot)
+	require.NoError(t, err)
+	stateRoot := t.TempDir()
+	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  native.app:\n    settings:\n      settings:\n        scope: user\n        artifact: artifacts/settings\n")
+	body := liveNativeExportRecipeBody()
+	writeLiveFile(t, filepath.Join(repoRoot, "recipes", "local", "native.app", "recipe.yaml"), body)
+	rec, err := recipe.Decode("recipe.yaml", strings.NewReader(body))
+	require.NoError(t, err)
+	return liveFixture{repoRoot: repoRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func (f liveFixture) trustNativeRecipe() {
+	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
+	require.NoError(f.t, err)
+	path := filepath.Join(f.stateRoot, "trust", "trust-record.yaml")
+	payload := readFile(f.t, path)
+	payload = strings.Replace(payload, "reviewedNativeOperations: false", "reviewedNativeOperations: true", 1)
+	writeLiveFile(f.t, path, payload)
+}
+
+func (f liveFixture) nativeOptions(runID string, confirmed bool, executor nativeops.Executor) Options {
+	return Options{
+		Command:        selectedpreview.CommandSave,
+		RepoRoot:       f.repoRoot,
+		StateRoot:      f.stateRoot,
+		Ref:            "native.app:settings",
+		UserID:         "leon",
+		MachineID:      "mbp",
+		Confirmed:      confirmed,
+		RunID:          runID,
+		NativeExecutor: executor,
+		Now: func() time.Time {
+			return time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+		},
+	}
+}
+
+func (f liveFixture) desiredArtifactPath() string {
+	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "native.app", "artifacts", "settings")
+}
+
+type liveRecordingNativeExecutor struct {
+	body  string
+	calls int
+}
+
+func (e *liveRecordingNativeExecutor) Run(ctx context.Context, spec nativeops.ExecSpec) nativeops.ExecResult {
+	e.calls++
+	if len(spec.Args) < 2 {
+		return nativeops.ExecResult{ExitCode: 2, Err: errors.New("missing output arg")}
+	}
+	if err := os.WriteFile(spec.Args[1], []byte(e.body), 0o644); err != nil {
+		return nativeops.ExecResult{ExitCode: 1, Err: err}
+	}
+	return nativeops.ExecResult{ExitCode: 0, Stdout: nativeops.CaptureSummary{Mode: spec.Stdout.Mode}, Stderr: nativeops.CaptureSummary{Mode: spec.Stderr.Mode}}
+}
+
+func liveNativeExportRecipeBody() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: native.app
+displayName: Native App
+supportLevel: experimental
+capability: export-only
+settings:
+  settings:
+    label: Settings bundle
+    supportLevel: experimental
+    capability: export-only
+    artifactForm: native-export
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: settings
+resources:
+  settings:
+    driver: native-export
+    nativeOperation: export-settings
+    capability: export-only
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: export
+        - output: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    outputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
+    exportMetadata:
+      capturedCategories: [settings]
+      secretExclusions: [tokens]
+      accountExclusions: [sessions]
+      limitations:
+        - Internal app settings are not semantically compared
+`
+}
+
 func liveRecipeBody(liveRoot string, createPolicy string, deletePolicy string) string {
 	return `schema: dotfiles-manager.v2.recipe
 schemaVersion: 1
@@ -669,7 +877,7 @@ func executionContextForFixture(t *testing.T, fixture liveFixture) (resolution.R
 	require.NoError(t, err)
 	require.Len(t, profile.Settings, 1)
 	setting := profile.Settings[0]
-	rec, _, trustContext, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting)
+	rec, _, trustContext, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting, false)
 	require.NoError(t, err)
 	preItem := selectedpreview.Item{
 		TargetRef:      setting.TargetID,
@@ -1254,7 +1462,7 @@ func fileResourceExecutionContext(t *testing.T, fixture liveFileResourceFixture)
 	require.NoError(t, err)
 	require.Len(t, profile.Settings, 1)
 	setting := profile.Settings[0]
-	rec, _, _, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting)
+	rec, _, _, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting, false)
 	require.NoError(t, err)
 	preItem := selectedpreview.Item{
 		TargetRef:      setting.TargetID,

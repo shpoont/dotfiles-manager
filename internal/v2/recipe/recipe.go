@@ -31,6 +31,7 @@ const (
 	ZshTarget                     = "zsh"
 	FileDriverID                  = "file"
 	FileTreeDriverID              = "file-tree"
+	NativeExportDriverID          = "native-export"
 	IniFileDriverID               = "ini-file"
 	JSONFileDriverID              = "json-file"
 	YAMLFileDriverID              = "yaml-file"
@@ -48,8 +49,12 @@ const (
 const (
 	MaxNativeOperationTimeoutSeconds = 300
 	MaxNativeCaptureBytes            = 64 * 1024
+	MaxNativeExportBytes             = 50 * 1024 * 1024
+	MaxNativeExportEntries           = 10000
 	maxNativeOperationTimeoutSeconds = MaxNativeOperationTimeoutSeconds
 	maxNativeCaptureBytes            = MaxNativeCaptureBytes
+	maxNativeExportBytes             = MaxNativeExportBytes
+	maxNativeExportEntries           = MaxNativeExportEntries
 	maxNativeExpectedExitCodes       = 16
 )
 
@@ -146,6 +151,7 @@ type Resource struct {
 	Driver              string          `yaml:"driver"`
 	Location            string          `yaml:"location"`
 	Path                string          `yaml:"path"`
+	NativeOperation     string          `yaml:"nativeOperation,omitempty"`
 	Capability          string          `yaml:"capability,omitempty"`
 	Sensitivity         string          `yaml:"sensitivity,omitempty"`
 	Redaction           string          `yaml:"redaction,omitempty"`
@@ -158,25 +164,28 @@ type Resource struct {
 }
 
 type NativeOperation struct {
-	Kind              string                    `yaml:"kind"`
-	Reviewed          bool                      `yaml:"reviewed"`
-	Runner            string                    `yaml:"runner"`
-	Platforms         []string                  `yaml:"platforms"`
-	ArtifactForm      string                    `yaml:"artifactForm"`
-	DiffMode          string                    `yaml:"diffMode"`
-	Lifecycle         string                    `yaml:"lifecycle"`
-	WorkingDirectory  string                    `yaml:"workingDirectory"`
-	TimeoutSeconds    int                       `yaml:"timeoutSeconds"`
-	ExpectedExitCodes []int                     `yaml:"expectedExitCodes"`
-	Command           NativeCommand             `yaml:"command"`
-	Stdin             NativeStdinPolicy         `yaml:"stdin"`
-	Stdout            NativeStreamPolicy        `yaml:"stdout"`
-	Stderr            NativeStreamPolicy        `yaml:"stderr"`
-	Env               map[string]NativeEnvValue `yaml:"env,omitempty"`
-	Inputs            map[string]NativePathSpec `yaml:"inputs,omitempty"`
-	Outputs           map[string]NativePathSpec `yaml:"outputs,omitempty"`
-	TempPaths         map[string]NativePathSpec `yaml:"tempPaths,omitempty"`
-	Redaction         string                    `yaml:"redaction"`
+	Kind              string                     `yaml:"kind"`
+	Reviewed          bool                       `yaml:"reviewed"`
+	Runner            string                     `yaml:"runner"`
+	Platforms         []string                   `yaml:"platforms"`
+	ArtifactForm      string                     `yaml:"artifactForm"`
+	DiffMode          string                     `yaml:"diffMode"`
+	Lifecycle         string                     `yaml:"lifecycle"`
+	WorkingDirectory  string                     `yaml:"workingDirectory"`
+	TimeoutSeconds    int                        `yaml:"timeoutSeconds"`
+	ExpectedExitCodes []int                      `yaml:"expectedExitCodes"`
+	Command           NativeCommand              `yaml:"command"`
+	Stdin             NativeStdinPolicy          `yaml:"stdin"`
+	Stdout            NativeStreamPolicy         `yaml:"stdout"`
+	Stderr            NativeStreamPolicy         `yaml:"stderr"`
+	Env               map[string]NativeEnvValue  `yaml:"env,omitempty"`
+	Inputs            map[string]NativePathSpec  `yaml:"inputs,omitempty"`
+	Outputs           map[string]NativePathSpec  `yaml:"outputs,omitempty"`
+	TempPaths         map[string]NativePathSpec  `yaml:"tempPaths,omitempty"`
+	Redaction         string                     `yaml:"redaction"`
+	Review            NativeReviewPolicy         `yaml:"review,omitempty"`
+	Limits            NativeExportLimits         `yaml:"limits,omitempty"`
+	ExportMetadata    NativeExportMetadataPolicy `yaml:"exportMetadata,omitempty"`
 }
 
 type NativeCommand struct {
@@ -211,6 +220,24 @@ type NativeStdinPolicy struct {
 type NativeStreamPolicy struct {
 	Mode     string `yaml:"mode"`
 	MaxBytes int    `yaml:"maxBytes,omitempty"`
+}
+
+type NativeReviewPolicy struct {
+	Required bool     `yaml:"required,omitempty"`
+	Reasons  []string `yaml:"reasons,omitempty"`
+	Message  string   `yaml:"message,omitempty"`
+}
+
+type NativeExportLimits struct {
+	MaxBytes   int64 `yaml:"maxBytes,omitempty"`
+	MaxEntries int   `yaml:"maxEntries,omitempty"`
+}
+
+type NativeExportMetadataPolicy struct {
+	CapturedCategories []string `yaml:"capturedCategories,omitempty"`
+	SecretExclusions   []string `yaml:"secretExclusions,omitempty"`
+	AccountExclusions  []string `yaml:"accountExclusions,omitempty"`
+	Limitations        []string `yaml:"limitations,omitempty"`
 }
 
 type ReviewWarning struct {
@@ -300,7 +327,7 @@ func LoadLocal(repoRoot string, recipeID string) (*Recipe, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read local recipe %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return Decode(path, file)
 }
 
@@ -363,7 +390,7 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 	if !knownCapability(r.Capability) {
 		add("capability.unsupported", "$.capability", fmt.Sprintf("unsupported capability: %s", r.Capability))
 	}
-	if len(r.Locations) == 0 {
+	if len(r.Locations) == 0 && recipeNeedsLocations(r) {
 		add("locations.required", "$.locations", "recipe must declare at least one location")
 	}
 	if len(r.Resources) == 0 {
@@ -394,13 +421,22 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 			add("resource.driver.required", resourcePath+".driver", fmt.Sprintf("resource %s driver is required", resourceID))
 			driverDeclared = false
 		}
-		if resource.Location == "" {
+		if resource.Driver == NativeExportDriverID {
+			if resource.Location != "" {
+				add("resource.location.unexpected", resourcePath+".location", fmt.Sprintf("resource %s driver %q must not declare location", resourceID, NativeExportDriverID))
+			}
+			if resource.Path != "" {
+				add("resource.path.unexpected", resourcePath+".path", fmt.Sprintf("resource %s driver %q must not declare path", resourceID, NativeExportDriverID))
+			}
+		} else if resource.Location == "" {
 			add("resource.location.required", resourcePath+".location", fmt.Sprintf("resource %s location is required", resourceID))
 		} else if _, ok := r.Locations[resource.Location]; !ok {
 			add("resource.location.unknown", resourcePath+".location", fmt.Sprintf("resource %s references unknown location %s", resourceID, resource.Location))
 		}
-		if _, err := ValidateResourcePath(resource.Path); err != nil {
-			add("resource.path.invalid", resourcePath+".path", fmt.Sprintf("resource %s path: %s", resourceID, err.Error()))
+		if resource.Driver != NativeExportDriverID {
+			if _, err := ValidateResourcePath(resource.Path); err != nil {
+				add("resource.path.invalid", resourcePath+".path", fmt.Sprintf("resource %s path: %s", resourceID, err.Error()))
+			}
 		}
 		if resource.Capability != "" && !knownCapability(resource.Capability) {
 			add("resource.capability.unsupported", resourcePath+".capability", fmt.Sprintf("resource %s unsupported capability: %s", resourceID, resource.Capability))
@@ -502,6 +538,46 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 	for _, operationID := range sortedKeys(r.NativeOperations) {
 		operation := r.NativeOperations[operationID]
 		addNativeOperationDiagnostics(add, operationID, operation)
+		addNativeOperationLocationDiagnostics(add, "$.nativeOperations."+operationID, operationID, operation, r.Locations)
+	}
+
+	for _, resourceID := range sortedKeys(r.Resources) {
+		resource := r.Resources[resourceID]
+		if resource.Driver != NativeExportDriverID {
+			continue
+		}
+		resourcePath := "$.resources." + resourceID
+		operationID := strings.TrimSpace(resource.NativeOperation)
+		if operationID == "" {
+			add("resource.nativeOperation.required", resourcePath+".nativeOperation", fmt.Sprintf("resource %s driver %q requires nativeOperation", resourceID, NativeExportDriverID))
+			continue
+		}
+		operation, ok := r.NativeOperations[operationID]
+		if !ok {
+			add("resource.nativeOperation.unknown", resourcePath+".nativeOperation", fmt.Sprintf("resource %s references unknown native operation %s", resourceID, operationID))
+			continue
+		}
+		if operation.Kind != "export" {
+			add("resource.nativeOperation.kindUnsupported", resourcePath+".nativeOperation", fmt.Sprintf("resource %s nativeOperation %s must be kind export", resourceID, operationID))
+		}
+		if resource.Capability != "export-only" {
+			add("resource.capability.nativeExportUnsupported", resourcePath+".capability", fmt.Sprintf("resource %s driver %q requires capability export-only", resourceID, NativeExportDriverID))
+		}
+	}
+
+	for _, settingID := range sortedKeys(r.Settings) {
+		setting := r.Settings[settingID]
+		resource, ok := r.Resources[setting.Resource]
+		if !ok || resource.Driver != NativeExportDriverID {
+			continue
+		}
+		settingPath := "$.settings." + settingID
+		if setting.Capability != "export-only" {
+			add("setting.capability.nativeExportUnsupported", settingPath+".capability", fmt.Sprintf("setting %s native-export resource requires capability export-only", settingID))
+		}
+		if setting.ArtifactForm != "native-export" && setting.ArtifactForm != "opaque" {
+			add("setting.artifactForm.nativeExportUnsupported", settingPath+".artifactForm", fmt.Sprintf("setting %s native-export resource requires artifactForm native-export or opaque", settingID))
+		}
 	}
 
 	return normalizeDiagnostics(diagnostics)
@@ -565,6 +641,9 @@ func addNativeOperationDiagnostics(add func(string, string, string), operationID
 	if !knownNativeRedaction(operation.Redaction) {
 		add("nativeOperation.redaction.unsupported", operationPath+".redaction", fmt.Sprintf("native operation %s unsupported redaction policy: %s", operationID, operation.Redaction))
 	}
+	addNativeReviewDiagnostics(add, operationPath+".review", operationID, operation.Review)
+	addNativeLimitsDiagnostics(add, operationPath+".limits", operationID, operation.Limits)
+	addNativeExportMetadataDiagnostics(add, operationPath+".exportMetadata", operationID, operation.ExportMetadata)
 }
 
 func addNativeCommandDiagnostics(add func(string, string, string), operationPath string, operationID string, operation NativeOperation) {
@@ -707,6 +786,96 @@ func addNativePathSpecsDiagnostics(add func(string, string, string), path string
 			add("nativeOperation.path.input.importRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s import inputs must use artifact or temp root", operationID))
 		}
 	}
+}
+
+func addNativeOperationLocationDiagnostics(add func(string, string, string), operationPath string, operationID string, operation NativeOperation, locations map[string]Location) {
+	check := func(role string, specs map[string]NativePathSpec) {
+		for _, id := range sortedKeys(specs) {
+			spec := specs[id]
+			if spec.Root != "location" || strings.TrimSpace(spec.Location) == "" {
+				continue
+			}
+			if _, ok := locations[spec.Location]; !ok {
+				add("nativeOperation.path.location.unknown", operationPath+"."+role+"."+id+".location", fmt.Sprintf("native operation %s %s %s references unknown location %s", operationID, role, id, spec.Location))
+			}
+		}
+	}
+	check("inputs", operation.Inputs)
+	check("outputs", operation.Outputs)
+	check("tempPaths", operation.TempPaths)
+}
+
+func recipeNeedsLocations(r *Recipe) bool {
+	if r == nil {
+		return true
+	}
+	for _, resource := range r.Resources {
+		if resource.Driver != NativeExportDriverID {
+			return true
+		}
+	}
+	for _, operation := range r.NativeOperations {
+		for _, specs := range []map[string]NativePathSpec{operation.Inputs, operation.Outputs, operation.TempPaths} {
+			for _, spec := range specs {
+				if spec.Root == "location" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func addNativeReviewDiagnostics(add func(string, string, string), path string, operationID string, review NativeReviewPolicy) {
+	for idx, reason := range review.Reasons {
+		if !knownNativeReviewReason(reason) {
+			add("nativeOperation.review.reason.unsupported", path+fmt.Sprintf(".reasons[%d]", idx), fmt.Sprintf("native operation %s unsupported review reason: %s", operationID, reason))
+		}
+	}
+	if strings.ContainsAny(review.Message, "\r\n\x00") {
+		add("nativeOperation.review.message.invalid", path+".message", fmt.Sprintf("native operation %s review message must be a single safe line", operationID))
+	}
+	if !review.Required && (len(review.Reasons) > 0 || strings.TrimSpace(review.Message) != "") {
+		add("nativeOperation.review.required.invalid", path+".required", fmt.Sprintf("native operation %s review reasons/message require review.required true", operationID))
+	}
+}
+
+func addNativeLimitsDiagnostics(add func(string, string, string), path string, operationID string, limits NativeExportLimits) {
+	if limits.MaxBytes < 0 || limits.MaxBytes > int64(maxNativeExportBytes) {
+		add("nativeOperation.limits.maxBytes.invalid", path+".maxBytes", fmt.Sprintf("native operation %s maxBytes must be 1..%d when set", operationID, maxNativeExportBytes))
+	} else if limits.MaxBytes == 0 {
+		// Zero means use the conservative manager default.
+	} else if limits.MaxBytes < 1 {
+		add("nativeOperation.limits.maxBytes.invalid", path+".maxBytes", fmt.Sprintf("native operation %s maxBytes must be 1..%d when set", operationID, maxNativeExportBytes))
+	}
+	if limits.MaxEntries < 0 || limits.MaxEntries > maxNativeExportEntries {
+		add("nativeOperation.limits.maxEntries.invalid", path+".maxEntries", fmt.Sprintf("native operation %s maxEntries must be 1..%d when set", operationID, maxNativeExportEntries))
+	} else if limits.MaxEntries == 0 {
+		// Zero means use the conservative manager default.
+	} else if limits.MaxEntries < 1 {
+		add("nativeOperation.limits.maxEntries.invalid", path+".maxEntries", fmt.Sprintf("native operation %s maxEntries must be 1..%d when set", operationID, maxNativeExportEntries))
+	}
+}
+
+func addNativeExportMetadataDiagnostics(add func(string, string, string), path string, operationID string, metadata NativeExportMetadataPolicy) {
+	validateList := func(field string, values []string, idOnly bool) {
+		for idx, value := range values {
+			itemPath := path + fmt.Sprintf(".%s[%d]", field, idx)
+			if strings.TrimSpace(value) != value || value == "" || strings.ContainsAny(value, "\r\n\x00") {
+				add("nativeOperation.exportMetadata.value.invalid", itemPath, fmt.Sprintf("native operation %s export metadata %s must contain safe single-line values", operationID, field))
+				continue
+			}
+			if idOnly {
+				if err := ValidatePublicID("native export metadata "+field, value); err != nil {
+					add("nativeOperation.exportMetadata.id.invalid", itemPath, err.Error())
+				}
+			}
+		}
+	}
+	validateList("capturedCategories", metadata.CapturedCategories, true)
+	validateList("secretExclusions", metadata.SecretExclusions, true)
+	validateList("accountExclusions", metadata.AccountExclusions, true)
+	validateList("limitations", metadata.Limitations, false)
 }
 
 func (r *Recipe) ValidateGit() error {
@@ -1522,12 +1691,30 @@ func (r *Recipe) validateResourceDriverShape(resourceID string, resource Resourc
 		return validateSelectedPathResource(resourceID, resource)
 	case MacOSDefaultsReadOnlyDriverID:
 		return r.validateMacOSDefaultsReadOnlyResource(resourceID, resource)
+	case NativeExportDriverID:
+		return validateNativeExportResource(resourceID, resource)
 	case FileDriverID, FileTreeDriverID:
 		if resource.Selector != nil {
 			return fmt.Errorf("resource %s driver %q must not declare selector", resourceID, resource.Driver)
 		}
 	default:
 		return fmt.Errorf("resource %s unsupported driver %q", resourceID, resource.Driver)
+	}
+	return nil
+}
+
+func validateNativeExportResource(resourceID string, resource Resource) error {
+	if resource.Location != "" || resource.Path != "" {
+		return fmt.Errorf("resource %s driver %q must not declare location or path", resourceID, NativeExportDriverID)
+	}
+	if strings.TrimSpace(resource.NativeOperation) == "" {
+		return fmt.Errorf("resource %s driver %q requires nativeOperation", resourceID, NativeExportDriverID)
+	}
+	if len(resource.Include) > 0 || len(resource.Exclude) > 0 {
+		return fmt.Errorf("resource %s driver %q must not declare include/exclude globs", resourceID, NativeExportDriverID)
+	}
+	if resource.Selector != nil {
+		return fmt.Errorf("resource %s driver %q must not declare selector", resourceID, NativeExportDriverID)
 	}
 	return nil
 }
@@ -1939,6 +2126,15 @@ func knownNativeDiffMode(value string) bool {
 func knownNativeRedaction(value string) bool {
 	switch value {
 	case "metadata-only", "redacted-counts", "blocked-save":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownNativeReviewReason(value string) bool {
+	switch value {
+	case "large", "account-bound", "opaque", "privacy-sensitive":
 		return true
 	default:
 		return false

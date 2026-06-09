@@ -15,6 +15,8 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
@@ -43,6 +45,8 @@ type Options struct {
 	LocationRoots       map[string]map[string]string
 	AfterApply          func(*selectedvalue.Plan) error
 	MacOSDefaultsRunner macosdefaultsdriver.Runner
+	NativeResolver      nativeops.ExecutableResolver
+	NativeExecutor      nativeops.Executor
 }
 
 type Result struct {
@@ -69,6 +73,11 @@ func Run(opts Options) (*Result, error) {
 		DryRun:              opts.DryRun,
 		LocationRoots:       opts.LocationRoots,
 		MacOSDefaultsRunner: opts.MacOSDefaultsRunner,
+		Confirmed:           opts.Confirmed,
+		RunID:               opts.RunID,
+		Now:                 opts.Now,
+		NativeResolver:      opts.NativeResolver,
+		NativeExecutor:      opts.NativeExecutor,
 	})
 	if err != nil || opts.DryRun {
 		return &Result{Report: report}, err
@@ -143,7 +152,7 @@ func Run(opts Options) (*Result, error) {
 			markReportItem(report, setting.Ref(), items[len(items)-1])
 			continue
 		}
-		rec, source, trustContext, resourceID, resource, err := runtimeContext(repoRoot, stateRoot, setting)
+		rec, source, trustContext, resourceID, resource, err := runtimeContext(repoRoot, stateRoot, setting, opts.Confirmed)
 		if err != nil {
 			item := failedItemRecord(command, runID, setting, resourceID, resource, preItem, safeDiagnostic("selectedlive.plan", err, preItem.Resource.Path), nil)
 			items = append(items, item)
@@ -157,6 +166,12 @@ func Run(opts Options) (*Result, error) {
 		_ = source
 		if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
 			item := executeFileResource(command, runID, started, store, profile, setting, rec, resourceID, resource, locationRoots, preItem)
+			items = append(items, item)
+			markReportItem(report, setting.Ref(), item)
+			continue
+		}
+		if resource.Driver == recipe.NativeExportDriverID {
+			item := executeNativeExport(command, runID, setting, resourceID, resource, preItem)
 			items = append(items, item)
 			markReportItem(report, setting.Ref(), item)
 			continue
@@ -316,6 +331,51 @@ func executeFileResource(command string, runID string, started time.Time, store 
 	return v2ledger.NormalizeItemRecord(item)
 }
 
+func executeNativeExport(command string, runID string, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, preItem selectedpreview.Item) v2ledger.ItemRecord {
+	if command != selectedpreview.CommandSave {
+		return failedNativeExportItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: "selectedlive.nativeExport.applyUnsupported", Message: "native import/apply is not implemented in this tranche"})
+	}
+	if preItem.NativeExport == nil || strings.TrimSpace(preItem.NativeExport.StagingRoot) == "" {
+		return failedNativeExportItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: "selectedlive.nativeExport.missingStaging", Message: "native export staging artifact is missing"})
+	}
+	expected := nativeexport.Expected(nativeexport.Options{Setting: setting, ResourceID: resourceID, Resource: resource, Recipe: &recipe.Recipe{NativeOperations: map[string]recipe.NativeOperation{resource.NativeOperation: {ArtifactForm: preItem.NativeExport.ArtifactForm}}}})
+	beforeRead := nativeexport.ReadDesired(setting.DesiredPath, expected)
+	if beforeRead.Status != "missing" && beforeRead.Status != "present" {
+		return failedNativeExportItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: beforeRead.Diagnostic.Code, Message: beforeRead.Diagnostic.Message, Path: beforeRead.Diagnostic.Path})
+	}
+	before := nativeState(nativeexport.Snapshot(beforeRead.Metadata))
+	if err := nativeexport.WriteDesired(setting.DesiredPath, preItem.NativeExport.StagingRoot, expected); err != nil {
+		return failedNativeExportItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: "selectedlive.nativeExport.writeDesired", Message: "native export desired artifact write failed", Path: setting.DesiredRelPath})
+	}
+	verifyRead := nativeexport.ReadDesired(setting.DesiredPath, expected)
+	if verifyRead.Status != "present" || verifyRead.Metadata == nil {
+		return failedNativeExportItemRecord(command, runID, setting, resourceID, resource, preItem, v2ledger.Diagnostic{Code: "selectedlive.nativeExport.verifyDesired", Message: "native export desired artifact verification failed", Path: setting.DesiredRelPath})
+	}
+	desiredState := nativeState(verifyRead.Metadata.Payload)
+	verified := sameState(desiredState, nativeStateFromPreview(preItem.Current))
+	result := v2ledger.ItemResultVerified
+	if sameState(before, desiredState) {
+		result = v2ledger.ItemResultUnchanged
+	}
+	return v2ledger.NormalizeItemRecord(v2ledger.ItemRecord{
+		TargetRef:      setting.TargetID,
+		SettingRef:     setting.Ref(),
+		Operation:      selectedpreview.CommandSave,
+		ResourceID:     resourceID,
+		Driver:         resource.Driver,
+		DriverVersion:  nativeexport.DriverVersion,
+		DesiredURI:     setting.DesiredURI,
+		DesiredRelPath: setting.DesiredRelPath,
+		DesiredPath:    setting.DesiredPath,
+		ArtifactRefs:   selectedValueArtifactRefs(runID, setting, ""),
+		Before:         before,
+		Desired:        desiredState,
+		VerifiedState:  desiredState,
+		Verification:   v2ledger.Verification{Verified: verified, Result: verificationResult(verified)},
+		Result:         resultForVerification(result, verified),
+	})
+}
+
 func fileResourceBackupHook(store *v2ledger.Store, runID string, started time.Time, plan *customfiles.Plan) customfiles.BackupHook {
 	return func(req customfiles.BackupRequest) (customfiles.BackupResult, error) {
 		item, err := store.WriteCustomFilesBackup(runID, started, plan, req)
@@ -394,7 +454,7 @@ func selectedValueBackupHook(store *v2ledger.Store, runID string, started time.T
 	}
 }
 
-func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting) (*recipe.Recipe, string, recipe.WriteSafetyContext, string, recipe.Resource, error) {
+func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting, allowNativeOpaque bool) (*recipe.Recipe, string, recipe.WriteSafetyContext, string, recipe.Resource, error) {
 	runtime, err := recipe.LoadRuntime(repoRoot, setting.TargetID)
 	if err != nil {
 		return nil, runtime.Source, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
@@ -412,6 +472,9 @@ func runtimeContext(repoRoot string, stateRoot string, setting resolution.Resolv
 		return rec, runtime.Source, recipe.WriteSafetyContext{}, resourceID, resource, fmt.Errorf("recipe trust is not trusted")
 	}
 	ctx := eval.WriteSafetyContext(recipe.WriteSafetyContext{})
+	if resource.Driver == recipe.NativeExportDriverID && allowNativeOpaque {
+		ctx.AllowOpaque = true
+	}
 	if err := rec.ValidateWriteSafety(ctx); err != nil {
 		return rec, runtime.Source, ctx, resourceID, resource, err
 	}
@@ -460,6 +523,33 @@ func failedItemRecord(command string, runID string, setting resolution.ResolvedS
 		Before:         v2ledger.NormalizedState{DriverVersion: v2ledger.SelectedValueDriverVersion(defaultString(resource.Driver, preItem.Resource.DriverID)), Normalizer: v2ledger.SelectedValueNormalizer(defaultString(resource.Driver, preItem.Resource.DriverID))},
 		Desired:        v2ledger.NormalizedState{DriverVersion: v2ledger.SelectedValueDriverVersion(defaultString(resource.Driver, preItem.Resource.DriverID)), Normalizer: v2ledger.SelectedValueNormalizer(defaultString(resource.Driver, preItem.Resource.DriverID))},
 		VerifiedState:  v2ledger.NormalizedState{DriverVersion: v2ledger.SelectedValueDriverVersion(defaultString(resource.Driver, preItem.Resource.DriverID)), Normalizer: v2ledger.SelectedValueNormalizer(defaultString(resource.Driver, preItem.Resource.DriverID))},
+		Verification:   v2ledger.Verification{Verified: false, Result: "failed", Message: diagnostic.Message},
+		Result:         v2ledger.ItemResultFailed,
+		Diagnostics:    []v2ledger.Diagnostic{diagnostic},
+	})
+}
+
+func failedNativeExportItemRecord(command string, runID string, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, preItem selectedpreview.Item, diagnostic v2ledger.Diagnostic) v2ledger.ItemRecord {
+	if diagnostic.Code == "" {
+		diagnostic.Code = "selectedlive.nativeExport.failed"
+	}
+	if diagnostic.Message == "" {
+		diagnostic.Message = "native export live save failed"
+	}
+	return v2ledger.NormalizeItemRecord(v2ledger.ItemRecord{
+		TargetRef:      setting.TargetID,
+		SettingRef:     setting.Ref(),
+		Operation:      command,
+		ResourceID:     resourceID,
+		Driver:         defaultString(resource.Driver, recipe.NativeExportDriverID),
+		DriverVersion:  nativeexport.DriverVersion,
+		DesiredURI:     setting.DesiredURI,
+		DesiredRelPath: setting.DesiredRelPath,
+		DesiredPath:    setting.DesiredPath,
+		ArtifactRefs:   selectedValueArtifactRefs(runID, setting, ""),
+		Before:         nativeStateFromPreview(preItem.Desired.Snapshot),
+		Desired:        nativeStateFromPreview(preItem.Current),
+		VerifiedState:  v2ledger.NormalizedState{DriverVersion: nativeexport.DriverVersion, Normalizer: nativeexport.Normalizer},
 		Verification:   v2ledger.Verification{Verified: false, Result: "failed", Message: diagnostic.Message},
 		Result:         v2ledger.ItemResultFailed,
 		Diagnostics:    []v2ledger.Diagnostic{diagnostic},
@@ -526,6 +616,14 @@ func selectedValueArtifactRefs(runID string, setting resolution.ResolvedSetting,
 		RunRecord:   "state://ledger/runs/" + runID,
 		Ledger:      "state://ledger/ledger.jsonl",
 	}
+}
+
+func nativeState(summary nativeexport.PayloadSummary) v2ledger.NormalizedState {
+	return v2ledger.NormalizedState{Exists: summary.Exists, Hash: summary.SHA256, Normalizer: summary.Normalizer, DriverVersion: nativeexport.DriverVersion, Size: int(summary.Size), EntryCount: summary.EntryCount, FileCount: summary.FileCount, DirCount: summary.DirCount}
+}
+
+func nativeStateFromPreview(snapshot selectedpreview.Snapshot) v2ledger.NormalizedState {
+	return v2ledger.NormalizedState{Exists: snapshot.Exists, Hash: snapshot.SHA256, Normalizer: snapshot.Normalizer, DriverVersion: nativeexport.DriverVersion, Size: snapshot.Size, EntryCount: snapshot.EntryCount, FileCount: snapshot.FileCount, DirCount: snapshot.DirCount}
 }
 
 func selectedValueDesiredSnapshot(rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, read desired.ReadResult, trustContext recipe.WriteSafetyContext) v2ledger.NormalizedState {

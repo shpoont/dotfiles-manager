@@ -294,6 +294,16 @@ environment values. Execution failure diagnostics must be metadata-only and must
 not return raw `exec` errors when those can include local executable paths or
 argv details.
 
+For `native-export` resources, the driver-like manager layer must run exports
+only into temp staging. The reviewed command receives the staging `payload/`
+directory as its artifact root. The manager then validates declared artifact
+outputs, rejects symlinks and special files, enforces byte and entry limits,
+computes a canonical payload tree hash from sorted relative paths plus per-file
+hashes, and writes `metadata.json` beside `payload/` only after validation.
+Metadata-only diffs compare payload summaries, not volatile runtime metadata such
+as command duration or capture timestamps.
+
+
 ## Spec follow-ups / open decisions
 
 - Define final programming interface for drivers.

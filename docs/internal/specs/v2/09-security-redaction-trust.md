@@ -273,6 +273,15 @@ execution time, and whose trust record explicitly reviewed native operations.
 Without that evidence, native operations are blocked before execution even if
 the local YAML says `reviewed: true`.
 
+
+Native export execution itself can be privacy-sensitive even when it is
+read-only. Recipes may mark an export as review-required for opaque,
+account-bound, large, or privacy-sensitive payloads. Commands must check that
+pre-export gate before executing the native runner. In non-interactive or JSON
+flows without an accepted opt-in, the command must return a stable safety
+diagnostic instead of running the export.
+
+
 The runner must reject environment inheritance, implicit working directories,
 partial-token interpolation, undeclared IO refs, unsafe executable resolution,
 shell/script-host executables, execution-influencing env names, and unbounded

@@ -101,7 +101,7 @@ func hasSensitiveContext(input Input) bool {
 
 func entropyTokens(value string) []string {
 	fields := strings.FieldsFunc(value, func(r rune) bool {
-		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' || r == '/' || r == '+' || r == '=')
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' && r != '.' && r != '/' && r != '+' && r != '='
 	})
 	out := make([]string, 0, len(fields))
 	for _, field := range fields {

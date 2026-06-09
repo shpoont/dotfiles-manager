@@ -231,6 +231,24 @@ Native operation IO roots are direction-aware:
 - typed live-location paths are allowed only where the operation kind
   explicitly permits them.
 
+A setting links to a native export through its normal `resource` field. The
+resource uses `driver: native-export`, `capability: export-only`, and a
+`nativeOperation` reference to a declared reviewed operation whose kind is
+`export`. For `native-export` resources, `location`, `path`, selectors, and
+include/exclude globs are invalid; typed native-operation paths own all live,
+artifact, and temp locations. The setting itself must use `capability:
+export-only` and `artifactForm: native-export` or `opaque`.
+
+Native export operations may additionally declare:
+
+- `review.required`, `review.reasons`, and a single-line review message for
+  pre-export opt-in before even read-only export execution;
+- `limits.maxBytes` and `limits.maxEntries`, which may lower the manager's
+  conservative default native payload limits;
+- `exportMetadata.capturedCategories`, `secretExclusions`,
+  `accountExclusions`, and `limitations`, all metadata-only stable strings that
+  must not contain secret or account values.
+
 Local recipes cannot make themselves executable by setting `reviewed: true`.
 Local native operations require evaluated external trust evidence whose recipe
 content hash and exact native-operation write surface still match at execution

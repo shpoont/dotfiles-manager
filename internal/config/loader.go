@@ -112,7 +112,7 @@ func Load(configPath string) (*Config, error) {
 	if err != nil {
 		return nil, dfmerr.Wrap(dfmerr.CodeIORead, fmt.Sprintf("Read failed: %s", configPath), map[string]any{"path": configPath}, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	cfg, err := parseYAML(file)
 	if err != nil {

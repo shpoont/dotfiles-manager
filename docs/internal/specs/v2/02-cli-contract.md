@@ -309,11 +309,14 @@ Native operation details must be summarized only. Output must not print raw argv
 environment variables, captured output, local paths containing secrets, or
 value-bearing defaults.
 
-The reviewed native-operation runner is an internal building block until native
-save/apply issues explicitly wire it. `recipe explain` may summarize declared
-native operations metadata-only, but existing `status`, `diff`, `save`, and
-`apply` paths must not invoke native operations merely because a recipe declares
-them.
+The reviewed native-operation runner may be invoked only through an explicitly
+selected `native-export` resource whose recipe has trusted reviewed export
+metadata. In the #109 tranche, `diff` and `save`/`save --dry-run` may run that
+read-only export into manager-owned temp staging so they can compare opaque
+payload metadata. `status` must not run native exports in this tranche, and
+`apply` must block before native execution until native import support is
+implemented. Commands must not invoke native operations merely because a recipe
+declares them.
 
 #### `recipe.explain` JSON output
 
@@ -396,9 +399,13 @@ exit code `4` in normal operation. Exit code `6` is not expected for the single-
 | `--yes` | Accept safe default prompts, never safety blockers. |
 | `--verbose` | Include profile stack, artifact URIs, drivers, and ledger refs. |
 
-`--dry-run` may read current state, run declared read-only native export, and
-write temporary/local run records. It must not change desired artifacts or live
-state.
+`--dry-run` may read current state, run a declared read-only native export for
+a selected trusted `native-export` resource, and write manager-owned temporary
+state. It must not change desired artifacts or live state. If the native export
+is review-required because it may be opaque, account-bound, large, or
+privacy-sensitive, the command must fail closed before executing the export
+unless the user has explicitly opted in, such as with `--yes` where that flag is
+available.
 
 `--machine-id` and `--user-id` are advanced identity inputs. They must validate
 against the identity grammar in `03-profile-and-scope-resolution.md`. If a

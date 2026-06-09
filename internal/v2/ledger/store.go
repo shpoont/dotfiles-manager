@@ -181,7 +181,7 @@ func (s *Store) WriteRunRecord(record RunRecord) error {
 	return nil
 }
 
-func (s *Store) AppendLedgerEntries(entries []LedgerEntry) error {
+func (s *Store) AppendLedgerEntries(entries []LedgerEntry) (err error) {
 	if s == nil {
 		return fmt.Errorf("ledger store is required")
 	}
@@ -197,7 +197,11 @@ func (s *Store) AppendLedgerEntries(entries []LedgerEntry) error {
 	if err != nil {
 		return fmt.Errorf("open ledger %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close ledger %s: %w", path, closeErr)
+		}
+	}()
 	for _, entry := range entries {
 		payload, err := json.Marshal(entry)
 		if err != nil {
@@ -390,7 +394,7 @@ func readBackupMetadata(path string) (BackupMetadata, error) {
 	if err != nil {
 		return BackupMetadata{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var metadata BackupMetadata
 	dec := yaml.NewDecoder(file)
 	if err := dec.Decode(&metadata); err != nil {

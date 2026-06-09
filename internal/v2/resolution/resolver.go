@@ -250,7 +250,7 @@ func decodeKnownYAML(path string, out any) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return decodeKnownYAMLReader(path, file, out)
 }
 

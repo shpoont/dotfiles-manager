@@ -197,6 +197,34 @@ records, execute lifecycle actions, inspect live apps, or perform live writes.
 Those behaviors belong to later command, secret, trust, lifecycle, and live-write
 work.
 
+### Native export artifact layout
+
+A native export desired artifact is a manager-owned directory rooted at the
+selected artifact URI, for example
+`desired://user/leon/targets/example/artifacts/settings`:
+
+```text
+artifacts/<setting-id>/
+  metadata.json
+  payload/
+    ... reviewed export outputs ...
+```
+
+`metadata.json` uses schema `dotfiles-manager.v2.native-export`, version 1, and
+records target, setting, resource, operation ID, recipe source/trust status,
+operation artifact/diff/redaction modes, source scope/subject, payload hash,
+size/counts, declared output IDs, and metadata-only exclusion/limitation facts.
+The payload hash covers only `payload/` using a canonical sorted tree algorithm;
+volatile runtime fields must not make a metadata-only diff look changed.
+
+Before replacing an existing native export artifact, the manager must prove that
+the existing path is absent or already a manager-owned native export directory
+with matching metadata identity. Existing files, symlinks, special files, corrupt
+metadata, mismatched operation identity, and unknown directories are safety
+blockers. Directory replacement is same-parent, symlink-checked, and
+crash-safe best effort; implementations must not claim fully atomic non-empty
+directory replacement on platforms that do not guarantee it.
+
 ### Desired artifact lifecycle
 
 1. A selected setting may start with no desired artifact.

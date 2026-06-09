@@ -173,13 +173,18 @@ func TestBuildBlocksUnsafeNativeOperations(t *testing.T) {
 	})
 }
 
-func TestNativeRunnerIsNotWiredIntoExistingV2FlowsYet(t *testing.T) {
+func TestNativeRunnerImportsStayConfinedToNativeExportFlow(t *testing.T) {
 	t.Parallel()
 
 	repoRoot, err := filepath.Abs("../../..")
 	require.NoError(t, err)
 	importPath := "github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
-	var offenders []string
+	allowedProductionImporters := map[string]bool{
+		filepath.Join("internal", "v2", "nativeexport", "nativeexport.go"):       true,
+		filepath.Join("internal", "v2", "selectedlive", "selectedlive.go"):       true,
+		filepath.Join("internal", "v2", "selectedpreview", "selectedpreview.go"): true,
+	}
+	var unexpected []string
 	err = filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -197,6 +202,9 @@ func TestNativeRunnerIsNotWiredIntoExistingV2FlowsYet(t *testing.T) {
 		if filepath.Ext(path) != ".go" {
 			return nil
 		}
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
 		contents, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -206,12 +214,14 @@ func TestNativeRunnerIsNotWiredIntoExistingV2FlowsYet(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			offenders = append(offenders, rel)
+			if !allowedProductionImporters[rel] {
+				unexpected = append(unexpected, rel)
+			}
 		}
 		return nil
 	})
 	require.NoError(t, err)
-	require.Empty(t, offenders, "native operations are reviewed but not wired into save/apply/status/diff flows in this tranche")
+	require.Empty(t, unexpected, "native operation runner imports must remain confined to the reviewed native-export diff/save flow; status/apply/import must not grow ad-hoc native execution")
 }
 
 func TestDefaultExecutorCaptureLimitAndTimeout(t *testing.T) {

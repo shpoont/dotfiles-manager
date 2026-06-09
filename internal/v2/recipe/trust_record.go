@@ -413,6 +413,11 @@ func copyNativeOperation(operation NativeOperation) NativeOperation {
 	copy.Inputs = copyNativePathSpecs(operation.Inputs)
 	copy.Outputs = copyNativePathSpecs(operation.Outputs)
 	copy.TempPaths = copyNativePathSpecs(operation.TempPaths)
+	copy.Review.Reasons = append([]string(nil), operation.Review.Reasons...)
+	copy.ExportMetadata.CapturedCategories = append([]string(nil), operation.ExportMetadata.CapturedCategories...)
+	copy.ExportMetadata.SecretExclusions = append([]string(nil), operation.ExportMetadata.SecretExclusions...)
+	copy.ExportMetadata.AccountExclusions = append([]string(nil), operation.ExportMetadata.AccountExclusions...)
+	copy.ExportMetadata.Limitations = append([]string(nil), operation.ExportMetadata.Limitations...)
 	return copy
 }
 

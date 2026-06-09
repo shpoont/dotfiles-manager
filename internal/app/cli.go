@@ -764,6 +764,7 @@ func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, r
 		UserID:      commandOpts.V2.UserID,
 		ExtraLayers: commandOpts.V2.Profiles,
 		DryRun:      commandOpts.DryRun,
+		Confirmed:   commandOpts.Yes,
 	})
 	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput); emitErr != nil {
 		return emitErr
@@ -1294,28 +1295,29 @@ func buildSuccessEnvelope(commandOpts commandOptions, cfg *config.Config, config
 		err          error
 	)
 
-	if commandOpts.Name == "status" {
+	switch commandOpts.Name {
+	case "status":
 		syncPayloads, summary, err = buildStatusSyncPayloads(cfg, selections)
 		if err != nil {
 			return nil, err
 		}
-	} else if commandOpts.Name == "deploy" {
+	case "deploy":
 		syncPayloads, summary, err = buildDeploySyncPayloads(cfg, selections, commandOpts.DryRun)
 		if err != nil {
 			return nil, err
 		}
-	} else if commandOpts.Name == "import" {
+	case "import":
 		syncPayloads, summary, err = buildImportSyncPayloads(cfg, selections, commandOpts.DryRun)
 		if err != nil {
 			return nil, err
 		}
-	} else if commandOpts.Name == "diff" {
+	case "diff":
 		includePatch := !commandOpts.JSONOutput || commandOpts.IncludePatch
 		syncPayloads, summary, err = buildDiffSyncPayloads(cfg, selections, commandOpts.Direction, commandOpts.ContextLines, includePatch)
 		if err != nil {
 			return nil, err
 		}
-	} else {
+	default:
 		syncPayloads = buildSyncPayloads(commandOpts.Name, selections)
 		summary = buildSummary(commandOpts.Name, len(syncPayloads))
 	}
