@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
+	v2guidedsync "github.com/shpoont/dotfiles-manager/internal/v2/guidedsync"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
@@ -67,6 +68,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newDiffCmd(opts))
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
+	rootCmd.AddCommand(newSyncCmd(opts))
 	rootCmd.AddCommand(newAddCmd(opts))
 	rootCmd.AddCommand(newBackupCmd(opts))
 	rootCmd.AddCommand(newRestoreCmd(opts))
@@ -264,6 +266,36 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
+func newSyncCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var yes bool
+	var nonInteractive bool
+	var choiceFlags []string
+	v2Flags := &selectedPreviewFlagOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "sync [ref]",
+		Short: "Guided save/apply/skip flow for selected v2 settings",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGuidedSyncRootCommand(cmd, opts, firstArg(args), guidedSyncCommandOptions{
+				JSONOutput:     jsonOutput,
+				Yes:            yes,
+				NonInteractive: nonInteractive,
+				ChoiceFlags:    append([]string(nil), choiceFlags...),
+				V2:             selectedPreviewOptionsFromFlags(cmd, v2Flags),
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Execute explicit non-interactive choices without prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if execution needs missing choices")
+	cmd.Flags().StringArrayVar(&choiceFlags, "choice", nil, "Guided choice in setting-ref=save|apply|skip form (repeatable)")
+	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
 func newAddCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
@@ -445,6 +477,14 @@ type selectedPreviewCommandOptions struct {
 	Profiles      []string
 	FlagsUsed     bool
 	UsedFlagNames []string
+}
+
+type guidedSyncCommandOptions struct {
+	JSONOutput     bool
+	Yes            bool
+	NonInteractive bool
+	ChoiceFlags    []string
+	V2             selectedPreviewCommandOptions
 }
 
 func addSelectedPreviewFlags(cmd *cobra.Command, flags *selectedPreviewFlagOptions) {
@@ -763,6 +803,49 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 	return err
 }
 
+func runGuidedSyncRootCommand(cmd *cobra.Command, opts *rootOptions, ref string, syncOpts guidedSyncCommandOptions) error {
+	repoRoot, err := selectedPreviewRepoRootFor(opts, "sync")
+	if err != nil {
+		report := v2guidedsync.ErrorReport("guidedsync.root.notFound", err.Error(), nil)
+		_ = emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
+		return &v2guidedsync.Error{Code: "guidedsync.root.notFound", Message: err.Error(), Exit: 2}
+	}
+	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
+	if err != nil {
+		report := v2guidedsync.ErrorReport("guidedsync.stateRoot.default", err.Error(), nil)
+		_ = emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
+		return &v2guidedsync.Error{Code: "guidedsync.stateRoot.default", Message: err.Error(), Exit: 2}
+	}
+	choices := make([]v2guidedsync.Choice, 0, len(syncOpts.ChoiceFlags))
+	for _, raw := range syncOpts.ChoiceFlags {
+		choice, parseErr := v2guidedsync.ParseChoice(raw)
+		if parseErr != nil {
+			report := v2guidedsync.ErrorReport(v2guidedsync.CodeChoiceInvalid, parseErr.Error(), nil)
+			_ = emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
+			return parseErr
+		}
+		choices = append(choices, choice)
+	}
+	report, err := v2guidedsync.Run(v2guidedsync.Options{
+		RepoRoot:       repoRoot,
+		StateRoot:      stateRoot,
+		Ref:            ref,
+		MachineID:      syncOpts.V2.MachineID,
+		UserID:         syncOpts.V2.UserID,
+		ExtraLayers:    syncOpts.V2.Profiles,
+		Choices:        choices,
+		Confirmed:      syncOpts.Yes,
+		NonInteractive: syncOpts.NonInteractive,
+		JSONMode:       syncOpts.JSONOutput,
+		In:             cmd.InOrStdin(),
+		PromptOut:      cmd.OutOrStdout(),
+	})
+	if emitErr := emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
 func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, repoRoot string) error {
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
@@ -793,9 +876,13 @@ func selectedLivePrompter(cmd *cobra.Command, commandOpts commandOptions) v2life
 }
 
 func selectedPreviewRepoRoot(opts *rootOptions) (string, error) {
+	return selectedPreviewRepoRootFor(opts, "save/apply")
+}
+
+func selectedPreviewRepoRootFor(opts *rootOptions, operation string) (string, error) {
 	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
 		if !isExplicitV2Config(opts.configPath) {
-			return "", fmt.Errorf("--config for v2 selected-value %s must point to %s", "save/apply", v2resolution.RootConfigFile)
+			return "", fmt.Errorf("--config for v2 selected-value %s must point to %s", operation, v2resolution.RootConfigFile)
 		}
 		return repoRootFromExplicitV2Config(opts.configPath)
 	}
@@ -838,6 +925,19 @@ func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Repor
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2selectedpreview.Text(report))
+	return err
+}
+
+func emitGuidedSyncReport(stdout io.Writer, report *v2guidedsync.Report, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2guidedsync.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2guidedsync.Text(report))
 	return err
 }
 
