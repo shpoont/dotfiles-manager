@@ -189,6 +189,8 @@ declare:
 - `artifactForm`: `native`, `native-export`, or `opaque`;
 - `diffMode`: `metadata-only`, `structured`, or `opaque`;
 - `lifecycle`: a strict lifecycle enum value;
+- `lifecycleTarget`: required when the lifecycle value depends on running app
+  state or managed quit/reopen behavior;
 - `workingDirectory: temp`;
 - `timeoutSeconds`: required, positive, and globally capped;
 - `expectedExitCodes`: required bounded list of numeric process exits;
@@ -264,8 +266,42 @@ by a post-import export whose payload hash and normalizer match the desired
 native artifact. Import operations must not expose live `location` roots through
 inputs, outputs, temp paths, argv tokens, or environment tokens; import receives
 only a manager-owned temp copy of the desired payload plus manager temp paths.
-Lifecycle policies that require app shutdown/reopen handling remain blocked
-until that lifecycle driver is implemented.
+Lifecycle policies that require app shutdown/reopen handling must reference a
+declared lifecycle target. The MVP keeps lifecycle as a strict enum in recipe
+YAML, but the runtime normalizes it internally to clearer fields such as write
+mode, before-write action, after-write action, confirmation requirement, and
+running-state requirement.
+
+Lifecycle targets are recipe-level metadata:
+
+```yaml
+lifecycleTargets:
+  primary:
+    displayName: Example App
+    detect:
+      kind: process-name
+      names: ["Example App"]
+    quit:
+      kind: unsupported | managed
+    reopen:
+      kind: none | managed
+```
+
+Detection is declarative and exact. `process-name` accepts exact process
+basenames only; regexes, globs, shell commands, argv matching, path scanning,
+and arbitrary scripts are invalid. `ask-to-quit`, `quit-if-running`,
+`block-if-running`, and `reopen-if-stopped-by-tool` require a lifecycle target.
+`quit-if-running` and `reopen-if-stopped-by-tool` additionally require managed
+quit support; `reopen-if-stopped-by-tool` also requires managed reopen support.
+`allowed`, `warn`, and `blocked` do not require a target unless a recipe chooses
+to reference one for explanation.
+
+Native-operation lifecycle is operation-specific metadata, not an inferred app
+identity. When native apply uses a declared import operation, live `apply` must
+enforce that import operation's lifecycle policy before backup/write. If the
+operation does not declare a lifecycle, the setting/resource lifecycle remains
+effective. `status`, `diff`, and `save` must not run lifecycle quit/reopen
+actions even when a native export operation declares lifecycle metadata.
 
 Native export operations may additionally declare:
 

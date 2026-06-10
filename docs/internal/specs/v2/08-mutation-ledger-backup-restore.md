@@ -90,11 +90,31 @@ A mutating command must follow these phases:
 `apply` writes live target state. It must:
 
 - preview live writes;
+- evaluate lifecycle policy before backup or live write;
 - create backup before live writes where supported;
 - respect lifecycle policy;
 - verify driver result;
 - write last-applied state only after verified success;
 - record partial failures.
+
+Lifecycle actions are recorded as metadata-only item records in reports and run
+records. Each lifecycle record should include the affected target/setting,
+lifecycle target ID/display name, native operation ID when an operation-specific
+policy was enforced, phase (`before-write` or `after-write`), action (`detect`,
+`prompt`, `quit`, `recheck`, `reopen`, `warn`, or `block`), mode (`planned` or
+`executed`), result (`succeeded`, `failed`, `blocked`, `declined`, `skipped`, or
+`planned`), running-state summary, whether the manager stopped the app, whether
+reopen was attempted, and a stable diagnostic code/message when applicable.
+Dry-run records must be truthful: running-state detection is `executed` if the
+preview actually checked process state, while future prompt/quit/reopen actions
+remain `planned`. It must not include raw command lines, shell output, process
+environments, arbitrary PIDs, temp paths, account IDs, or payload content.
+
+If lifecycle blocks before write, no backup or live mutation is allowed. If the
+manager stopped an app and the later write fails, the manager should still
+attempt the declared reopen and record both failures. If write succeeds but
+reopen fails, the run must expose a non-success lifecycle result while preserving
+the verified write evidence.
 
 For native apply, backup is not optional in MVP. The accepted policy is exactly
 `pre-apply-export`; the manager must run and persist that backup export before

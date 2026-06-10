@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	"gopkg.in/yaml.v3"
 )
 
@@ -301,6 +302,7 @@ func NormalizeItemRecord(item ItemRecord) ItemRecord {
 	sort.Strings(item.SourceBackupRefs)
 	item.BackupRefs = trimStrings(item.BackupRefs)
 	sort.Strings(item.BackupRefs)
+	item.Lifecycle = lifecycle.SortRecords(item.Lifecycle)
 	item.Diagnostics = append([]Diagnostic(nil), item.Diagnostics...)
 	sort.SliceStable(item.Diagnostics, func(i, j int) bool {
 		return item.Diagnostics[i].Code+"\x00"+item.Diagnostics[i].Message < item.Diagnostics[j].Code+"\x00"+item.Diagnostics[j].Message

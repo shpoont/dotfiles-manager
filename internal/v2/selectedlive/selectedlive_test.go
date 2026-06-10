@@ -14,6 +14,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
+	"github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
@@ -207,6 +208,193 @@ func TestApplySecretDesiredBlocksBeforeBackupOrMutation(t *testing.T) {
 	require.Contains(t, readFile(t, filepath.Join(fixture.liveRoot, "config.yaml")), "old@example.com")
 	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups"))
 	require.NotContains(t, mustJSON(t, result.Report), secret)
+}
+
+func TestLifecycleBlockIfRunningBlocksApplyBeforeBackupOrMutation(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLifecycleLiveFixture(t, recipe.LifecycleBlockIfRunning)
+	fixture.writeLive("old@example.com")
+	fixture.writeDesired("new@example.com")
+	fixture.trustRecipe()
+
+	opts := fixture.options(selectedpreview.CommandApply, "run-lifecycle-block", true)
+	opts.LifecycleDetector = &selectedLiveLifecycleDetector{states: []lifecycle.RunningState{lifecycle.RunningState(lifecycle.StateRunning)}}
+	result, err := Run(opts)
+	require.Error(t, err)
+	var previewErr *selectedpreview.Error
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodePlanBlocked, previewErr.Code)
+	require.Contains(t, readFile(t, filepath.Join(fixture.liveRoot, "config.yaml")), "old@example.com")
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups"))
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "ledger"))
+	require.Equal(t, v2status.StateBlockedLifecycle, result.Report.Items[0].State)
+	requireDiagnostic(t, result.Report.Items[0], lifecycle.CodeRunningBlocked)
+	require.NotEmpty(t, result.Report.Items[0].Lifecycle)
+}
+
+func TestLifecycleAskToQuitWithYesBlocksWithoutPrompt(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLifecycleLiveFixture(t, recipe.LifecycleAskToQuit)
+	fixture.writeLive("old@example.com")
+	fixture.writeDesired("new@example.com")
+	fixture.trustRecipe()
+
+	prompter := &selectedLiveLifecyclePrompter{accepted: true}
+	opts := fixture.options(selectedpreview.CommandApply, "run-lifecycle-ask-yes", true)
+	opts.LifecycleDetector = &selectedLiveLifecycleDetector{states: []lifecycle.RunningState{lifecycle.RunningState(lifecycle.StateRunning)}}
+	opts.LifecyclePrompter = prompter
+	result, err := Run(opts)
+	require.Error(t, err)
+	var previewErr *selectedpreview.Error
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodeExecutionFailed, previewErr.Code)
+	require.Equal(t, 0, prompter.calls)
+	require.Contains(t, readFile(t, filepath.Join(fixture.liveRoot, "config.yaml")), "old@example.com")
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups"))
+	requireDiagnostic(t, result.Report.Items[0], lifecycle.CodeConfirmationRequired)
+}
+
+func TestLifecycleQuitFailureBlocksApplyBeforeBackupOrMutation(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLifecycleLiveFixture(t, recipe.LifecycleQuitIfRunning)
+	fixture.writeLive("old@example.com")
+	fixture.writeDesired("new@example.com")
+	fixture.trustRecipe()
+
+	opts := fixture.options(selectedpreview.CommandApply, "run-lifecycle-quit-failed", true)
+	opts.LifecycleDetector = &selectedLiveLifecycleDetector{states: []lifecycle.RunningState{
+		lifecycle.RunningState(lifecycle.StateRunning),
+		lifecycle.RunningState(lifecycle.StateRunning),
+	}}
+	opts.LifecycleController = selectedLiveLifecycleController{quitErr: errors.New("quit failed")}
+	result, err := Run(opts)
+	require.Error(t, err)
+	var previewErr *selectedpreview.Error
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodeExecutionFailed, previewErr.Code)
+	require.Contains(t, readFile(t, filepath.Join(fixture.liveRoot, "config.yaml")), "old@example.com")
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups"))
+	require.NotNil(t, result.RunRecord)
+	require.Equal(t, v2ledger.ItemResultFailed, result.RunRecord.Items[0].Result)
+	requireDiagnostic(t, result.Report.Items[0], lifecycle.CodeQuitFailed)
+	require.NotContains(t, readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-lifecycle-quit-failed.json")), "old@example.com")
+	require.NotContains(t, readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-lifecycle-quit-failed.json")), "new@example.com")
+}
+
+func TestLifecycleReopenFailureIsRecordedAfterSuccessfulWrite(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLifecycleLiveFixture(t, recipe.LifecycleReopenIfStoppedByTool)
+	fixture.writeLive("old@example.com")
+	fixture.writeDesired("new@example.com")
+	fixture.trustRecipe()
+
+	opts := fixture.options(selectedpreview.CommandApply, "run-lifecycle-reopen-failed", true)
+	opts.LifecycleDetector = &selectedLiveLifecycleDetector{states: []lifecycle.RunningState{
+		lifecycle.RunningState(lifecycle.StateRunning),
+		lifecycle.RunningState(lifecycle.StateRunning),
+		lifecycle.RunningState(lifecycle.StateNotRunning),
+	}}
+	opts.LifecycleController = selectedLiveLifecycleController{reopenErr: errors.New("reopen failed")}
+	result, err := Run(opts)
+	require.Error(t, err)
+	var previewErr *selectedpreview.Error
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodeExecutionFailed, previewErr.Code)
+	require.Contains(t, readFile(t, filepath.Join(fixture.liveRoot, "config.yaml")), "new@example.com")
+	require.NotNil(t, result.Backup)
+	require.NotNil(t, result.RunRecord)
+	item := result.RunRecord.Items[0]
+	require.Equal(t, v2ledger.ItemResultFailed, item.Result)
+	require.True(t, item.Verification.Verified, "write verification remains recorded even though reopen failed")
+	require.NotEmpty(t, item.Lifecycle)
+	requireLifecycleAction(t, item.Lifecycle, lifecycle.ActionReopen, lifecycle.CodeReopenFailed)
+	requireDiagnostic(t, result.Report.Items[0], lifecycle.CodeReopenFailed)
+	require.True(t, result.Report.Items[0].Mutated)
+}
+
+func TestNativeOperationLifecycleBlocksApplyBeforeBackupOrMutation(t *testing.T) {
+	t.Parallel()
+
+	setting := resolutionSetting("test.app", "identity.email")
+	rec := &recipe.Recipe{
+		Target: "test.app",
+		LifecycleTargets: map[string]recipe.LifecycleTarget{
+			"app": {
+				DisplayName: "Test App",
+				Detect:      recipe.LifecycleDetectPolicy{Kind: recipe.LifecycleDetectProcessName, Names: []string{"Test App"}},
+			},
+		},
+		Settings: map[string]recipe.Setting{
+			"identity.email": {Resource: "native-settings"},
+		},
+		Resources: map[string]recipe.Resource{
+			"native-settings": {
+				Driver:                recipe.NativeExportDriverID,
+				NativeImportOperation: "import-settings",
+			},
+		},
+		NativeOperations: map[string]recipe.NativeOperation{
+			"import-settings": {
+				Lifecycle:       recipe.LifecycleBlockIfRunning,
+				LifecycleTarget: "app",
+			},
+		},
+	}
+	resource := rec.Resources["native-settings"]
+	preItem := selectedpreview.Item{
+		TargetRef:  setting.TargetID,
+		SettingRef: setting.Ref(),
+		Resource: selectedpreview.ResourceInfo{
+			ID:       "native-settings",
+			DriverID: recipe.NativeExportDriverID,
+		},
+	}
+	decision, item, blocked := evaluateLifecycleBeforeLive(selectedpreview.CommandApply, "run-native-lifecycle", setting, rec, "native-settings", resource, preItem, Options{
+		LifecycleDetector: &selectedLiveLifecycleDetector{states: []lifecycle.RunningState{lifecycle.RunningState(lifecycle.StateRunning)}},
+	})
+	require.True(t, blocked)
+	require.True(t, decision.Blocked)
+	require.Equal(t, lifecycle.CodeRunningBlocked, decision.DiagnosticCode)
+	require.NotEmpty(t, item.Lifecycle)
+	require.Equal(t, "import-settings", item.Lifecycle[0].NativeOperationID)
+}
+
+func TestLifecycleIsApplyOnlyForLiveCommands(t *testing.T) {
+	t.Parallel()
+
+	setting := resolutionSetting("test.app", "identity.email")
+	rec := lifecycleLiveRecipe(recipe.LifecycleBlockIfRunning)
+	resource := rec.Resources["config"]
+	preItem := selectedpreview.Item{TargetRef: setting.TargetID, SettingRef: setting.Ref()}
+	detector := &countingLiveDetector{}
+	opts := Options{LifecycleDetector: detector, LifecycleController: selectedLiveLifecycleController{}}
+	for _, command := range []string{selectedpreview.CommandStatus, selectedpreview.CommandDiff, selectedpreview.CommandSave} {
+		_, _, blocked := evaluateLifecycleBeforeLive(command, "run-"+command, setting, rec, "config", resource, preItem, opts)
+		require.False(t, blocked, command)
+	}
+	require.Equal(t, 0, detector.calls)
+}
+
+func lifecycleLiveRecipe(lifecyclePolicy string) *recipe.Recipe {
+	return &recipe.Recipe{
+		Target: "test.app",
+		LifecycleTargets: map[string]recipe.LifecycleTarget{
+			"app": {
+				DisplayName: "Test App",
+				Detect:      recipe.LifecycleDetectPolicy{Kind: recipe.LifecycleDetectProcessName, Names: []string{"Test App"}},
+			},
+		},
+		Settings: map[string]recipe.Setting{
+			"identity.email": {Resource: "config"},
+		},
+		Resources: map[string]recipe.Resource{
+			"config": {Driver: recipe.YAMLFileDriverID, Lifecycle: lifecyclePolicy, LifecycleTarget: "app"},
+		},
+	}
 }
 
 func TestNoYesChangedRequiresConfirmationButNoopDoesNot(t *testing.T) {
@@ -772,6 +960,31 @@ func setupLiveFixture(t *testing.T, createPolicy string, deletePolicy string) li
 	return liveFixture{repoRoot: repoRoot, liveRoot: liveRoot, stateRoot: stateRoot, recipe: rec, t: t}
 }
 
+func setupLifecycleLiveFixture(t *testing.T, lifecyclePolicy string) liveFixture {
+	t.Helper()
+	fixture := setupLiveFixture(t, "create", "allow")
+	body := liveRecipeBody(fixture.liveRoot, "create", "allow")
+	body = strings.Replace(body, "settings:\n", `lifecycleTargets:
+  app:
+    displayName: Test App
+    detect:
+      kind: process-name
+      names: ["Test App"]
+    quit:
+      kind: managed
+    reopen:
+      kind: managed
+settings:
+`, 1)
+	body = strings.Replace(body, "    lifecycle: allowed\n    scopeDefault:", "    lifecycle: "+lifecyclePolicy+"\n    scopeDefault:", 1)
+	body = strings.Replace(body, "    lifecycle: allowed\n    selector:", "    lifecycle: "+lifecyclePolicy+"\n    lifecycleTarget: app\n    selector:", 1)
+	writeLiveFile(t, filepath.Join(fixture.repoRoot, "recipes", "local", "test.app", "recipe.yaml"), body)
+	rec, err := recipe.Decode("recipe.yaml", strings.NewReader(body))
+	require.NoError(t, err)
+	fixture.recipe = rec
+	return fixture
+}
+
 func (f liveFixture) options(command string, runID string, confirmed bool) Options {
 	return Options{
 		Command:   command,
@@ -1211,6 +1424,16 @@ func mustJSON(t *testing.T, report *selectedpreview.Report) string {
 	return string(payload)
 }
 
+func requireLifecycleAction(t *testing.T, records []lifecycle.ActionRecord, action string, code string) {
+	t.Helper()
+	for _, record := range records {
+		if record.Action == action && record.Code == code {
+			return
+		}
+	}
+	require.Failf(t, "missing lifecycle action", "wanted action=%s code=%s in %+v", action, code, records)
+}
+
 func mustNormalizeCommand(t *testing.T, command string) string {
 	t.Helper()
 	normalized, err := normalizeCommand(command)
@@ -1262,6 +1485,57 @@ func mustStore(t *testing.T, stateRoot string) *v2ledger.Store {
 
 func fixedSelectedLiveTime() time.Time {
 	return time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+}
+
+type selectedLiveLifecycleDetector struct {
+	states []lifecycle.RunningState
+	idx    int
+	err    error
+}
+
+func (d *selectedLiveLifecycleDetector) Detect(context.Context, recipe.LifecycleTarget) (lifecycle.DetectionResult, error) {
+	if d.err != nil {
+		return lifecycle.DetectionResult{State: lifecycle.RunningState(lifecycle.StateUnknown)}, d.err
+	}
+	if len(d.states) == 0 {
+		return lifecycle.DetectionResult{State: lifecycle.RunningState(lifecycle.StateNotRunning)}, nil
+	}
+	idx := d.idx
+	if idx >= len(d.states) {
+		idx = len(d.states) - 1
+	}
+	d.idx++
+	return lifecycle.DetectionResult{State: d.states[idx], Count: 1}, nil
+}
+
+type countingLiveDetector struct{ calls int }
+
+func (d *countingLiveDetector) Detect(context.Context, recipe.LifecycleTarget) (lifecycle.DetectionResult, error) {
+	d.calls++
+	return lifecycle.DetectionResult{State: lifecycle.RunningState(lifecycle.StateRunning), Count: 1}, nil
+}
+
+type selectedLiveLifecycleController struct {
+	quitErr   error
+	reopenErr error
+}
+
+func (c selectedLiveLifecycleController) Quit(context.Context, recipe.LifecycleTarget) error {
+	return c.quitErr
+}
+
+func (c selectedLiveLifecycleController) Reopen(context.Context, recipe.LifecycleTarget) error {
+	return c.reopenErr
+}
+
+type selectedLiveLifecyclePrompter struct {
+	accepted bool
+	calls    int
+}
+
+func (p *selectedLiveLifecyclePrompter) Prompt(context.Context, lifecycle.Prompt) (bool, error) {
+	p.calls++
+	return p.accepted, nil
 }
 
 func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {

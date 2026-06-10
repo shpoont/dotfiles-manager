@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
+	"github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
@@ -50,6 +51,10 @@ type Options struct {
 	MacOSDefaultsRunner macosdefaultsdriver.Runner
 	NativeResolver      nativeops.ExecutableResolver
 	NativeExecutor      nativeops.Executor
+	LifecycleDetector   lifecycle.Detector
+	LifecycleController lifecycle.Controller
+	LifecyclePrompter   lifecycle.Prompter
+	JSONMode            bool
 }
 
 type Result struct {
@@ -81,6 +86,7 @@ func Run(opts Options) (*Result, error) {
 		Now:                 opts.Now,
 		NativeResolver:      opts.NativeResolver,
 		NativeExecutor:      opts.NativeExecutor,
+		LifecycleDetector:   opts.LifecycleDetector,
 	})
 	if err != nil || opts.DryRun {
 		return &Result{Report: report}, err
@@ -155,7 +161,7 @@ func Run(opts Options) (*Result, error) {
 			markReportItem(report, setting.Ref(), items[len(items)-1])
 			continue
 		}
-		rec, source, trustEval, trustContext, resourceID, resource, err := runtimeContext(repoRoot, stateRoot, setting, opts.Confirmed)
+		rec, source, trustEval, trustContext, resourceID, resource, err := runtimeContext(repoRoot, stateRoot, setting, opts.Confirmed, command == selectedpreview.CommandApply)
 		if err != nil {
 			item := failedItemRecord(command, runID, setting, resourceID, resource, preItem, safeDiagnostic("selectedlive.plan", err, preItem.Resource.Path), nil)
 			items = append(items, item)
@@ -166,9 +172,16 @@ func Run(opts Options) (*Result, error) {
 		if locationRoots == nil {
 			locationRoots = map[string]string{}
 		}
+		lifecycleBefore, lifecycleBlockedItem, lifecycleBlocked := evaluateLifecycleBeforeLive(command, runID, setting, rec, resourceID, resource, preItem, opts)
+		if lifecycleBlocked {
+			items = append(items, lifecycleBlockedItem)
+			markReportItem(report, setting.Ref(), lifecycleBlockedItem)
+			continue
+		}
 		_ = source
 		if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
 			item := executeFileResource(command, runID, started, store, profile, setting, rec, resourceID, resource, locationRoots, preItem)
+			item = evaluateLifecycleAfterLive(command, setting, rec, resourceID, item, lifecycleBefore, opts)
 			items = append(items, item)
 			markReportItem(report, setting.Ref(), item)
 			continue
@@ -176,6 +189,7 @@ func Run(opts Options) (*Result, error) {
 		if resource.Driver == recipe.NativeExportDriverID {
 			if command == selectedpreview.CommandApply {
 				item := executeNativeApply(repoRoot, stateRoot, runID, started, store, setting, rec, source, trustEval, resourceID, resource, locationRoots, preItem, opts)
+				item = evaluateLifecycleAfterLive(command, setting, rec, resourceID, item, lifecycleBefore, opts)
 				items = append(items, item)
 				markReportItem(report, setting.Ref(), item)
 				continue
@@ -192,6 +206,7 @@ func Run(opts Options) (*Result, error) {
 			markReportItem(report, setting.Ref(), item)
 		case selectedpreview.CommandApply:
 			item := executeApply(repoRoot, runID, started, store, setting, rec, trustContext, resourceID, resource, locationRoots, preItem, opts.AfterApply)
+			item = evaluateLifecycleAfterLive(command, setting, rec, resourceID, item, lifecycleBefore, opts)
 			items = append(items, item)
 			markReportItem(report, setting.Ref(), item)
 		}
@@ -481,6 +496,95 @@ func executeNativeApply(repoRoot string, stateRoot string, runID string, started
 	})
 }
 
+func evaluateLifecycleBeforeLive(command string, runID string, setting resolution.ResolvedSetting, rec *recipe.Recipe, resourceID string, resource recipe.Resource, preItem selectedpreview.Item, opts Options) (lifecycle.Decision, v2ledger.ItemRecord, bool) {
+	if command != selectedpreview.CommandApply {
+		return lifecycle.Decision{}, v2ledger.ItemRecord{}, false
+	}
+	decision := lifecycle.EvaluateBefore(context.Background(), lifecycle.Request{
+		Recipe:            rec,
+		SettingID:         setting.SettingID,
+		SettingRef:        setting.Ref(),
+		ResourceID:        resourceID,
+		NativeOperationID: lifecycleNativeOperationID(resource, command),
+		Command:           command,
+		DryRun:            false,
+		Confirmed:         opts.Confirmed,
+		NonInteractive:    opts.NonInteractive || opts.JSONMode,
+		Detector:          opts.LifecycleDetector,
+		Controller:        opts.LifecycleController,
+		Prompter:          opts.LifecyclePrompter,
+	})
+	if !decision.Blocked {
+		return decision, v2ledger.ItemRecord{}, false
+	}
+	diagnostic := lifecycleDecisionDiagnostic(decision, "selectedlive.lifecycle.blocked")
+	item := failedItemRecord(command, runID, setting, resourceID, resource, preItem, diagnostic, nil)
+	item.Lifecycle = append(item.Lifecycle, decision.Actions...)
+	return decision, item, true
+}
+
+func evaluateLifecycleAfterLive(command string, setting resolution.ResolvedSetting, rec *recipe.Recipe, resourceID string, item v2ledger.ItemRecord, before lifecycle.Decision, opts Options) v2ledger.ItemRecord {
+	if command != selectedpreview.CommandApply || !before.ManagerStopped {
+		item.Lifecycle = append(item.Lifecycle, before.Actions...)
+		return v2ledger.NormalizeItemRecord(item)
+	}
+	after := lifecycle.EvaluateAfter(context.Background(), lifecycle.Request{
+		Recipe:            rec,
+		SettingID:         setting.SettingID,
+		SettingRef:        setting.Ref(),
+		ResourceID:        resourceID,
+		NativeOperationID: lifecycleNativeOperationID(rec.Resources[resourceID], command),
+		Command:           command,
+		DryRun:            false,
+		Confirmed:         opts.Confirmed,
+		NonInteractive:    opts.NonInteractive || opts.JSONMode,
+		Detector:          opts.LifecycleDetector,
+		Controller:        opts.LifecycleController,
+		Prompter:          opts.LifecyclePrompter,
+	}, before.ManagerStopped)
+	item.Lifecycle = append(item.Lifecycle, before.Actions...)
+	item.Lifecycle = append(item.Lifecycle, after.Actions...)
+	if after.Blocked {
+		diagnostic := lifecycleDecisionDiagnostic(after, "selectedlive.lifecycle.afterWrite")
+		item.Diagnostics = append(item.Diagnostics, diagnostic)
+		item.Result = v2ledger.ItemResultFailed
+		if item.Verification.Result == "" {
+			item.Verification.Result = "failed"
+		}
+		if item.Verification.Message == "" {
+			item.Verification.Message = diagnostic.Message
+		}
+	}
+	return v2ledger.NormalizeItemRecord(item)
+}
+
+func lifecycleNativeOperationID(resource recipe.Resource, command string) string {
+	if command != selectedpreview.CommandApply || resource.Driver != recipe.NativeExportDriverID {
+		return ""
+	}
+	return strings.TrimSpace(resource.NativeImportOperation)
+}
+
+func lifecycleDecisionDiagnostic(decision lifecycle.Decision, fallbackCode string) v2ledger.Diagnostic {
+	code := strings.TrimSpace(decision.DiagnosticCode)
+	message := strings.TrimSpace(decision.Message)
+	for _, action := range decision.Actions {
+		if code == "" {
+			code = strings.TrimSpace(action.Code)
+		}
+		if message == "" {
+			message = strings.TrimSpace(action.Message)
+		}
+	}
+	if code == "" {
+		code = fallbackCode
+	}
+	if message == "" {
+		message = "lifecycle policy blocked live apply"
+	}
+	return v2ledger.Diagnostic{Code: code, Message: message}
+}
+
 func fileResourceBackupHook(store *v2ledger.Store, runID string, started time.Time, plan *customfiles.Plan) customfiles.BackupHook {
 	return func(req customfiles.BackupRequest) (customfiles.BackupResult, error) {
 		item, err := store.WriteCustomFilesBackup(runID, started, plan, req)
@@ -559,7 +663,7 @@ func selectedValueBackupHook(store *v2ledger.Store, runID string, started time.T
 	}
 }
 
-func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting, allowNativeOpaque bool) (*recipe.Recipe, string, recipe.TrustEvaluation, recipe.WriteSafetyContext, string, recipe.Resource, error) {
+func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting, allowNativeOpaque bool, handlesLifecycleActions ...bool) (*recipe.Recipe, string, recipe.TrustEvaluation, recipe.WriteSafetyContext, string, recipe.Resource, error) {
 	runtime, err := recipe.LoadRuntime(repoRoot, setting.TargetID)
 	if err != nil {
 		return nil, runtime.Source, recipe.TrustEvaluation{}, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
@@ -577,6 +681,9 @@ func runtimeContext(repoRoot string, stateRoot string, setting resolution.Resolv
 		return rec, runtime.Source, eval, recipe.WriteSafetyContext{}, resourceID, resource, fmt.Errorf("recipe trust is not trusted")
 	}
 	ctx := eval.WriteSafetyContext(recipe.WriteSafetyContext{})
+	if len(handlesLifecycleActions) > 0 && handlesLifecycleActions[0] {
+		ctx.HandlesLifecycleActions = true
+	}
 	if resource.Driver == recipe.NativeExportDriverID && allowNativeOpaque {
 		ctx.AllowOpaque = true
 	}
@@ -961,8 +1068,9 @@ func markReportItem(report *selectedpreview.Report, settingRef string, item v2le
 		if report.Items[idx].SettingRef != settingRef {
 			continue
 		}
-		report.Items[idx].Mutated = item.Result == v2ledger.ItemResultVerified && item.Operation != "" && !sameState(item.Before, item.VerifiedState)
+		report.Items[idx].Mutated = item.Operation != "" && !sameState(item.Before, item.VerifiedState)
 		report.Items[idx].PlannedAction = string(item.Result)
+		report.Items[idx].Lifecycle = append(report.Items[idx].Lifecycle, item.Lifecycle...)
 		report.Items[idx].Mutation = &selectedpreview.MutationInfo{
 			Result:     string(item.Result),
 			RunID:      runIDFromRunRecordRef(item.ArtifactRefs.RunRecord),

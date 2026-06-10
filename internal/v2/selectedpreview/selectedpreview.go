@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
@@ -69,6 +70,7 @@ type Options struct {
 	Now                 func() time.Time
 	NativeResolver      nativeops.ExecutableResolver
 	NativeExecutor      nativeops.Executor
+	LifecycleDetector   lifecycle.Detector
 }
 
 type Report struct {
@@ -100,30 +102,31 @@ type ErrorObj struct {
 }
 
 type Item struct {
-	TargetRef      string             `json:"targetRef"`
-	SettingRef     string             `json:"settingRef"`
-	Scope          string             `json:"scope"`
-	Subject        string             `json:"subject"`
-	SourceLayer    string             `json:"sourceLayer"`
-	DesiredURI     string             `json:"desiredUri"`
-	DesiredRelPath string             `json:"desiredRelPath"`
-	Recipe         RecipeInfo         `json:"recipe"`
-	Resource       ResourceInfo       `json:"resource"`
-	Selector       SelectorInfo       `json:"selector"`
-	Desired        DesiredInfo        `json:"desired"`
-	Current        Snapshot           `json:"current"`
-	Preview        *PreviewInfo       `json:"preview,omitempty"`
-	Diff           *DiffInfo          `json:"diff,omitempty"`
-	State          v2status.StateCode `json:"state"`
-	NoBaseline     bool               `json:"noBaseline"`
-	Message        string             `json:"message"`
-	AllowedActions []v2status.Action  `json:"allowedActions"`
-	PlannedAction  string             `json:"plannedAction,omitempty"`
-	DryRun         bool               `json:"dryRun"`
-	Mutated        bool               `json:"mutated"`
-	Mutation       *MutationInfo      `json:"mutation,omitempty"`
-	NativeExport   *NativeExportInfo  `json:"nativeExport,omitempty"`
-	Diagnostics    []Diagnostic       `json:"diagnostics"`
+	TargetRef      string                   `json:"targetRef"`
+	SettingRef     string                   `json:"settingRef"`
+	Scope          string                   `json:"scope"`
+	Subject        string                   `json:"subject"`
+	SourceLayer    string                   `json:"sourceLayer"`
+	DesiredURI     string                   `json:"desiredUri"`
+	DesiredRelPath string                   `json:"desiredRelPath"`
+	Recipe         RecipeInfo               `json:"recipe"`
+	Resource       ResourceInfo             `json:"resource"`
+	Selector       SelectorInfo             `json:"selector"`
+	Desired        DesiredInfo              `json:"desired"`
+	Current        Snapshot                 `json:"current"`
+	Preview        *PreviewInfo             `json:"preview,omitempty"`
+	Diff           *DiffInfo                `json:"diff,omitempty"`
+	State          v2status.StateCode       `json:"state"`
+	NoBaseline     bool                     `json:"noBaseline"`
+	Message        string                   `json:"message"`
+	AllowedActions []v2status.Action        `json:"allowedActions"`
+	PlannedAction  string                   `json:"plannedAction,omitempty"`
+	DryRun         bool                     `json:"dryRun"`
+	Mutated        bool                     `json:"mutated"`
+	Mutation       *MutationInfo            `json:"mutation,omitempty"`
+	NativeExport   *NativeExportInfo        `json:"nativeExport,omitempty"`
+	Lifecycle      []lifecycle.ActionRecord `json:"lifecycle,omitempty"`
+	Diagnostics    []Diagnostic             `json:"diagnostics"`
 }
 
 type RecipeInfo struct {
@@ -343,6 +346,19 @@ func Text(report *Report) string {
 				lines = append(lines, "    backups="+strings.Join(item.Mutation.BackupRefs, ","))
 			}
 		}
+		for _, action := range item.Lifecycle {
+			lifecycleLine := fmt.Sprintf("    lifecycle phase=%s action=%s mode=%s result=%s", action.Phase, action.Action, action.Mode, action.Result)
+			if action.LifecycleTargetID != "" {
+				lifecycleLine += " target=" + action.LifecycleTargetID
+			}
+			if action.StateAfter != "" {
+				lifecycleLine += " state=" + action.StateAfter
+			}
+			if action.Code != "" {
+				lifecycleLine += " code=" + action.Code
+			}
+			lines = append(lines, lifecycleLine)
+		}
 		for _, diagnostic := range item.Diagnostics {
 			lines = append(lines, fmt.Sprintf("    %s[%s]: %s", diagnostic.Severity, diagnostic.Code, diagnostic.Message))
 		}
@@ -498,6 +514,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	}
 	if resource.Driver == recipe.NativeExportDriverID {
 		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+		trustContext = writeSafetyContextForCommand(trustContext, command)
 		if opts.Confirmed {
 			trustContext.AllowOpaque = true
 		}
@@ -512,20 +529,22 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before native export can run.")
 		}
 		if err := rec.ValidateWriteSafety(trustContext); err != nil {
-			for _, validation := range recipe.ValidationDiagnostics(err) {
+			validations := recipe.ValidationDiagnostics(err)
+			for _, validation := range validations {
 				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 			}
-			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks native export preview.")
+			return finishBlocked(item, blockedStateForRecipeDiagnostics(validations), "Recipe write-safety metadata blocks native export preview.")
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 		locationRoots := opts.LocationRoots[setting.TargetID]
 		if locationRoots == nil {
 			locationRoots = map[string]string{}
 		}
-		return buildNativeExportItem(repoRoot, stateRoot, command, item, rec, runtime.Source, trustEval, setting, resourceID, resource, locationRoots, opts)
+		return applyLifecyclePreview(buildNativeExportItem(repoRoot, stateRoot, command, item, rec, runtime.Source, trustEval, setting, resourceID, resource, locationRoots, opts), rec, setting, resourceID, command, opts)
 	}
 	if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
 		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+		trustContext = writeSafetyContextForCommand(trustContext, command)
 		item.Recipe.TrustStatus = trustEval.Status
 		if trustEval.Status != recipe.TrustStatusTrusted {
 			for _, diagnostic := range trustEval.Diagnostics {
@@ -538,10 +557,11 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 
 		if err := rec.ValidateWriteSafety(trustContext); err != nil {
-			for _, validation := range recipe.ValidationDiagnostics(err) {
+			validations := recipe.ValidationDiagnostics(err)
+			for _, validation := range validations {
 				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 			}
-			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks filesystem-resource preview.")
+			return finishBlocked(item, blockedStateForRecipeDiagnostics(validations), "Recipe write-safety metadata blocks filesystem-resource preview.")
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
@@ -549,7 +569,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		if locationRoots == nil {
 			locationRoots = map[string]string{}
 		}
-		return buildFileResourceItem(repoRoot, command, item, rec, setting, locationRoots)
+		return applyLifecyclePreview(buildFileResourceItem(repoRoot, command, item, rec, setting, locationRoots), rec, setting, resourceID, command, opts)
 	}
 	if !isSelectedValueDriver(resource.Driver) {
 		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: "selectedpreview.driver.unsupported", Severity: SeverityError, Message: fmt.Sprintf("driver %s is not a selected-value driver", resource.Driver), Ref: item.SettingRef, ResourceID: resourceID, DriverID: resource.Driver})
@@ -557,6 +577,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	}
 
 	trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+	trustContext = writeSafetyContextForCommand(trustContext, command)
 	item.Recipe.TrustStatus = trustEval.Status
 	if trustEval.Status != recipe.TrustStatusTrusted {
 		for _, diagnostic := range trustEval.Diagnostics {
@@ -569,10 +590,11 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	}
 
 	if err := rec.ValidateWriteSafety(trustContext); err != nil {
-		for _, validation := range recipe.ValidationDiagnostics(err) {
+		validations := recipe.ValidationDiagnostics(err)
+		for _, validation := range validations {
 			item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
 		}
-		return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks selected-value preview.")
+		return finishBlocked(item, blockedStateForRecipeDiagnostics(validations), "Recipe write-safety metadata blocks selected-value preview.")
 	}
 	appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
@@ -644,7 +666,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		item.Preview.ChangeKind = saveChangeKind(item.Current, item.Desired.Snapshot)
 		item.Preview.Intent = saveIntent(item.Current)
 	}
-	return item
+	return applyLifecyclePreview(item, rec, setting, resourceID, command, opts)
 }
 
 func loadRuntimeRecipe(repoRoot string, targetID string) (recipe.RuntimeRecipe, []Diagnostic) {
@@ -685,6 +707,61 @@ func evaluateTrust(repoRoot string, stateRoot string, source string, rec *recipe
 		return recipe.TrustEvaluation{Status: recipe.TrustStatusBlocked, Diagnostics: []recipe.ValidationDiagnostic{{Code: "selectedpreview.trust.evaluate", Severity: recipe.ValidationSeverityError, Message: err.Error(), Path: "$"}}}, recipe.WriteSafetyContext{}
 	}
 	return eval, eval.WriteSafetyContext(recipe.WriteSafetyContext{})
+}
+
+func writeSafetyContextForCommand(ctx recipe.WriteSafetyContext, command string) recipe.WriteSafetyContext {
+	if command == CommandApply {
+		ctx.HandlesLifecycleActions = true
+	}
+	return ctx
+}
+
+func blockedStateForRecipeDiagnostics(diagnostics []recipe.ValidationDiagnostic) v2status.StateCode {
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic.Code, "lifecycle") {
+			return v2status.StateBlockedLifecycle
+		}
+	}
+	return v2status.StateBlockedSafety
+}
+
+func applyLifecyclePreview(item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, resourceID string, command string, opts Options) Item {
+	if command != CommandApply || item.State == v2status.StateBlockedSafety || item.State == v2status.StateBlockedLifecycle || item.State == v2status.StateUnsupported {
+		return item
+	}
+	decision := lifecycle.EvaluateBefore(context.Background(), lifecycle.Request{
+		Recipe:            rec,
+		SettingID:         setting.SettingID,
+		SettingRef:        setting.Ref(),
+		ResourceID:        resourceID,
+		NativeOperationID: lifecycleNativeOperationID(rec, resourceID, command),
+		Command:           command,
+		DryRun:            true,
+		Detector:          opts.LifecycleDetector,
+	})
+	item.Lifecycle = append(item.Lifecycle, decision.Actions...)
+	for _, diagnostic := range lifecycle.RecordsToDiagnostics(decision.Actions) {
+		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: diagnostic.Code, Severity: SeverityError, Message: diagnostic.Message, Ref: item.SettingRef, ResourceID: resourceID, DriverID: item.Resource.DriverID})
+	}
+	if decision.Blocked {
+		message := decision.Message
+		if message == "" {
+			message = "Lifecycle policy blocks live apply."
+		}
+		return finishBlocked(item, v2status.StateBlockedLifecycle, message)
+	}
+	return item
+}
+
+func lifecycleNativeOperationID(rec *recipe.Recipe, resourceID string, command string) string {
+	if command != CommandApply || rec == nil {
+		return ""
+	}
+	resource, ok := rec.Resources[resourceID]
+	if !ok || resource.Driver != recipe.NativeExportDriverID {
+		return ""
+	}
+	return strings.TrimSpace(resource.NativeImportOperation)
 }
 
 func buildFileResourceItem(repoRoot string, command string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string) Item {

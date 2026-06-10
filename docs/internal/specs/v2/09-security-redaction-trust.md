@@ -319,15 +319,39 @@ added later if needed. Supported policy states include:
 - `block-if-running`;
 - `reopen-if-stopped-by-tool`.
 
-`blocked` always blocks write planning. `ask-to-quit`, `quit-if-running`,
-`block-if-running`, and `reopen-if-stopped-by-tool` also block by default until
-a lifecycle engine or caller context explicitly handles lifecycle actions.
-`allowed` and `warn` do not block the metadata gate; `warn` must remain a
-non-blocking diagnostic.
+`blocked` always blocks write planning. `allowed` and `warn` do not block the
+metadata gate; `warn` must remain a non-blocking diagnostic.
 
-If the manager stops an app, it should reopen it only when policy and user
-confirmation permit that. Non-interactive mode must not silently quit or reopen
-apps unless a future explicit safe flag is defined.
+Running-state policies are fail-closed and require explicit lifecycle target
+metadata. The manager must not infer app/process identity from target IDs,
+config paths, executable names, or bundled app knowledge. Supported MVP target
+detection is exact `process-name` basename matching. Regexes, globs, shell
+commands, argv matching, path scanning, arbitrary lifecycle scripts, force-kill,
+and app-specific lifecycle hacks are outside the MVP. The default process-name
+detector must use a controlled absolute platform process-list command, must not
+resolve `ps` through inherited `PATH`, must run with a closed environment, and
+must fail closed on timeout or process-list failure.
+
+Live `apply` is the command that may evaluate running state and execute
+lifecycle actions. `status`, `diff`, and `save` must not quit or reopen apps.
+`block-if-running` detects and blocks if the target is running. `ask-to-quit`
+asks the user to quit manually, then re-checks; `--yes` must not answer this
+manual prompt and must block with a stable lifecycle diagnostic.
+`quit-if-running` requires explicit confirmation and a declared managed quit
+capability, then re-checks before writing. `reopen-if-stopped-by-tool` reopens
+only when the manager itself stopped the app during the same apply.
+
+Lifecycle action contexts must be bounded. Detection, managed quit, managed
+reopen, and recheck must not be able to hang the command indefinitely. In
+dry-run/preview reports, actual running-state detection is recorded as
+`executed`; only prompt/quit/reopen control actions that would happen later are
+recorded as `planned`.
+
+If the manager stops an app, it should attempt reopen even when the later write
+fails, and must report both the write result and reopen result. If write
+succeeds but reopen fails, the write remains recorded and the run must still
+surface the lifecycle failure. Non-interactive and JSON modes must not prompt;
+they block with structured diagnostics whenever a lifecycle choice is required.
 
 ### Platform/filesystem assumptions
 
