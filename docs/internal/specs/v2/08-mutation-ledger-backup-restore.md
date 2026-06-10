@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/08-mutation-ledger-backup-restore.md
 source-concept-sections:
   - Mutation transaction model
@@ -95,6 +95,15 @@ A mutating command must follow these phases:
 - verify driver result;
 - write last-applied state only after verified success;
 - record partial failures.
+
+For native apply, backup is not optional in MVP. The accepted policy is exactly
+`pre-apply-export`; the manager must run and persist that backup export before
+import. The accepted verification policy is exactly `post-import-export-hash`;
+the manager must run a post-import export and compare its payload hash and
+normalizer to the desired native export artifact. Backup export failure blocks
+import. Import or verification failure after backup records a failed run with
+backup refs, no successful ledger entry, and no claim that live state matches
+desired.
 
 ### Ledger commit rules
 

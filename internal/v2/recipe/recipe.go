@@ -148,19 +148,22 @@ type Setting struct {
 }
 
 type Resource struct {
-	Driver              string          `yaml:"driver"`
-	Location            string          `yaml:"location"`
-	Path                string          `yaml:"path"`
-	NativeOperation     string          `yaml:"nativeOperation,omitempty"`
-	Capability          string          `yaml:"capability,omitempty"`
-	Sensitivity         string          `yaml:"sensitivity,omitempty"`
-	Redaction           string          `yaml:"redaction,omitempty"`
-	Lifecycle           string          `yaml:"lifecycle,omitempty"`
-	ContentSafetyPolicy string          `yaml:"contentSafetyPolicy,omitempty"`
-	WriteWarnings       []ReviewWarning `yaml:"writeWarnings,omitempty"`
-	Include             []string        `yaml:"include,omitempty"`
-	Exclude             []string        `yaml:"exclude,omitempty"`
-	Selector            *Selector       `yaml:"selector,omitempty"`
+	Driver                string            `yaml:"driver"`
+	Location              string            `yaml:"location"`
+	Path                  string            `yaml:"path"`
+	NativeOperation       string            `yaml:"nativeOperation,omitempty"`
+	NativeImportOperation string            `yaml:"nativeImportOperation,omitempty"`
+	NativeVerifyOperation string            `yaml:"nativeVerifyOperation,omitempty"`
+	NativeApply           NativeApplyPolicy `yaml:"nativeApply,omitempty"`
+	Capability            string            `yaml:"capability,omitempty"`
+	Sensitivity           string            `yaml:"sensitivity,omitempty"`
+	Redaction             string            `yaml:"redaction,omitempty"`
+	Lifecycle             string            `yaml:"lifecycle,omitempty"`
+	ContentSafetyPolicy   string            `yaml:"contentSafetyPolicy,omitempty"`
+	WriteWarnings         []ReviewWarning   `yaml:"writeWarnings,omitempty"`
+	Include               []string          `yaml:"include,omitempty"`
+	Exclude               []string          `yaml:"exclude,omitempty"`
+	Selector              *Selector         `yaml:"selector,omitempty"`
 }
 
 type NativeOperation struct {
@@ -238,6 +241,11 @@ type NativeExportMetadataPolicy struct {
 	SecretExclusions   []string `yaml:"secretExclusions,omitempty"`
 	AccountExclusions  []string `yaml:"accountExclusions,omitempty"`
 	Limitations        []string `yaml:"limitations,omitempty"`
+}
+
+type NativeApplyPolicy struct {
+	Backup string `yaml:"backup,omitempty"`
+	Verify string `yaml:"verify,omitempty"`
 }
 
 type ReviewWarning struct {
@@ -550,18 +558,43 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		operationID := strings.TrimSpace(resource.NativeOperation)
 		if operationID == "" {
 			add("resource.nativeOperation.required", resourcePath+".nativeOperation", fmt.Sprintf("resource %s driver %q requires nativeOperation", resourceID, NativeExportDriverID))
-			continue
-		}
-		operation, ok := r.NativeOperations[operationID]
-		if !ok {
+		} else if operation, ok := r.NativeOperations[operationID]; !ok {
 			add("resource.nativeOperation.unknown", resourcePath+".nativeOperation", fmt.Sprintf("resource %s references unknown native operation %s", resourceID, operationID))
-			continue
-		}
-		if operation.Kind != "export" {
+		} else if operation.Kind != "export" {
 			add("resource.nativeOperation.kindUnsupported", resourcePath+".nativeOperation", fmt.Sprintf("resource %s nativeOperation %s must be kind export", resourceID, operationID))
 		}
-		if resource.Capability != "export-only" {
-			add("resource.capability.nativeExportUnsupported", resourcePath+".capability", fmt.Sprintf("resource %s driver %q requires capability export-only", resourceID, NativeExportDriverID))
+		importOperationID := strings.TrimSpace(resource.NativeImportOperation)
+		if importOperationID != "" {
+			if operation, ok := r.NativeOperations[importOperationID]; !ok {
+				add("resource.nativeImportOperation.unknown", resourcePath+".nativeImportOperation", fmt.Sprintf("resource %s references unknown native import operation %s", resourceID, importOperationID))
+			} else if operation.Kind != "import" {
+				add("resource.nativeImportOperation.kindUnsupported", resourcePath+".nativeImportOperation", fmt.Sprintf("resource %s nativeImportOperation %s must be kind import", resourceID, importOperationID))
+			}
+		}
+		verifyOperationID := strings.TrimSpace(resource.NativeVerifyOperation)
+		if verifyOperationID != "" {
+			if operation, ok := r.NativeOperations[verifyOperationID]; !ok {
+				add("resource.nativeVerifyOperation.unknown", resourcePath+".nativeVerifyOperation", fmt.Sprintf("resource %s references unknown native verify operation %s", resourceID, verifyOperationID))
+			} else if operation.Kind != "verify" {
+				add("resource.nativeVerifyOperation.kindUnsupported", resourcePath+".nativeVerifyOperation", fmt.Sprintf("resource %s nativeVerifyOperation %s must be kind verify", resourceID, verifyOperationID))
+			}
+		}
+		importCapable := importOperationID != "" || resource.NativeApply.Backup != "" || resource.NativeApply.Verify != ""
+		if importCapable {
+			if importOperationID == "" {
+				add("resource.nativeImportOperation.required", resourcePath+".nativeImportOperation", fmt.Sprintf("resource %s native apply requires nativeImportOperation", resourceID))
+			}
+			if resource.Capability != "read-write" {
+				add("resource.capability.nativeImportUnsupported", resourcePath+".capability", fmt.Sprintf("resource %s import-capable native resource requires capability read-write", resourceID))
+			}
+			if resource.NativeApply.Backup != "pre-apply-export" {
+				add("resource.nativeApply.backup.unsupported", resourcePath+".nativeApply.backup", fmt.Sprintf("resource %s native apply backup policy must be pre-apply-export", resourceID))
+			}
+			if resource.NativeApply.Verify != "post-import-export-hash" {
+				add("resource.nativeApply.verify.unsupported", resourcePath+".nativeApply.verify", fmt.Sprintf("resource %s native apply verify policy must be post-import-export-hash", resourceID))
+			}
+		} else if resource.Capability != "export-only" {
+			add("resource.capability.nativeExportUnsupported", resourcePath+".capability", fmt.Sprintf("resource %s export-only native resource requires capability export-only", resourceID))
 		}
 	}
 
@@ -572,8 +605,13 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 			continue
 		}
 		settingPath := "$.settings." + settingID
-		if setting.Capability != "export-only" {
-			add("setting.capability.nativeExportUnsupported", settingPath+".capability", fmt.Sprintf("setting %s native-export resource requires capability export-only", settingID))
+		importCapable := strings.TrimSpace(resource.NativeImportOperation) != "" || resource.NativeApply.Backup != "" || resource.NativeApply.Verify != ""
+		if importCapable {
+			if setting.Capability != "read-write" {
+				add("setting.capability.nativeImportUnsupported", settingPath+".capability", fmt.Sprintf("setting %s import-capable native resource requires capability read-write", settingID))
+			}
+		} else if setting.Capability != "export-only" {
+			add("setting.capability.nativeExportUnsupported", settingPath+".capability", fmt.Sprintf("setting %s export-only native resource requires capability export-only", settingID))
 		}
 		if setting.ArtifactForm != "native-export" && setting.ArtifactForm != "opaque" {
 			add("setting.artifactForm.nativeExportUnsupported", settingPath+".artifactForm", fmt.Sprintf("setting %s native-export resource requires artifactForm native-export or opaque", settingID))
@@ -784,6 +822,9 @@ func addNativePathSpecsDiagnostics(add func(string, string, string), path string
 		}
 		if role == "input" && kind == "import" && spec.Root == "location" {
 			add("nativeOperation.path.input.importRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s import inputs must use artifact or temp root", operationID))
+		}
+		if role == "temp" && kind == "import" && spec.Root == "location" {
+			add("nativeOperation.path.temp.importRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s import temp paths must use temp root", operationID))
 		}
 	}
 }

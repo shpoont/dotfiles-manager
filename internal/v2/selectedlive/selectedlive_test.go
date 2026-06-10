@@ -15,6 +15,8 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -272,6 +274,152 @@ func TestNativeExportSaveYesWritesDesiredArtifactAndMetadataOnlyLedger(t *testin
 		require.NotContains(t, payload, "/usr/bin/native-safe-tool")
 		require.NotContains(t, payload, fixture.stateRoot)
 	}
+}
+
+func TestNativeApplyYesBacksUpImportsFromTempVerifiesAndRecordsMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLiveNativeApplyFixture(t)
+	fixture.trustNativeRecipe()
+	fixture.writeNativeDesiredArtifact("desired-native-secret")
+	executor := &liveNativeApplyExecutor{before: "before-native-secret"}
+
+	result, err := Run(fixture.nativeApplyOptions("run-native-apply", true, executor))
+	require.NoError(t, err)
+	require.NotNil(t, result.RunRecord)
+	require.NotNil(t, result.Backup)
+	require.Equal(t, []string{"export", "import", "export"}, executor.operations)
+	require.Len(t, executor.importInputPaths, 1)
+	require.Contains(t, executor.importInputPaths[0], filepath.Join(fixture.stateRoot, "temp", "native-apply"))
+	require.NotContains(t, executor.importInputPaths[0], fixture.repoRoot)
+	require.Equal(t, "desired-native-secret", executor.installed)
+
+	item := result.RunRecord.Items[0]
+	require.Equal(t, v2ledger.ItemResultVerified, item.Result)
+	require.True(t, item.Verification.Verified)
+	require.Len(t, item.BackupRefs, 1)
+	require.Len(t, result.LedgerEntries, 1)
+
+	payloadRel := result.Backup.Items[0].PayloadRelPath
+	backupPayload := readFile(t, filepath.Join(fixture.stateRoot, "backups", "run-native-apply", filepath.FromSlash(payloadRel), "payload", "bundle.txt"))
+	require.Equal(t, "before-native-secret", backupPayload)
+
+	reportJSON := mustJSON(t, result.Report)
+	runRecord := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "runs", "run-native-apply.json"))
+	ledgerPayload := readFile(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+	backupMetadata := readFile(t, filepath.Join(fixture.stateRoot, "backups", "run-native-apply", "backup.yaml"))
+	for _, payload := range []string{reportJSON, runRecord, ledgerPayload, backupMetadata} {
+		require.NotContains(t, payload, "before-native-secret")
+		require.NotContains(t, payload, "desired-native-secret")
+		require.NotContains(t, payload, fixture.stateRoot)
+		require.NotContains(t, payload, "/usr/bin/native-safe-tool")
+	}
+}
+
+func TestNativeApplyNoYesRequiresConfirmationWithoutNativeOperations(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLiveNativeApplyFixture(t)
+	fixture.trustNativeRecipe()
+	fixture.writeNativeDesiredArtifact("desired-native-secret")
+	executor := &liveNativeApplyExecutor{before: "before-native-secret"}
+
+	result, err := Run(fixture.nativeApplyOptions("run-native-confirm", false, executor))
+	require.Error(t, err)
+	var previewErr *selectedpreview.Error
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodeConfirmationRequired, previewErr.Code)
+	require.Equal(t, 4, previewErr.ExitCode())
+	require.Empty(t, executor.operations)
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups"))
+	require.NoDirExists(t, filepath.Join(fixture.stateRoot, "ledger"))
+	require.NotContains(t, mustJSON(t, result.Report), "desired-native-secret")
+
+	nonInteractiveFixture := setupLiveNativeApplyFixture(t)
+	nonInteractiveFixture.trustNativeRecipe()
+	nonInteractiveFixture.writeNativeDesiredArtifact("desired-native-secret")
+	nonInteractiveExecutor := &liveNativeApplyExecutor{before: "before-native-secret"}
+	nonInteractiveOpts := nonInteractiveFixture.nativeApplyOptions("run-native-noninteractive-confirm", false, nonInteractiveExecutor)
+	nonInteractiveOpts.NonInteractive = true
+	result, err = Run(nonInteractiveOpts)
+	require.Error(t, err)
+	require.True(t, errors.As(err, &previewErr))
+	require.Equal(t, CodeConfirmationRequired, previewErr.Code)
+	require.Equal(t, 4, previewErr.ExitCode())
+	require.Empty(t, nonInteractiveExecutor.operations)
+	require.NoDirExists(t, filepath.Join(nonInteractiveFixture.stateRoot, "backups"))
+	require.NoDirExists(t, filepath.Join(nonInteractiveFixture.stateRoot, "ledger"))
+	require.NotContains(t, mustJSON(t, result.Report), "desired-native-secret")
+}
+
+func TestNativeApplyFailureOrderRecordsBackupOnlyAfterBackupSucceeds(t *testing.T) {
+	t.Parallel()
+
+	t.Run("backup failure blocks import", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveNativeApplyFixture(t)
+		fixture.trustNativeRecipe()
+		fixture.writeNativeDesiredArtifact("desired-native-secret")
+		executor := &liveNativeApplyExecutor{before: "before-native-secret", failBackup: true}
+
+		result, err := Run(fixture.nativeApplyOptions("run-native-backup-fail", true, executor))
+		require.Error(t, err)
+		var previewErr *selectedpreview.Error
+		require.True(t, errors.As(err, &previewErr))
+		require.Equal(t, 5, previewErr.ExitCode())
+		require.NotNil(t, result.RunRecord)
+		require.Equal(t, []string{"export"}, executor.operations)
+		require.Equal(t, v2ledger.ItemResultFailed, result.RunRecord.Items[0].Result)
+		require.Empty(t, result.RunRecord.Items[0].BackupRefs)
+		require.Nil(t, result.Backup)
+		require.NoDirExists(t, filepath.Join(fixture.stateRoot, "backups"))
+		require.NoFileExists(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+	})
+
+	t.Run("import failure keeps pre-apply backup", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveNativeApplyFixture(t)
+		fixture.trustNativeRecipe()
+		fixture.writeNativeDesiredArtifact("desired-native-secret")
+		executor := &liveNativeApplyExecutor{before: "before-native-secret", failImport: true}
+
+		result, err := Run(fixture.nativeApplyOptions("run-native-import-fail", true, executor))
+		require.Error(t, err)
+		var previewErr *selectedpreview.Error
+		require.True(t, errors.As(err, &previewErr))
+		require.Equal(t, 5, previewErr.ExitCode())
+		require.NotNil(t, result.RunRecord)
+		require.NotNil(t, result.Backup)
+		require.Equal(t, []string{"export", "import"}, executor.operations)
+		require.Equal(t, v2ledger.ItemResultFailed, result.RunRecord.Items[0].Result)
+		require.Len(t, result.RunRecord.Items[0].BackupRefs, 1)
+		require.NoFileExists(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+	})
+
+	t.Run("verification mismatch keeps pre-apply backup", func(t *testing.T) {
+		t.Parallel()
+
+		fixture := setupLiveNativeApplyFixture(t)
+		fixture.trustNativeRecipe()
+		fixture.writeNativeDesiredArtifact("desired-native-secret")
+		executor := &liveNativeApplyExecutor{before: "before-native-secret", verifyBody: "drift-native-secret"}
+
+		result, err := Run(fixture.nativeApplyOptions("run-native-verify-fail", true, executor))
+		require.Error(t, err)
+		var previewErr *selectedpreview.Error
+		require.True(t, errors.As(err, &previewErr))
+		require.Equal(t, 5, previewErr.ExitCode())
+		require.NotNil(t, result.RunRecord)
+		require.NotNil(t, result.Backup)
+		require.Equal(t, []string{"export", "import", "export"}, executor.operations)
+		require.Equal(t, v2ledger.ItemResultFailed, result.RunRecord.Items[0].Result)
+		require.Equal(t, "selectedlive.nativeApply.verifyHashMismatch", result.RunRecord.Items[0].Diagnostics[0].Code)
+		require.Len(t, result.RunRecord.Items[0].BackupRefs, 1)
+		require.NoFileExists(t, filepath.Join(fixture.stateRoot, "ledger", "ledger.jsonl"))
+		require.NotContains(t, mustJSON(t, result.Report), "drift-native-secret")
+	})
 }
 
 func TestNativeExportLiveFailureItemsStayMetadataOnly(t *testing.T) {
@@ -557,13 +705,13 @@ func TestRunAndRuntimeContextErrorBranches(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Report.DryRun)
 
-	_, _, _, _, _, err = runtimeContext(fixture.repoRoot, fixture.stateRoot, resolutionSetting("missing.app", "identity.email"), false)
+	_, _, _, _, _, _, err = runtimeContext(fixture.repoRoot, fixture.stateRoot, resolutionSetting("missing.app", "identity.email"), false)
 	require.Error(t, err)
 
 	untrusted := setupLiveFixture(t, "create", "allow")
 	untrusted.writeLive("old@example.com")
 	untrusted.writeDesired("new@example.com")
-	_, _, _, _, _, err = runtimeContext(untrusted.repoRoot, untrusted.stateRoot, resolutionSetting("test.app", "identity.email"), false)
+	_, _, _, _, _, _, err = runtimeContext(untrusted.repoRoot, untrusted.stateRoot, resolutionSetting("test.app", "identity.email"), false)
 	require.Error(t, err)
 
 	badRunID := setupLiveFixture(t, "create", "allow")
@@ -613,7 +761,7 @@ func setupLiveFixture(t *testing.T, createPolicy string, deletePolicy string) li
 	t.Helper()
 	repoRoot := t.TempDir()
 	liveRoot := t.TempDir()
-	stateRoot := t.TempDir()
+	stateRoot := evalSymlinksForSelectedLiveTest(t, t.TempDir())
 	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
 	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
 	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  test.app:\n    settings:\n      identity.email:\n        scope: user\n")
@@ -664,17 +812,41 @@ func (f liveFixture) trustRecipe() {
 	require.NoError(f.t, err)
 }
 
+func evalSymlinksForSelectedLiveTest(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	require.NoError(t, err)
+	return resolved
+}
+
 func setupLiveNativeExportFixture(t *testing.T) liveFixture {
 	t.Helper()
 	repoRoot := t.TempDir()
 	var err error
 	repoRoot, err = filepath.EvalSymlinks(repoRoot)
 	require.NoError(t, err)
-	stateRoot := t.TempDir()
+	stateRoot := evalSymlinksForSelectedLiveTest(t, t.TempDir())
 	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
 	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
 	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  native.app:\n    settings:\n      settings:\n        scope: user\n        artifact: artifacts/settings\n")
 	body := liveNativeExportRecipeBody()
+	writeLiveFile(t, filepath.Join(repoRoot, "recipes", "local", "native.app", "recipe.yaml"), body)
+	rec, err := recipe.Decode("recipe.yaml", strings.NewReader(body))
+	require.NoError(t, err)
+	return liveFixture{repoRoot: repoRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
+func setupLiveNativeApplyFixture(t *testing.T) liveFixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	var err error
+	repoRoot, err = filepath.EvalSymlinks(repoRoot)
+	require.NoError(t, err)
+	stateRoot := evalSymlinksForSelectedLiveTest(t, t.TempDir())
+	writeLiveFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeLiveFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  native.app:\n    settings:\n      settings:\n        scope: user\n        artifact: artifacts/settings\n")
+	body := liveNativeApplyRecipeBody()
 	writeLiveFile(t, filepath.Join(repoRoot, "recipes", "local", "native.app", "recipe.yaml"), body)
 	rec, err := recipe.Decode("recipe.yaml", strings.NewReader(body))
 	require.NoError(t, err)
@@ -707,8 +879,48 @@ func (f liveFixture) nativeOptions(runID string, confirmed bool, executor native
 	}
 }
 
+func (f liveFixture) nativeApplyOptions(runID string, confirmed bool, executor nativeops.Executor) Options {
+	return Options{
+		Command:        selectedpreview.CommandApply,
+		RepoRoot:       f.repoRoot,
+		StateRoot:      f.stateRoot,
+		Ref:            "native.app:settings",
+		UserID:         "leon",
+		MachineID:      "mbp",
+		Confirmed:      confirmed,
+		RunID:          runID,
+		NativeExecutor: executor,
+		Now: func() time.Time {
+			return time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+		},
+	}
+}
+
 func (f liveFixture) desiredArtifactPath() string {
 	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "native.app", "artifacts", "settings")
+}
+
+func (f liveFixture) writeNativeDesiredArtifact(body string) {
+	f.t.Helper()
+	payloadRoot := filepath.Join(f.desiredArtifactPath(), nativeexport.PayloadDir)
+	require.NoError(f.t, os.MkdirAll(payloadRoot, 0o755))
+	require.NoError(f.t, os.WriteFile(filepath.Join(payloadRoot, "bundle.txt"), []byte(body), 0o644))
+	summary, err := nativeexport.SummarizePayload(payloadRoot, nativeexport.EffectiveLimits(f.recipe.NativeOperations["export-settings"]))
+	require.NoError(f.t, err)
+	require.NoError(f.t, nativeexport.WriteMetadata(f.desiredArtifactPath(), nativeexport.Metadata{
+		Schema:        nativeexport.MetadataSchema,
+		SchemaVersion: nativeexport.SchemaVersion,
+		TargetRef:     "native.app",
+		SettingRef:    "native.app:settings",
+		ResourceID:    "settings",
+		OperationID:   "export-settings",
+		Recipe:        nativeexport.RecipeMetadata{Source: recipe.RecipeSourceLocal, TrustStatus: string(recipe.TrustStatusTrusted)},
+		Operation:     nativeexport.OperationMetadata{ArtifactForm: "native-export", DiffMode: "metadata-only", Redaction: "metadata-only", OutputIDs: []string{"bundle"}},
+		Source:        nativeexport.SourceMetadata{Scope: "user", Subject: "leon", MachineID: "mbp", UserID: "leon"},
+		CapturedAt:    "2026-06-09T12:00:00Z",
+		Payload:       summary,
+		Native:        nativeexport.NativeRunMetadata{Status: nativeexport.StatusSucceeded},
+	}))
 }
 
 type liveRecordingNativeExecutor struct {
@@ -725,6 +937,54 @@ func (e *liveRecordingNativeExecutor) Run(ctx context.Context, spec nativeops.Ex
 		return nativeops.ExecResult{ExitCode: 1, Err: err}
 	}
 	return nativeops.ExecResult{ExitCode: 0, Stdout: nativeops.CaptureSummary{Mode: spec.Stdout.Mode}, Stderr: nativeops.CaptureSummary{Mode: spec.Stderr.Mode}}
+}
+
+type liveNativeApplyExecutor struct {
+	before           string
+	installed        string
+	verifyBody       string
+	failBackup       bool
+	failImport       bool
+	operations       []string
+	importInputPaths []string
+}
+
+func (e *liveNativeApplyExecutor) Run(ctx context.Context, spec nativeops.ExecSpec) nativeops.ExecResult {
+	if len(spec.Args) < 2 {
+		return nativeops.ExecResult{ExitCode: 2, Err: errors.New("missing native arg")}
+	}
+	switch spec.Args[0] {
+	case "export":
+		e.operations = append(e.operations, "export")
+		if e.failBackup && len(e.operations) == 1 {
+			return nativeops.ExecResult{ExitCode: 3, Err: errors.New("backup export failed")}
+		}
+		body := e.before
+		if len(e.operations) > 1 {
+			body = e.installed
+			if e.verifyBody != "" {
+				body = e.verifyBody
+			}
+		}
+		if err := os.WriteFile(spec.Args[1], []byte(body), 0o644); err != nil {
+			return nativeops.ExecResult{ExitCode: 1, Err: err}
+		}
+		return nativeops.ExecResult{ExitCode: 0, Stdout: nativeops.CaptureSummary{Mode: spec.Stdout.Mode}, Stderr: nativeops.CaptureSummary{Mode: spec.Stderr.Mode}}
+	case "import":
+		e.operations = append(e.operations, "import")
+		e.importInputPaths = append(e.importInputPaths, spec.Args[1])
+		if e.failImport {
+			return nativeops.ExecResult{ExitCode: 3, Err: errors.New("import failed")}
+		}
+		data, err := os.ReadFile(spec.Args[1])
+		if err != nil {
+			return nativeops.ExecResult{ExitCode: 1, Err: err}
+		}
+		e.installed = string(data)
+		return nativeops.ExecResult{ExitCode: 0, Stdout: nativeops.CaptureSummary{Mode: spec.Stdout.Mode}, Stderr: nativeops.CaptureSummary{Mode: spec.Stderr.Mode}}
+	default:
+		return nativeops.ExecResult{ExitCode: 2, Err: errors.New("unknown native operation")}
+	}
 }
 
 func liveNativeExportRecipeBody() string {
@@ -790,6 +1050,106 @@ nativeOperations:
       accountExclusions: [sessions]
       limitations:
         - Internal app settings are not semantically compared
+`
+}
+
+func liveNativeApplyRecipeBody() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: native.app
+displayName: Native App
+supportLevel: experimental
+capability: read-write
+settings:
+  settings:
+    label: Settings bundle
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: native-export
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: settings
+resources:
+  settings:
+    driver: native-export
+    nativeOperation: export-settings
+    nativeImportOperation: import-settings
+    nativeApply:
+      backup: pre-apply-export
+      verify: post-import-export-hash
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: export
+        - output: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    outputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
+    exportMetadata:
+      capturedCategories: [settings]
+      secretExclusions: [tokens]
+      accountExclusions: [sessions]
+      limitations:
+        - Internal app settings are not semantically compared
+  import-settings:
+    kind: import
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: import
+        - input: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    inputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
 `
 }
 
@@ -877,7 +1237,7 @@ func executionContextForFixture(t *testing.T, fixture liveFixture) (resolution.R
 	require.NoError(t, err)
 	require.Len(t, profile.Settings, 1)
 	setting := profile.Settings[0]
-	rec, _, trustContext, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting, false)
+	rec, _, _, trustContext, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting, false)
 	require.NoError(t, err)
 	preItem := selectedpreview.Item{
 		TargetRef:      setting.TargetID,
@@ -968,6 +1328,27 @@ func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {
 	require.Contains(t, readonly.Message, "read-only")
 	require.Equal(t, "/tmp/config.yaml", readonly.Path)
 
+	planDiag := nativeApplyPlanDiagnostic(nativeapply.Plan{Diagnostic: nativeapply.Diagnostic{Code: "nativeapply.desired.missing", Message: "missing", Path: "ref"}}, nil)
+	require.Equal(t, "nativeapply.desired.missing", planDiag.Code)
+	planDiag = nativeApplyPlanDiagnostic(nativeapply.Plan{}, errors.New("blocked"))
+	require.Equal(t, "selectedlive.nativeApply.planBlocked", planDiag.Code)
+	require.Equal(t, "blocked", planDiag.Message)
+	exportDiag := nativeExportLiveDiagnostic("fallback.code", "", nativeexport.Result{Diagnostic: nativeexport.Diagnostic{Code: "nativeexport.failed", Message: "failed", Path: "ref"}}, nil)
+	require.Equal(t, "nativeexport.failed", exportDiag.Code)
+	exportDiag = nativeExportLiveDiagnostic("fallback.code", "", nativeexport.Result{}, nil)
+	require.Equal(t, "fallback.code", exportDiag.Code)
+	require.Equal(t, "native export operation failed", exportDiag.Message)
+	importDiag := nativeImportLiveDiagnostic(nativeops.Result{Diagnostics: []nativeops.Diagnostic{{Code: "nativeops.failed", Message: "failed"}}}, nil)
+	require.Equal(t, "nativeops.failed", importDiag.Code)
+	importDiag = nativeImportLiveDiagnostic(nativeops.Result{Diagnostics: []nativeops.Diagnostic{{Message: "failed"}}}, nil)
+	require.Equal(t, "selectedlive.nativeApply.import", importDiag.Code)
+	importDiag = nativeImportLiveDiagnostic(nativeops.Result{}, nil)
+	require.Equal(t, "selectedlive.nativeApply.import", importDiag.Code)
+	failedNative := failedNativeApplyItemRecord("run-helper", setting, "settings", recipe.Resource{Driver: recipe.NativeExportDriverID}, selectedpreview.Item{}, nativeapply.Plan{}, v2ledger.NormalizedState{}, []string{"state://backups/run-helper/items/native"}, v2ledger.Diagnostic{})
+	require.Equal(t, v2ledger.ItemResultFailed, failedNative.Result)
+	require.Equal(t, "selectedlive.nativeApply.failed", failedNative.Diagnostics[0].Code)
+	require.Equal(t, "state://backups/run-helper/items/native", failedNative.ArtifactRefs.Backup)
+
 	_, err = parseRef("Bad")
 	require.Error(t, err)
 	_, err = parseRef("test.app:Bad")
@@ -992,6 +1373,8 @@ func TestSelectedLiveAdditionalHelperBranches(t *testing.T) {
 	require.True(t, hasPlanBlocker(report))
 	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: "blocked-driver"}}}
 	require.True(t, hasPlanBlocker(report))
+	require.Equal(t, 5, planBlockerExitCode(nil))
+	require.Equal(t, 2, planBlockerExitCode(&selectedpreview.Report{Items: []selectedpreview.Item{{State: v2status.StateUnsupported}}}))
 	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: selectedpreview.PlannedActionWouldSave}}}
 	require.True(t, requiresConfirmation(report))
 	report = &selectedpreview.Report{Items: []selectedpreview.Item{{SettingRef: "test.app:identity.email", PlannedAction: selectedpreview.PlannedActionWouldPromote}}}
@@ -1462,7 +1845,7 @@ func fileResourceExecutionContext(t *testing.T, fixture liveFileResourceFixture)
 	require.NoError(t, err)
 	require.Len(t, profile.Settings, 1)
 	setting := profile.Settings[0]
-	rec, _, _, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting, false)
+	rec, _, _, _, resourceID, resource, err := runtimeContext(fixture.repoRoot, fixture.stateRoot, setting, false)
 	require.NoError(t, err)
 	preItem := selectedpreview.Item{
 		TargetRef:      setting.TargetID,

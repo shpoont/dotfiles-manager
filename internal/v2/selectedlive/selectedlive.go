@@ -1,6 +1,7 @@
 package selectedlive
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
@@ -40,6 +42,7 @@ type Options struct {
 	ExtraLayers         []string
 	DryRun              bool
 	Confirmed           bool
+	NonInteractive      bool
 	RunID               string
 	Now                 func() time.Time
 	LocationRoots       map[string]map[string]string
@@ -88,7 +91,7 @@ func Run(opts Options) (*Result, error) {
 	}
 	if hasPlanBlocker(report) {
 		attachReportError(report, CodePlanBlocked, "selected-value live write is blocked by the plan; no files were mutated", nil)
-		return &Result{Report: report}, &selectedpreview.Error{Code: CodePlanBlocked, Message: "selected-value live write is blocked by the plan; no files were mutated", Exit: 2}
+		return &Result{Report: report}, &selectedpreview.Error{Code: CodePlanBlocked, Message: "selected-value live write is blocked by the plan; no files were mutated", Exit: planBlockerExitCode(report)}
 	}
 	if !opts.Confirmed {
 		if requiresConfirmation(report) {
@@ -152,7 +155,7 @@ func Run(opts Options) (*Result, error) {
 			markReportItem(report, setting.Ref(), items[len(items)-1])
 			continue
 		}
-		rec, source, trustContext, resourceID, resource, err := runtimeContext(repoRoot, stateRoot, setting, opts.Confirmed)
+		rec, source, trustEval, trustContext, resourceID, resource, err := runtimeContext(repoRoot, stateRoot, setting, opts.Confirmed)
 		if err != nil {
 			item := failedItemRecord(command, runID, setting, resourceID, resource, preItem, safeDiagnostic("selectedlive.plan", err, preItem.Resource.Path), nil)
 			items = append(items, item)
@@ -171,6 +174,12 @@ func Run(opts Options) (*Result, error) {
 			continue
 		}
 		if resource.Driver == recipe.NativeExportDriverID {
+			if command == selectedpreview.CommandApply {
+				item := executeNativeApply(repoRoot, stateRoot, runID, started, store, setting, rec, source, trustEval, resourceID, resource, locationRoots, preItem, opts)
+				items = append(items, item)
+				markReportItem(report, setting.Ref(), item)
+				continue
+			}
 			item := executeNativeExport(command, runID, setting, resourceID, resource, preItem)
 			items = append(items, item)
 			markReportItem(report, setting.Ref(), item)
@@ -213,7 +222,7 @@ func Run(opts Options) (*Result, error) {
 	finishLiveReport(report, record)
 	if record.Summary.Failed > 0 {
 		attachReportError(report, CodeExecutionFailed, "selected-value live write completed with failed items", nil)
-		return &Result{Report: report, RunRecord: &record, LedgerEntries: entries, Backup: backup}, &selectedpreview.Error{Code: CodeExecutionFailed, Message: "selected-value live write completed with failed items", Exit: 2}
+		return &Result{Report: report, RunRecord: &record, LedgerEntries: entries, Backup: backup}, &selectedpreview.Error{Code: CodeExecutionFailed, Message: "selected-value live write completed with failed items", Exit: executionFailedExitCode(record)}
 	}
 	return &Result{Report: report, RunRecord: &record, LedgerEntries: entries, Backup: backup}, nil
 }
@@ -376,6 +385,102 @@ func executeNativeExport(command string, runID string, setting resolution.Resolv
 	})
 }
 
+func executeNativeApply(repoRoot string, stateRoot string, runID string, started time.Time, store *v2ledger.Store, setting resolution.ResolvedSetting, rec *recipe.Recipe, source string, trustEval recipe.TrustEvaluation, resourceID string, resource recipe.Resource, roots map[string]string, preItem selectedpreview.Item, opts Options) v2ledger.ItemRecord {
+	applyOpts := nativeapply.Options{
+		RepoRoot:           repoRoot,
+		StateRoot:          stateRoot,
+		Recipe:             rec,
+		RecipeSource:       source,
+		TrustEvaluation:    &trustEval,
+		Setting:            setting,
+		ResourceID:         resourceID,
+		Resource:           resource,
+		MachineID:          opts.MachineID,
+		UserID:             opts.UserID,
+		RunID:              runID,
+		LocationRoots:      roots,
+		Now:                opts.Now,
+		ExecutableResolver: opts.NativeResolver,
+		Executor:           opts.NativeExecutor,
+	}
+	plan, err := nativeapply.BuildPlan(applyOpts)
+	if err != nil || plan.Status != nativeapply.StatusReady {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, v2ledger.NormalizedState{}, nil, nativeApplyPlanDiagnostic(plan, err))
+	}
+	desiredState := nativeState(plan.DesiredSummary)
+	input, err := nativeapply.PrepareDesiredInput(applyOpts, plan)
+	if err != nil {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, v2ledger.NormalizedState{}, nil, v2ledger.Diagnostic{Code: "selectedlive.nativeApply.prepareInput", Message: "native apply could not prepare a manager-owned import input copy", Path: setting.DesiredRelPath})
+	}
+	defer func() { _ = os.RemoveAll(input.Root) }()
+
+	exportLimits := nativeexport.EffectiveLimits(rec.NativeOperations[resource.NativeOperation])
+	backupExport, err := nativeexport.Export(context.Background(), nativeExportOptionsFromApply(applyOpts, runID+"-backup"))
+	if err != nil || backupExport.Status != nativeexport.StatusSucceeded {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, v2ledger.NormalizedState{}, nil, nativeExportLiveDiagnostic("selectedlive.nativeApply.backupExport", "native apply pre-apply backup export failed; import was not run", backupExport, err))
+	}
+	if _, err := nativeexport.ValidatePayload(backupExport.PayloadRoot, backupExport.Metadata.Payload, exportLimits); err != nil {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, v2ledger.NormalizedState{}, nil, v2ledger.Diagnostic{Code: "selectedlive.nativeApply.backupPayloadInvalid", Message: "native apply pre-apply backup payload validation failed; import was not run", Path: setting.Ref()})
+	}
+	beforeState := nativeState(backupExport.Metadata.Payload)
+	backupItem, err := store.WriteNativeExportBackup(runID, started, v2ledger.NativeExportBackupRequest{
+		RepoRoot:     repoRoot,
+		TargetRef:    setting.TargetID,
+		SettingRef:   setting.Ref(),
+		ResourceID:   resourceID,
+		StagingRoot:  backupExport.StagingRoot,
+		Expected:     plan.Expected,
+		Before:       beforeState,
+		OperationID:  resource.NativeOperation,
+		ArtifactForm: plan.ArtifactForm,
+	})
+	if err != nil {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, beforeState, nil, v2ledger.Diagnostic{Code: "selectedlive.nativeApply.backupRecord", Message: "native apply pre-apply backup could not be recorded; import was not run", Path: setting.Ref()})
+	}
+	backupRefs := []string{backupItem.Ref}
+
+	importResult, err := nativeapply.RunImport(context.Background(), applyOpts, plan, input)
+	if err != nil || importResult.Status != nativeops.StatusSucceeded {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, beforeState, backupRefs, nativeImportLiveDiagnostic(importResult, err))
+	}
+
+	verifyExport, err := nativeexport.Export(context.Background(), nativeExportOptionsFromApply(applyOpts, runID+"-verify"))
+	if err != nil || verifyExport.Status != nativeexport.StatusSucceeded {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, beforeState, backupRefs, nativeExportLiveDiagnostic("selectedlive.nativeApply.verifyExport", "native apply post-import verification export failed after import", verifyExport, err))
+	}
+	if _, err := nativeexport.ValidatePayload(verifyExport.PayloadRoot, verifyExport.Metadata.Payload, exportLimits); err != nil {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, beforeState, backupRefs, v2ledger.Diagnostic{Code: "selectedlive.nativeApply.verifyPayloadInvalid", Message: "native apply post-import verification payload validation failed after import", Path: setting.Ref()})
+	}
+	if err := nativeapply.VerifyPostImport(plan.DesiredSummary, verifyExport.Metadata.Payload); err != nil {
+		return failedNativeApplyItemRecord(runID, setting, resourceID, resource, preItem, plan, beforeState, backupRefs, v2ledger.Diagnostic{Code: "selectedlive.nativeApply.verifyHashMismatch", Message: "native apply post-import export hash does not match desired artifact", Path: setting.Ref()})
+	}
+
+	verifiedState := nativeState(verifyExport.Metadata.Payload)
+	itemResult := v2ledger.ItemResultVerified
+	if sameState(beforeState, desiredState) {
+		itemResult = v2ledger.ItemResultUnchanged
+	}
+	refs := withBackupRefs(selectedValueArtifactRefs(runID, setting, ""), backupRefs)
+	return v2ledger.NormalizeItemRecord(v2ledger.ItemRecord{
+		TargetRef:      setting.TargetID,
+		SettingRef:     setting.Ref(),
+		Operation:      selectedpreview.CommandApply,
+		ResourceID:     resourceID,
+		Driver:         recipe.NativeExportDriverID,
+		DriverVersion:  nativeexport.DriverVersion,
+		DesiredURI:     setting.DesiredURI,
+		DesiredRelPath: setting.DesiredRelPath,
+		DesiredPath:    setting.DesiredPath,
+		ArtifactRefs:   refs,
+		Before:         beforeState,
+		Desired:        desiredState,
+		VerifiedState:  verifiedState,
+		BackupRefs:     backupRefs,
+		Verification:   v2ledger.Verification{Verified: true, Result: verificationResult(true)},
+		Result:         itemResult,
+	})
+}
+
 func fileResourceBackupHook(store *v2ledger.Store, runID string, started time.Time, plan *customfiles.Plan) customfiles.BackupHook {
 	return func(req customfiles.BackupRequest) (customfiles.BackupResult, error) {
 		item, err := store.WriteCustomFilesBackup(runID, started, plan, req)
@@ -454,31 +559,31 @@ func selectedValueBackupHook(store *v2ledger.Store, runID string, started time.T
 	}
 }
 
-func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting, allowNativeOpaque bool) (*recipe.Recipe, string, recipe.WriteSafetyContext, string, recipe.Resource, error) {
+func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting, allowNativeOpaque bool) (*recipe.Recipe, string, recipe.TrustEvaluation, recipe.WriteSafetyContext, string, recipe.Resource, error) {
 	runtime, err := recipe.LoadRuntime(repoRoot, setting.TargetID)
 	if err != nil {
-		return nil, runtime.Source, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
+		return nil, runtime.Source, recipe.TrustEvaluation{}, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
 	}
 	rec := runtime.Recipe
 	resourceID, resource, err := rec.ResourceForSetting(setting.SettingID)
 	if err != nil {
-		return rec, runtime.Source, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
+		return rec, runtime.Source, recipe.TrustEvaluation{}, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
 	}
 	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, runtime.Source, rec)
 	if err != nil {
-		return rec, runtime.Source, recipe.WriteSafetyContext{}, resourceID, resource, err
+		return rec, runtime.Source, eval, recipe.WriteSafetyContext{}, resourceID, resource, err
 	}
 	if eval.Status != recipe.TrustStatusTrusted {
-		return rec, runtime.Source, recipe.WriteSafetyContext{}, resourceID, resource, fmt.Errorf("recipe trust is not trusted")
+		return rec, runtime.Source, eval, recipe.WriteSafetyContext{}, resourceID, resource, fmt.Errorf("recipe trust is not trusted")
 	}
 	ctx := eval.WriteSafetyContext(recipe.WriteSafetyContext{})
 	if resource.Driver == recipe.NativeExportDriverID && allowNativeOpaque {
 		ctx.AllowOpaque = true
 	}
 	if err := rec.ValidateWriteSafety(ctx); err != nil {
-		return rec, runtime.Source, ctx, resourceID, resource, err
+		return rec, runtime.Source, eval, ctx, resourceID, resource, err
 	}
-	return rec, runtime.Source, ctx, resourceID, resource, nil
+	return rec, runtime.Source, eval, ctx, resourceID, resource, nil
 }
 
 func normalizeSelectedValueItem(item v2ledger.ItemRecord) v2ledger.ItemRecord {
@@ -554,6 +659,118 @@ func failedNativeExportItemRecord(command string, runID string, setting resoluti
 		Result:         v2ledger.ItemResultFailed,
 		Diagnostics:    []v2ledger.Diagnostic{diagnostic},
 	})
+}
+
+func failedNativeApplyItemRecord(runID string, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, preItem selectedpreview.Item, plan nativeapply.Plan, before v2ledger.NormalizedState, backupRefs []string, diagnostic v2ledger.Diagnostic) v2ledger.ItemRecord {
+	if diagnostic.Code == "" {
+		diagnostic.Code = "selectedlive.nativeApply.failed"
+	}
+	if diagnostic.Message == "" {
+		diagnostic.Message = "native apply failed"
+	}
+	if before.DriverVersion == "" {
+		before = nativeStateFromPreview(preItem.Current)
+	}
+	if before.DriverVersion == "" {
+		before.DriverVersion = nativeexport.DriverVersion
+	}
+	if before.Normalizer == "" {
+		before.Normalizer = nativeexport.Normalizer
+	}
+	desiredState := nativeState(plan.DesiredSummary)
+	if desiredState.DriverVersion == "" || !desiredState.Exists {
+		desiredState = nativeStateFromPreview(preItem.Desired.Snapshot)
+	}
+	if desiredState.DriverVersion == "" {
+		desiredState.DriverVersion = nativeexport.DriverVersion
+	}
+	if desiredState.Normalizer == "" {
+		desiredState.Normalizer = nativeexport.Normalizer
+	}
+	return v2ledger.NormalizeItemRecord(v2ledger.ItemRecord{
+		TargetRef:      setting.TargetID,
+		SettingRef:     setting.Ref(),
+		Operation:      selectedpreview.CommandApply,
+		ResourceID:     resourceID,
+		Driver:         defaultString(resource.Driver, recipe.NativeExportDriverID),
+		DriverVersion:  nativeexport.DriverVersion,
+		DesiredURI:     setting.DesiredURI,
+		DesiredRelPath: setting.DesiredRelPath,
+		DesiredPath:    setting.DesiredPath,
+		ArtifactRefs:   withBackupRefs(selectedValueArtifactRefs(runID, setting, ""), backupRefs),
+		BackupRefs:     append([]string(nil), backupRefs...),
+		Before:         before,
+		Desired:        desiredState,
+		VerifiedState:  v2ledger.NormalizedState{DriverVersion: nativeexport.DriverVersion, Normalizer: nativeexport.Normalizer},
+		Verification:   v2ledger.Verification{Verified: false, Result: "failed", Message: diagnostic.Message},
+		Result:         v2ledger.ItemResultFailed,
+		Diagnostics:    []v2ledger.Diagnostic{diagnostic},
+	})
+}
+
+func nativeExportOptionsFromApply(opts nativeapply.Options, runID string) nativeexport.Options {
+	return nativeexport.Options{
+		RepoRoot:           opts.RepoRoot,
+		StateRoot:          opts.StateRoot,
+		Recipe:             opts.Recipe,
+		RecipeSource:       opts.RecipeSource,
+		TrustEvaluation:    opts.TrustEvaluation,
+		Setting:            opts.Setting,
+		ResourceID:         opts.ResourceID,
+		Resource:           opts.Resource,
+		MachineID:          opts.MachineID,
+		UserID:             opts.UserID,
+		RunID:              runID,
+		LocationRoots:      opts.LocationRoots,
+		Now:                opts.Now,
+		ExecutableResolver: opts.ExecutableResolver,
+		Executor:           opts.Executor,
+	}
+}
+
+func nativeApplyPlanDiagnostic(plan nativeapply.Plan, err error) v2ledger.Diagnostic {
+	if plan.Diagnostic.Code != "" {
+		return v2ledger.Diagnostic{Code: plan.Diagnostic.Code, Message: plan.Diagnostic.Message, Path: plan.Diagnostic.Path}
+	}
+	message := "native apply plan is blocked"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	return v2ledger.Diagnostic{Code: "selectedlive.nativeApply.planBlocked", Message: message}
+}
+
+func nativeExportLiveDiagnostic(code string, fallback string, result nativeexport.Result, err error) v2ledger.Diagnostic {
+	if result.Diagnostic.Code != "" {
+		return v2ledger.Diagnostic{Code: result.Diagnostic.Code, Message: result.Diagnostic.Message, Path: result.Diagnostic.Path}
+	}
+	if strings.TrimSpace(fallback) == "" {
+		fallback = "native export operation failed"
+	}
+	_ = err
+	return v2ledger.Diagnostic{Code: code, Message: fallback}
+}
+
+func nativeImportLiveDiagnostic(result nativeops.Result, err error) v2ledger.Diagnostic {
+	if len(result.Diagnostics) > 0 {
+		diag := result.Diagnostics[0]
+		if diag.Code != "" || diag.Message != "" {
+			return v2ledger.Diagnostic{Code: defaultString(diag.Code, "selectedlive.nativeApply.import"), Message: defaultString(diag.Message, "native import operation failed")}
+		}
+	}
+	message := "native import operation failed after backup"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	return v2ledger.Diagnostic{Code: "selectedlive.nativeApply.import", Message: message}
+}
+
+func withBackupRefs(refs v2ledger.ArtifactRefs, backupRefs []string) v2ledger.ArtifactRefs {
+	if len(backupRefs) == 0 {
+		return refs
+	}
+	refs.Backup = backupRefs[0]
+	refs.BackupPayload = strings.TrimRight(backupRefs[0], "/") + "/payload"
+	return refs
 }
 
 func skippedItemRecord(command string, runID string, setting resolution.ResolvedSetting, preItem selectedpreview.Item, message string) v2ledger.ItemRecord {
@@ -830,6 +1047,51 @@ func hasPlanBlocker(report *selectedpreview.Report) bool {
 		}
 	}
 	return false
+}
+
+func planBlockerExitCode(report *selectedpreview.Report) int {
+	if report == nil {
+		return 5
+	}
+	for _, item := range report.Items {
+		switch item.State {
+		case v2status.StateBlockedSafety, v2status.StateBlockedLifecycle:
+			return 5
+		}
+		for _, diagnostic := range item.Diagnostics {
+			code := diagnostic.Code
+			if strings.Contains(code, "trust") ||
+				strings.Contains(code, "safety") ||
+				strings.Contains(code, "lifecycle") ||
+				strings.Contains(code, "backup") ||
+				strings.Contains(code, "verify") ||
+				strings.Contains(code, "nativeApply") {
+				return 5
+			}
+		}
+	}
+	return 2
+}
+
+func executionFailedExitCode(record v2ledger.RunRecord) int {
+	for _, item := range record.Items {
+		if item.Driver == recipe.NativeExportDriverID && item.Result == v2ledger.ItemResultFailed {
+			return 5
+		}
+		for _, diagnostic := range item.Diagnostics {
+			code := diagnostic.Code
+			if strings.Contains(code, "trust") ||
+				strings.Contains(code, "safety") ||
+				strings.Contains(code, "lifecycle") ||
+				strings.Contains(code, "backup") ||
+				strings.Contains(code, "verify") ||
+				strings.Contains(code, "import") ||
+				strings.Contains(code, "nativeApply") {
+				return 5
+			}
+		}
+	}
+	return 2
 }
 
 func requiresConfirmation(report *selectedpreview.Report) bool {

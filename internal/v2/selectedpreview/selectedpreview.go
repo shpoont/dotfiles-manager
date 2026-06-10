@@ -16,6 +16,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
@@ -212,14 +213,19 @@ type MutationRefs struct {
 }
 
 type NativeExportInfo struct {
-	OperationID    string   `json:"operationId"`
-	ArtifactForm   string   `json:"artifactForm"`
-	DiffMode       string   `json:"diffMode"`
-	Redaction      string   `json:"redaction"`
-	ReviewRequired bool     `json:"reviewRequired,omitempty"`
-	Limitations    []string `json:"limitations,omitempty"`
-	StagingRoot    string   `json:"-"`
-	PayloadRoot    string   `json:"-"`
+	OperationID       string   `json:"operationId"`
+	ImportOperationID string   `json:"importOperationId,omitempty"`
+	VerifyOperationID string   `json:"verifyOperationId,omitempty"`
+	ArtifactForm      string   `json:"artifactForm"`
+	DiffMode          string   `json:"diffMode"`
+	Redaction         string   `json:"redaction"`
+	ReviewRequired    bool     `json:"reviewRequired,omitempty"`
+	ApplySupported    bool     `json:"applySupported,omitempty"`
+	BackupPolicy      string   `json:"backupPolicy,omitempty"`
+	VerifyPolicy      string   `json:"verifyPolicy,omitempty"`
+	Limitations       []string `json:"limitations,omitempty"`
+	StagingRoot       string   `json:"-"`
+	PayloadRoot       string   `json:"-"`
 }
 
 type Error struct {
@@ -429,6 +435,13 @@ func parseRef(raw string) (parsedRef, error) {
 		return parsedRef{}, err
 	}
 	return parsedRef{Target: parts[0], Setting: parts[1]}, nil
+}
+
+func defaultString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func filterSettings(settings []resolution.ResolvedSetting, ref parsedRef) []resolution.ResolvedSetting {
@@ -742,12 +755,17 @@ func buildNativeExportItem(repoRoot string, stateRoot string, command string, it
 	item.DesiredRelPath = filepath.ToSlash(setting.DesiredRelPath)
 	item.Desired.Kind = "native-export"
 	item.NativeExport = &NativeExportInfo{
-		OperationID:    resource.NativeOperation,
-		ArtifactForm:   op.ArtifactForm,
-		DiffMode:       op.DiffMode,
-		Redaction:      op.Redaction,
-		ReviewRequired: nativeexport.ReviewRequired(op),
-		Limitations:    append([]string(nil), op.ExportMetadata.Limitations...),
+		OperationID:       resource.NativeOperation,
+		ImportOperationID: resource.NativeImportOperation,
+		VerifyOperationID: resource.NativeVerifyOperation,
+		ArtifactForm:      op.ArtifactForm,
+		DiffMode:          op.DiffMode,
+		Redaction:         op.Redaction,
+		ReviewRequired:    nativeexport.ReviewRequired(op),
+		ApplySupported:    nativeapply.ImportCapable(resource),
+		BackupPolicy:      resource.NativeApply.Backup,
+		VerifyPolicy:      resource.NativeApply.Verify,
+		Limitations:       append([]string(nil), op.ExportMetadata.Limitations...),
 	}
 	expected := nativeexport.Expected(nativeexport.Options{Recipe: rec, Setting: setting, ResourceID: resourceID, Resource: resource})
 	desiredRead := nativeexport.ReadDesired(setting.DesiredPath, expected)
@@ -763,8 +781,55 @@ func buildNativeExportItem(repoRoot string, stateRoot string, command string, it
 	}
 
 	if command == CommandApply {
-		item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.nativeExport.applyUnsupported", SeverityError, "native import/apply is not implemented in this tranche", item.SettingRef))
-		return finishBlocked(item, v2status.StateUnsupported, "Native export apply is out of scope until native import support is implemented.")
+		if !nativeapply.ImportCapable(resource) {
+			item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.nativeExport.applyUnsupported", SeverityError, "native import/apply is not declared for this resource", item.SettingRef))
+			return finishBlocked(item, v2status.StateUnsupported, "Native export apply is unsupported because the recipe declares export-only behavior.")
+		}
+		plan, err := nativeapply.BuildPlan(nativeapply.Options{
+			RepoRoot:           repoRoot,
+			StateRoot:          stateRoot,
+			Recipe:             rec,
+			RecipeSource:       source,
+			TrustEvaluation:    &trustEval,
+			Setting:            setting,
+			ResourceID:         resourceID,
+			Resource:           resource,
+			MachineID:          opts.MachineID,
+			UserID:             opts.UserID,
+			RunID:              defaultString(opts.RunID, RunID),
+			LocationRoots:      roots,
+			Now:                opts.Now,
+			ExecutableResolver: opts.NativeResolver,
+			Executor:           opts.NativeExecutor,
+		})
+		if err != nil || plan.Status != nativeapply.StatusReady {
+			diag := plan.Diagnostic
+			if diag.Code == "" {
+				diag = nativeapply.Diagnostic{Code: "selectedpreview.nativeApply.planBlocked", Message: "native apply plan is blocked", Path: item.SettingRef}
+			}
+			item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: diag.Code, Severity: SeverityError, Message: diag.Message, Ref: item.SettingRef, Path: diag.Path, ResourceID: resourceID, DriverID: resource.Driver})
+			state := v2status.StateBlockedSafety
+			if strings.Contains(diag.Code, "lifecycle") {
+				state = v2status.StateBlockedLifecycle
+			}
+			return finishBlocked(item, state, "Native apply is blocked before any native operation can run.")
+		}
+		item.NativeExport.ImportOperationID = plan.ImportOperationID
+		item.NativeExport.VerifyOperationID = plan.VerifyOperationID
+		item.NativeExport.BackupPolicy = plan.BackupPolicy
+		item.NativeExport.VerifyPolicy = plan.VerifyPolicy
+		item.NativeExport.ApplySupported = true
+		item.NativeExport.ReviewRequired = plan.ReviewRequired
+		item.NativeExport.Limitations = append([]string(nil), plan.Limitations...)
+		item.Desired.Status = "present"
+		item.Desired.Snapshot = nativeSnapshot(plan.DesiredSummary)
+		item.Current = Snapshot{}
+		item.Preview = &PreviewInfo{ChangeKind: "native-apply-plan", Intent: desired.IntentSet}
+		item.State = v2status.StateReadyToApply
+		item.Message = "Native apply plan is ready; apply --yes will back up with a pre-apply export, import from a manager-owned temp copy, and verify by post-import export hash. Internal app settings are not semantically diffed."
+		item.AllowedActions = []v2status.Action{v2status.ActionApply, v2status.ActionDiff, v2status.ActionSkip}
+		item.PlannedAction = PlannedActionWouldApply
+		return item
 	}
 	if command == CommandStatus {
 		item.State = v2status.StateUnknown

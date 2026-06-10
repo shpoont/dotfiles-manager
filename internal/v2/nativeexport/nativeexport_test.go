@@ -485,6 +485,38 @@ func TestWriteDesiredRejectsInvalidInputsAndStaging(t *testing.T) {
 	})
 }
 
+func TestCopyPayloadAndValidatePayload(t *testing.T) {
+	t.Parallel()
+
+	src := realTempDir(t)
+	writeFile(t, filepath.Join(src, "bundle.txt"), "payload")
+	writeFile(t, filepath.Join(src, "nested", "settings.json"), "{}")
+	expected, err := SummarizePayload(src, Limits{MaxBytes: 1024, MaxEntries: 10})
+	require.NoError(t, err)
+
+	dst := filepath.Join(realTempDir(t), "copy", PayloadDir)
+	require.NoError(t, CopyPayload(src, dst))
+	require.Equal(t, "payload", readFile(t, filepath.Join(dst, "bundle.txt")))
+	require.Equal(t, "{}", readFile(t, filepath.Join(dst, "nested", "settings.json")))
+	summary, err := ValidatePayload(dst, expected, Limits{MaxBytes: 1024, MaxEntries: 10})
+	require.NoError(t, err)
+	require.Equal(t, expected.SHA256, summary.SHA256)
+
+	wrongHash := expected
+	wrongHash.SHA256 = strings.Repeat("0", 64)
+	_, err = ValidatePayload(dst, wrongHash, Limits{MaxBytes: 1024, MaxEntries: 10})
+	require.ErrorContains(t, err, "hash")
+
+	wrongNormalizer := expected
+	wrongNormalizer.Normalizer = "other"
+	_, err = ValidatePayload(dst, wrongNormalizer, Limits{MaxBytes: 1024, MaxEntries: 10})
+	require.ErrorContains(t, err, "normalizer")
+
+	require.NoError(t, os.Symlink("/tmp", filepath.Join(src, "link")))
+	require.ErrorContains(t, CopyPayload(src, filepath.Join(realTempDir(t), "blocked")), "symlink")
+	require.ErrorContains(t, CopyPayload(" ", filepath.Join(realTempDir(t), "blocked")), "path is required")
+}
+
 func TestLowLevelMetadataPayloadAndHashValidationErrors(t *testing.T) {
 	t.Parallel()
 

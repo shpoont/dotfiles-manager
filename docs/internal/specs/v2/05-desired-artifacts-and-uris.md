@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-07
+last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/05-desired-artifacts-and-uris.md
 source-concept-sections:
   - Desired artifact lifecycle rules
@@ -224,6 +224,18 @@ metadata, mismatched operation identity, and unknown directories are safety
 blockers. Directory replacement is same-parent, symlink-checked, and
 crash-safe best effort; implementations must not claim fully atomic non-empty
 directory replacement on platforms that do not guarantee it.
+
+Native apply uses the same desired artifact as input, but the native import
+operation must never receive the repository desired artifact path directly. The
+manager first validates `metadata.json` and the `payload/` tree, then copies the
+payload into a manager-owned local-state temp input root, validates that copied
+tree against the desired payload hash/normalizer, and passes only that temp
+payload root to the reviewed import operation. Import operation schemas must not
+expose live named-location roots through typed input, output, temp, argv, or
+environment channels. Desired input, copied input,
+pre-apply backup export, and post-import verification export must all reject
+symlinks, special files, path escapes, missing declared outputs, oversized
+payloads, and excessive entry counts before they are used.
 
 ### Desired artifact lifecycle
 

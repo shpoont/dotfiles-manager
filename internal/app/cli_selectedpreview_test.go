@@ -147,6 +147,25 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	require.NotContains(t, stdout, "current@example.com")
 
 	writeCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"), "user:\n  email: changed-live@example.com\n")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "apply", payload["command"])
+	errorObj = payload["error"].(map[string]any)
+	require.Equal(t, "selectedlive.confirmationRequired", errorObj["code"])
+	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "changed-live@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--non-interactive", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "apply", payload["command"])
+	errorObj = payload["error"].(map[string]any)
+	require.Equal(t, "selectedlive.confirmationRequired", errorObj["code"])
+	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "changed-live@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+
 	_, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.NoError(t, err)
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "current@example.com")
