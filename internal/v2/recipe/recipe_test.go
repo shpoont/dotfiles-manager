@@ -906,7 +906,7 @@ func TestGitRecipeRejectsCredentialAndBroadConfigDeclarations(t *testing.T) {
 		},
 		{
 			name:    "missing home location rejected",
-			body:    strings.Replace(strings.Replace(validGitRecipe(), "  home:\n    default: \"~\"\n", "  work:\n    default: /tmp\n", 1), "location: home", "location: work", -1),
+			body:    strings.ReplaceAll(strings.Replace(validGitRecipe(), "  home:\n    default: \"~\"\n", "  work:\n    default: /tmp\n", 1), "location: home", "location: work"),
 			wantErr: "must declare home location",
 		},
 		{
@@ -999,6 +999,121 @@ func TestGitRecipeRejectsCredentialAndBroadConfigDeclarations(t *testing.T) {
 	}
 }
 
+func TestNativeExportResourceShapeValidation(t *testing.T) {
+	t.Parallel()
+
+	valid := Resource{Driver: NativeExportDriverID, NativeOperation: "export-settings"}
+	require.NoError(t, validateNativeExportResource("settings", valid))
+
+	tests := []struct {
+		name     string
+		resource Resource
+		want     string
+	}{
+		{
+			name:     "location rejected",
+			resource: Resource{Driver: NativeExportDriverID, Location: "home", NativeOperation: "export-settings"},
+			want:     "must not declare location or path",
+		},
+		{
+			name:     "path rejected",
+			resource: Resource{Driver: NativeExportDriverID, Path: "config.json", NativeOperation: "export-settings"},
+			want:     "must not declare location or path",
+		},
+		{
+			name:     "native operation required",
+			resource: Resource{Driver: NativeExportDriverID},
+			want:     "requires nativeOperation",
+		},
+		{
+			name:     "include rejected",
+			resource: Resource{Driver: NativeExportDriverID, NativeOperation: "export-settings", Include: []string{"*.json"}},
+			want:     "must not declare include/exclude",
+		},
+		{
+			name:     "exclude rejected",
+			resource: Resource{Driver: NativeExportDriverID, NativeOperation: "export-settings", Exclude: []string{"cache/**"}},
+			want:     "must not declare include/exclude",
+		},
+		{
+			name:     "selector rejected",
+			resource: Resource{Driver: NativeExportDriverID, NativeOperation: "export-settings", Selector: &Selector{Path: []string{"user"}}},
+			want:     "must not declare selector",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateNativeExportResource("settings", tc.resource)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
+
+	for _, reason := range []string{"large", "account-bound", "opaque", "privacy-sensitive"} {
+		require.True(t, knownNativeReviewReason(reason))
+	}
+	require.False(t, knownNativeReviewReason("other"))
+}
+
+func TestNativeExportOperationDiagnosticHelpers(t *testing.T) {
+	t.Parallel()
+
+	diagnostics := collectRecipeDiagnostics(func(add func(string, string, string)) {
+		addNativeReviewDiagnostics(add, "nativeOperations.export.review", "export", NativeReviewPolicy{
+			Required: false,
+			Reasons:  []string{"opaque", "unsupported"},
+			Message:  "line\nbreak",
+		})
+		addNativeLimitsDiagnostics(add, "nativeOperations.export.limits", "export", NativeExportLimits{
+			MaxBytes:   int64(maxNativeExportBytes) + 1,
+			MaxEntries: maxNativeExportEntries + 1,
+		})
+		addNativeLimitsDiagnostics(add, "nativeOperations.export.limits", "export", NativeExportLimits{
+			MaxBytes:   -1,
+			MaxEntries: -1,
+		})
+		addNativeLimitsDiagnostics(add, "nativeOperations.export.limits", "export", NativeExportLimits{})
+		addNativeLimitsDiagnostics(add, "nativeOperations.export.limits", "export", NativeExportLimits{MaxBytes: 1, MaxEntries: 1})
+		addNativeExportMetadataDiagnostics(add, "nativeOperations.export.exportMetadata", "export", NativeExportMetadataPolicy{
+			CapturedCategories: []string{"settings", "bad value"},
+			SecretExclusions:   []string{"tokens", " token"},
+			AccountExclusions:  []string{"sessions", "bad\nline"},
+			Limitations:        []string{"Internal settings are opaque", ""},
+		})
+	})
+
+	require.Contains(t, diagnostics, "nativeOperation.review.reason.unsupported")
+	require.Contains(t, diagnostics, "nativeOperation.review.message.invalid")
+	require.Contains(t, diagnostics, "nativeOperation.review.required.invalid")
+	require.Contains(t, diagnostics, "nativeOperation.limits.maxBytes.invalid")
+	require.Contains(t, diagnostics, "nativeOperation.limits.maxEntries.invalid")
+	require.Contains(t, diagnostics, "nativeOperation.exportMetadata.id.invalid")
+	require.Contains(t, diagnostics, "nativeOperation.exportMetadata.value.invalid")
+}
+
+func TestRecipeNeedsLocationsForNativeExportRecipes(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, recipeNeedsLocations(nil))
+	require.True(t, recipeNeedsLocations(&Recipe{Resources: map[string]Resource{"file": {Driver: FileDriverID}}}))
+	require.False(t, recipeNeedsLocations(&Recipe{
+		Resources:        map[string]Resource{"settings": {Driver: NativeExportDriverID}},
+		NativeOperations: map[string]NativeOperation{"export": {Outputs: map[string]NativePathSpec{"bundle": {Root: "artifact", Path: "bundle.txt"}}}},
+	}))
+	require.True(t, recipeNeedsLocations(&Recipe{
+		Resources:        map[string]Resource{"settings": {Driver: NativeExportDriverID}},
+		NativeOperations: map[string]NativeOperation{"export": {Inputs: map[string]NativePathSpec{"config": {Root: "location", Location: "home", Path: "config.yaml"}}}},
+	}))
+}
+
+func collectRecipeDiagnostics(fn func(add func(string, string, string))) map[string]int {
+	out := map[string]int{}
+	fn(func(code string, path string, message string) {
+		out[code]++
+	})
+	return out
+}
+
 func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 	t.Parallel()
 
@@ -1027,6 +1142,21 @@ func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			setting.SupportLevel = "stable"
 			r.Settings["add_newline"] = setting
 		}, wantErr: "supportLevel must be experimental"},
+		{name: "setting scope metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.ScopeDefault = "machine"
+			r.Settings["add_newline"] = setting
+		}, wantErr: "scopeDefault must be user"},
+		{name: "setting capability metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.Capability = "read-only"
+			r.Settings["add_newline"] = setting
+		}, wantErr: "capability must be read-write"},
+		{name: "setting artifact form metadata", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.ArtifactForm = "file"
+			r.Settings["add_newline"] = setting
+		}, wantErr: "artifactForm must be scalar"},
 		{name: "setting safety metadata", mutate: func(r *Recipe) {
 			setting := r.Settings["add_newline"]
 			setting.Sensitivity = SensitivityPersonal
@@ -1047,6 +1177,12 @@ func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			setting.Resource = "scan_timeout"
 			r.Settings["add_newline"] = setting
 		}, wantErr: "resource must be add_newline"},
+		{name: "unknown resource", mutate: func(r *Recipe) {
+			setting := r.Settings["add_newline"]
+			setting.Resource = "missing"
+			r.Settings["add_newline"] = setting
+			delete(r.Resources, "add_newline")
+		}, wantErr: "references unknown resource missing"},
 		{name: "wrong resource driver", mutate: func(r *Recipe) {
 			resource := r.Resources["add_newline"]
 			resource.Driver = JSONFileDriverID
@@ -1057,6 +1193,26 @@ func TestStarshipRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			resource.Path = "other.toml"
 			r.Resources["add_newline"] = resource
 		}, wantErr: "path must be starship.toml"},
+		{name: "wrong resource capability", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Capability = "read-only"
+			r.Resources["add_newline"] = resource
+		}, wantErr: "capability must be read-write"},
+		{name: "wrong resource sensitivity", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Sensitivity = SensitivityPersonal
+			r.Resources["add_newline"] = resource
+		}, wantErr: "sensitivity must be low"},
+		{name: "wrong resource redaction", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Redaction = RedactionRedactedForDisplay
+			r.Resources["add_newline"] = resource
+		}, wantErr: "redaction must be known-safe"},
+		{name: "wrong resource lifecycle", mutate: func(r *Recipe) {
+			resource := r.Resources["add_newline"]
+			resource.Lifecycle = LifecycleWarn
+			r.Resources["add_newline"] = resource
+		}, wantErr: "lifecycle must be allowed"},
 		{name: "wrong selector path", mutate: func(r *Recipe) {
 			resource := r.Resources["add_newline"]
 			resource.Selector.Path = []string{"format"}
@@ -1119,6 +1275,16 @@ func TestNvimRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			setting.ArtifactForm = "file"
 			r.Settings["config"] = setting
 		}, wantErr: "artifactForm must be file-tree"},
+		{name: "setting support level", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.SupportLevel = "stable"
+			r.Settings["config"] = setting
+		}, wantErr: "supportLevel must be experimental"},
+		{name: "setting capability", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Capability = "read-only"
+			r.Settings["config"] = setting
+		}, wantErr: "capability must be read-write"},
 		{name: "setting scope metadata", mutate: func(r *Recipe) {
 			setting := r.Settings["config"]
 			setting.ScopeDefault = "machine"
@@ -1139,6 +1305,19 @@ func TestNvimRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			setting.Lifecycle = LifecycleWarn
 			r.Settings["config"] = setting
 		}, wantErr: "lifecycle must be allowed"},
+		{name: "setting resource id", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Resource = "other"
+			r.Settings["config"] = setting
+			r.Resources["other"] = r.Resources["config"]
+			delete(r.Resources, "config")
+		}, wantErr: "resource must be config"},
+		{name: "unknown resource", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Resource = "missing"
+			r.Settings["config"] = setting
+			delete(r.Resources, "config")
+		}, wantErr: "references unknown resource missing"},
 		{name: "wrong resource driver", mutate: func(r *Recipe) {
 			resource := r.Resources["config"]
 			resource.Driver = FileDriverID
@@ -1149,6 +1328,26 @@ func TestNvimRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			resource.Path = "nvim-data"
 			r.Resources["config"] = resource
 		}, wantErr: "path must be nvim"},
+		{name: "wrong resource capability", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Capability = "read-only"
+			r.Resources["config"] = resource
+		}, wantErr: "capability must be read-write"},
+		{name: "wrong resource sensitivity", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Sensitivity = SensitivityLow
+			r.Resources["config"] = resource
+		}, wantErr: "sensitivity must be personal"},
+		{name: "wrong resource redaction", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Redaction = RedactionKnownSafe
+			r.Resources["config"] = resource
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "wrong resource lifecycle", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Lifecycle = LifecycleWarn
+			r.Resources["config"] = resource
+		}, wantErr: "lifecycle must be allowed"},
 		{name: "selector declared", mutate: func(r *Recipe) {
 			resource := r.Resources["config"]
 			resource.Selector = &Selector{Path: []string{"lua"}}
@@ -1364,6 +1563,36 @@ func TestSSHRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 		{name: "extra resource", mutate: func(r *Recipe) {
 			r.Resources["known_hosts"] = Resource{Driver: FileDriverID, Location: "home", Path: ".ssh/known_hosts"}
 		}, wantErr: "exactly one file resource"},
+		{name: "setting scope rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.ScopeDefault = "machine"
+			r.Settings["config"] = setting
+		}, wantErr: "scopeDefault must be user"},
+		{name: "setting support level rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.SupportLevel = "stable"
+			r.Settings["config"] = setting
+		}, wantErr: "supportLevel must be experimental"},
+		{name: "setting capability rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Capability = "read-only"
+			r.Settings["config"] = setting
+		}, wantErr: "capability must be read-write"},
+		{name: "setting artifact form rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.ArtifactForm = "file-tree"
+			r.Settings["config"] = setting
+		}, wantErr: "artifactForm must be file"},
+		{name: "setting sensitivity rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Sensitivity = SensitivitySecret
+			r.Settings["config"] = setting
+		}, wantErr: "sensitivity must be personal"},
+		{name: "setting redaction rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Redaction = RedactionBlockedSave
+			r.Settings["config"] = setting
+		}, wantErr: "redaction must be redacted-for-display"},
 		{name: "setting lifecycle warning rejected", mutate: func(r *Recipe) {
 			setting := r.Settings["config"]
 			setting.Lifecycle = LifecycleWarn
@@ -1374,21 +1603,66 @@ func TestSSHRecipeRejectsBroadOrUnsafeDeclarations(t *testing.T) {
 			setting.WriteWarnings = []ReviewWarning{{Code: SSHConfigReviewWarningCode, Triggers: []string{"save"}}}
 			r.Settings["config"] = setting
 		}, wantErr: "must not declare setting-level write warnings"},
-		{name: "wrong driver", mutate: func(r *Recipe) {
+		{name: "setting resource name rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Resource = "ssh-config"
+			r.Settings["config"] = setting
+			r.Resources["ssh-config"] = r.Resources["config"]
+			delete(r.Resources, "config")
+		}, wantErr: "resource must be config"},
+		{name: "unknown resource rejected", mutate: func(r *Recipe) {
+			setting := r.Settings["config"]
+			setting.Resource = "missing"
+			r.Settings["config"] = setting
+			delete(r.Resources, "config")
+		}, wantErr: "references unknown resource missing"},
+		{name: "wrong driver blocked by general validation", mutate: func(r *Recipe) {
 			resource := r.Resources["config"]
 			resource.Driver = FileTreeDriverID
 			r.Resources["config"] = resource
 		}, wantErr: "content safety policy is supported only for file resources"},
+		{name: "wrong driver rejected by ssh validator", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Driver = FileTreeDriverID
+			resource.ContentSafetyPolicy = ""
+			r.Resources["config"] = resource
+		}, wantErr: "driver must be"},
 		{name: "wrong resource path", mutate: func(r *Recipe) {
 			resource := r.Resources["config"]
 			resource.Path = ".ssh/id_ed25519"
 			r.Resources["config"] = resource
 		}, wantErr: "path must be .ssh/config"},
-		{name: "wrong resource location", mutate: func(r *Recipe) {
+		{name: "wrong resource location blocked by general validation", mutate: func(r *Recipe) {
 			resource := r.Resources["config"]
 			resource.Location = "config"
 			r.Resources["config"] = resource
 		}, wantErr: "references unknown location config"},
+		{name: "wrong resource location rejected by ssh validator", mutate: func(r *Recipe) {
+			r.Locations["config"] = Location{Default: "~/.ssh"}
+			resource := r.Resources["config"]
+			resource.Location = "config"
+			r.Resources["config"] = resource
+		}, wantErr: "must declare only the home location"},
+		{name: "resource capability rejected", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Capability = "read-only"
+			r.Resources["config"] = resource
+		}, wantErr: "capability must be read-write"},
+		{name: "resource sensitivity rejected", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Sensitivity = SensitivitySecret
+			r.Resources["config"] = resource
+		}, wantErr: "sensitivity must be personal"},
+		{name: "resource redaction rejected", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Redaction = RedactionBlockedSave
+			r.Resources["config"] = resource
+		}, wantErr: "redaction must be redacted-for-display"},
+		{name: "resource lifecycle rejected", mutate: func(r *Recipe) {
+			resource := r.Resources["config"]
+			resource.Lifecycle = LifecycleWarn
+			r.Resources["config"] = resource
+		}, wantErr: "lifecycle must be allowed"},
 		{name: "wrong content safety policy", mutate: func(r *Recipe) {
 			resource := r.Resources["config"]
 			resource.ContentSafetyPolicy = ""

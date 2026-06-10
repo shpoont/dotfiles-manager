@@ -527,7 +527,7 @@ func loadSettingsFile(path string) (*settingsFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	dec := yaml.NewDecoder(file)
 	dec.KnownFields(true)
 	var parsed settingsFile

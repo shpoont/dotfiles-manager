@@ -645,7 +645,7 @@ func selectableSettings(settings []recipe.ExplainSetting) (map[string]recipe.Exp
 			continue
 		}
 		settingsByID[setting.ID] = setting
-		if setting.Capability != "read-write" || setting.SupportLevel == "blocked" || setting.SupportLevel == "deprecated" {
+		if !addSelectableCapability(setting.Capability) || setting.SupportLevel == "blocked" || setting.SupportLevel == "deprecated" {
 			continue
 		}
 		selectable = append(selectable, setting)
@@ -745,7 +745,7 @@ func normalizeSettingInputs(target string, inputs []string, settingsByID map[str
 				continue
 			}
 			setting, ok := settingsByID[id]
-			if !ok || setting.Capability != "read-write" || setting.SupportLevel == "blocked" || setting.SupportLevel == "deprecated" {
+			if !ok || !addSelectableCapability(setting.Capability) || setting.SupportLevel == "blocked" || setting.SupportLevel == "deprecated" {
 				return nil, fmt.Errorf("unknown or unsupported setting %q for target %s", token, target)
 			}
 			if !seen[id] {
@@ -759,6 +759,10 @@ func normalizeSettingInputs(target string, inputs []string, settingsByID map[str
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+func addSelectableCapability(capability string) bool {
+	return capability == "read-write" || capability == "export-only"
 }
 
 func chooseScopesAndArtifacts(target string, opts Options, selectedIDs []string, settingsByID map[string]recipe.ExplainSetting, interactive bool) ([]SettingChoice, []MissingChoice, error) {

@@ -304,6 +304,9 @@ func ExplainText(report *ExplainReport) string {
 		lines = append(lines, "resources:")
 		for _, resource := range report.RecipeExplain.Resources {
 			line := fmt.Sprintf("  %s driver=%s location=%s path=%s", resource.ID, resource.DriverID, resource.LocationID, resource.Path)
+			if resource.DriverID == NativeExportDriverID {
+				line = fmt.Sprintf("  %s driver=%s native-operation", resource.ID, resource.DriverID)
+			}
 			if resource.Selector != nil {
 				line += " selector=" + resource.Selector.Summary
 			}
@@ -1009,6 +1012,11 @@ func explainResource(resourceID string, resource Resource) ExplainResource {
 		if resource.Selector != nil {
 			explained.Selector = selectedPathExplainSelector(resource.Selector.Path, selectorCreatePolicy(resource.Selector), selectorDuplicatePolicy(resource.Selector), selectorDeleteKey(resource.Selector))
 		}
+	case NativeExportDriverID:
+		explained.SupportedOps = []string{"reviewed native export", "metadata-only diff", "save"}
+		explained.BackupRestore = "not-implemented"
+		explained.Normalization = "native export payload hash and metadata"
+		explained.DiffMode = "metadata-only"
 	}
 	return explained
 }
@@ -1040,6 +1048,8 @@ func driverExplains(ids ...string) []ExplainDriver {
 			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic TOML selected path scalar resources", Operations: []string{"metadata", "selected-path read/preview/backup/apply/verify"}, Limitations: []string{"no path expressions", "selected leaf must be a supported TOML scalar", "writes may canonicalize formatting and comments"}})
 		case PlistFileDriverID:
 			out = append(out, ExplainDriver{ID: id, Summary: "explains deterministic plist selected path scalar resources", Operations: []string{"metadata", "selected-path read/preview/backup/apply/verify"}, Limitations: []string{"no path expressions", "selected leaf must be a supported plist scalar"}})
+		case NativeExportDriverID:
+			out = append(out, ExplainDriver{ID: id, Summary: "runs reviewed native export operations into managed portable artifacts", Operations: []string{"reviewed export", "metadata-only diff", "save"}, Limitations: []string{"no field-level semantic diff", "no native import/apply in this tranche"}})
 		default:
 			out = append(out, ExplainDriver{ID: id, Summary: "unknown driver metadata", Operations: []string{"metadata explanation"}, Limitations: []string{"driver is not bundled"}})
 		}
@@ -1064,6 +1074,8 @@ func artifactFormForDriver(driver string) string {
 		return "file-tree"
 	case IniFileDriverID, JSONFileDriverID, YAMLFileDriverID, TOMLFileDriverID, PlistFileDriverID:
 		return "scalar"
+	case NativeExportDriverID:
+		return "native-export"
 	default:
 		return "unknown"
 	}

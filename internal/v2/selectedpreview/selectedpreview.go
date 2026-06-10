@@ -1,6 +1,7 @@
 package selectedpreview
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,12 +9,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
@@ -59,6 +63,11 @@ type Options struct {
 	DryRun              bool
 	LocationRoots       map[string]map[string]string
 	MacOSDefaultsRunner macosdefaultsdriver.Runner
+	Confirmed           bool
+	RunID               string
+	Now                 func() time.Time
+	NativeResolver      nativeops.ExecutableResolver
+	NativeExecutor      nativeops.Executor
 }
 
 type Report struct {
@@ -112,6 +121,7 @@ type Item struct {
 	DryRun         bool               `json:"dryRun"`
 	Mutated        bool               `json:"mutated"`
 	Mutation       *MutationInfo      `json:"mutation,omitempty"`
+	NativeExport   *NativeExportInfo  `json:"nativeExport,omitempty"`
 	Diagnostics    []Diagnostic       `json:"diagnostics"`
 }
 
@@ -201,6 +211,17 @@ type MutationRefs struct {
 	BackupPayload string `json:"backupPayload,omitempty"`
 }
 
+type NativeExportInfo struct {
+	OperationID    string   `json:"operationId"`
+	ArtifactForm   string   `json:"artifactForm"`
+	DiffMode       string   `json:"diffMode"`
+	Redaction      string   `json:"redaction"`
+	ReviewRequired bool     `json:"reviewRequired,omitempty"`
+	Limitations    []string `json:"limitations,omitempty"`
+	StagingRoot    string   `json:"-"`
+	PayloadRoot    string   `json:"-"`
+}
+
 type Error struct {
 	Code    string
 	Message string
@@ -250,7 +271,7 @@ func Build(opts Options) (*Report, error) {
 
 	report := baseReport(command, commandDryRun(command, opts.DryRun), profile.Layers)
 	for _, setting := range settings {
-		report.Items = append(report.Items, buildItem(profile.RepoRoot, opts.StateRoot, command, report.DryRun, setting, opts.LocationRoots, opts.MacOSDefaultsRunner))
+		report.Items = append(report.Items, buildItem(profile.RepoRoot, opts.StateRoot, command, report.DryRun, setting, opts))
 	}
 	finishReport(report)
 	return report, nil
@@ -425,7 +446,7 @@ func filterSettings(settings []resolution.ResolvedSetting, ref parsedRef) []reso
 	return out
 }
 
-func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, setting resolution.ResolvedSetting, roots map[string]map[string]string, defaultsRunner macosdefaultsdriver.Runner) Item {
+func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, setting resolution.ResolvedSetting, opts Options) Item {
 	item := Item{TargetRef: setting.TargetID, SettingRef: setting.Ref(), Scope: setting.Scope, Subject: setting.Subject, SourceLayer: setting.SourceLayer, DesiredURI: setting.DesiredURI, DesiredRelPath: filepath.ToSlash(setting.DesiredRelPath), State: v2status.StateUnknown, DryRun: dryRun, Mutated: false, Diagnostics: []Diagnostic{}}
 
 	runtime, blocked := loadRuntimeRecipe(repoRoot, setting.TargetID)
@@ -462,6 +483,34 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	if resource.Selector != nil {
 		item.Selector = selectorFromRecipe(resource)
 	}
+	if resource.Driver == recipe.NativeExportDriverID {
+		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+		if opts.Confirmed {
+			trustContext.AllowOpaque = true
+		}
+		item.Recipe.TrustStatus = trustEval.Status
+		if trustEval.Status != recipe.TrustStatusTrusted {
+			for _, diagnostic := range trustEval.Diagnostics {
+				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(diagnostic, item.SettingRef, runtime.Source, resourceID, resource.Driver))
+			}
+			if len(item.Diagnostics) == 0 {
+				item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "native export requires trusted recipe evidence before running reviewed export operations", item.SettingRef))
+			}
+			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before native export can run.")
+		}
+		if err := rec.ValidateWriteSafety(trustContext); err != nil {
+			for _, validation := range recipe.ValidationDiagnostics(err) {
+				item.Diagnostics = append(item.Diagnostics, fromRecipeDiagnostic(validation, item.SettingRef, runtime.Source, resourceID, resource.Driver))
+			}
+			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe write-safety metadata blocks native export preview.")
+		}
+		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
+		locationRoots := opts.LocationRoots[setting.TargetID]
+		if locationRoots == nil {
+			locationRoots = map[string]string{}
+		}
+		return buildNativeExportItem(repoRoot, stateRoot, command, item, rec, runtime.Source, trustEval, setting, resourceID, resource, locationRoots, opts)
+	}
 	if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
 		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
 		item.Recipe.TrustStatus = trustEval.Status
@@ -483,7 +532,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
-		locationRoots := roots[setting.TargetID]
+		locationRoots := opts.LocationRoots[setting.TargetID]
 		if locationRoots == nil {
 			locationRoots = map[string]string{}
 		}
@@ -524,7 +573,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	item.Desired.Kind = read.Kind
 	item.Desired.Unmanaged = read.Status == desired.StatusUnmanaged
 
-	locationRoots := roots[setting.TargetID]
+	locationRoots := opts.LocationRoots[setting.TargetID]
 	if locationRoots == nil {
 		locationRoots = map[string]string{}
 	}
@@ -535,7 +584,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	}
 
 	if read.Status == desired.StatusMissing {
-		return buildMissingDesiredItem(repoRoot, item, rec, setting, locationRoots, command, trustContext, defaultsRunner)
+		return buildMissingDesiredItem(repoRoot, item, rec, setting, locationRoots, command, trustContext, opts.MacOSDefaultsRunner)
 	}
 
 	if read.Desired == nil {
@@ -567,7 +616,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 	}
 
-	plan, err := selectedvalue.PlanPreview(selectedvalue.PreviewRequest{Request: selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: locationRoots, MacOSDefaultsRunner: defaultsRunner}, Desired: *read.Desired, WriteSafetyContext: trustContext})
+	plan, err := selectedvalue.PlanPreview(selectedvalue.PreviewRequest{Request: selectedvalue.Request{Recipe: rec, SettingRef: setting.Ref(), LocationRoots: locationRoots, MacOSDefaultsRunner: opts.MacOSDefaultsRunner}, Desired: *read.Desired, WriteSafetyContext: trustContext})
 	if err != nil {
 		appendPlanDiagnostics(&item, plan)
 		return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver preview is blocked.")
@@ -681,6 +730,103 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 	if command == CommandSave && !plan.DestinationState.Exists && plan.SourceState.Exists {
 		item.PlannedAction = PlannedActionWouldPromote
 		item.Message = "Existing live file can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
+	}
+	return item
+}
+
+func buildNativeExportItem(repoRoot string, stateRoot string, command string, item Item, rec *recipe.Recipe, source string, trustEval recipe.TrustEvaluation, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, roots map[string]string, opts Options) Item {
+	op := rec.NativeOperations[resource.NativeOperation]
+	item.Resource = ResourceInfo{ID: resourceID, DriverID: resource.Driver}
+	item.Selector = SelectorInfo{Kind: "native-export", Summary: resource.NativeOperation}
+	item.DesiredURI = setting.DesiredURI
+	item.DesiredRelPath = filepath.ToSlash(setting.DesiredRelPath)
+	item.Desired.Kind = "native-export"
+	item.NativeExport = &NativeExportInfo{
+		OperationID:    resource.NativeOperation,
+		ArtifactForm:   op.ArtifactForm,
+		DiffMode:       op.DiffMode,
+		Redaction:      op.Redaction,
+		ReviewRequired: nativeexport.ReviewRequired(op),
+		Limitations:    append([]string(nil), op.ExportMetadata.Limitations...),
+	}
+	expected := nativeexport.Expected(nativeexport.Options{Recipe: rec, Setting: setting, ResourceID: resourceID, Resource: resource})
+	desiredRead := nativeexport.ReadDesired(setting.DesiredPath, expected)
+	switch desiredRead.Status {
+	case "present":
+		item.Desired.Status = "present"
+		item.Desired.Snapshot = nativeSnapshot(nativeexport.Snapshot(desiredRead.Metadata))
+	case "missing":
+		item.Desired.Status = "missing"
+	default:
+		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: desiredRead.Diagnostic.Code, Severity: SeverityError, Message: desiredRead.Diagnostic.Message, Ref: item.SettingRef, Path: desiredRead.Diagnostic.Path, ResourceID: resourceID, DriverID: resource.Driver})
+		return finishBlocked(item, v2status.StateBlockedSafety, "Desired native export artifact is not manager-owned or has invalid metadata.")
+	}
+
+	if command == CommandApply {
+		item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.nativeExport.applyUnsupported", SeverityError, "native import/apply is not implemented in this tranche", item.SettingRef))
+		return finishBlocked(item, v2status.StateUnsupported, "Native export apply is out of scope until native import support is implemented.")
+	}
+	if command == CommandStatus {
+		item.State = v2status.StateUnknown
+		item.Message = "Native export status does not run the export operation in this tranche; use diff or save --dry-run to compare metadata."
+		item.AllowedActions = []v2status.Action{v2status.ActionDiff, v2status.ActionSave}
+		return item
+	}
+	if nativeexport.ReviewRequired(op) && !opts.Confirmed {
+		review := nativeexport.ReviewDiagnostic(item.SettingRef, op)
+		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: review.Code, Severity: SeverityError, Message: review.Message, Ref: item.SettingRef, Path: review.Path, ResourceID: resourceID, DriverID: resource.Driver})
+		return finishBlocked(item, v2status.StateBlockedSafety, "Native export requires explicit confirmation before the export operation runs.")
+	}
+
+	runID := opts.RunID
+	if strings.TrimSpace(runID) == "" {
+		runID = RunID
+	}
+	export, err := nativeexport.Export(context.Background(), nativeexport.Options{
+		RepoRoot:           repoRoot,
+		StateRoot:          stateRoot,
+		Recipe:             rec,
+		RecipeSource:       source,
+		TrustEvaluation:    &trustEval,
+		Setting:            setting,
+		ResourceID:         resourceID,
+		Resource:           resource,
+		MachineID:          opts.MachineID,
+		UserID:             opts.UserID,
+		RunID:              runID,
+		LocationRoots:      roots,
+		Now:                opts.Now,
+		ExecutableResolver: opts.NativeResolver,
+		Executor:           opts.NativeExecutor,
+	})
+	if err != nil || export.Status != nativeexport.StatusSucceeded {
+		diag := export.Diagnostic
+		if diag.Code == "" {
+			diag = nativeexport.Diagnostic{Code: "selectedpreview.nativeExport.failed", Message: "native export failed", Path: item.SettingRef}
+		}
+		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: diag.Code, Severity: SeverityError, Message: diag.Message, Ref: item.SettingRef, Path: diag.Path, ResourceID: resourceID, DriverID: resource.Driver})
+		return finishBlocked(item, v2status.StateBlockedSafety, "Native export operation did not produce a valid managed artifact.")
+	}
+	item.NativeExport.StagingRoot = export.StagingRoot
+	item.NativeExport.PayloadRoot = export.PayloadRoot
+	item.Current = nativeSnapshot(export.Metadata.Payload)
+	item.Preview = &PreviewInfo{ChangeKind: nativeexport.ChangeKind(export.Metadata.Payload, nativeexport.Snapshot(desiredRead.Metadata)), Intent: desired.IntentSet}
+	if command == CommandDiff {
+		diffKind := item.Preview.ChangeKind
+		if desiredRead.Status == "missing" {
+			diffKind = "missing-desired"
+		}
+		item.Diff = nativeExportDiffInfo(diffKind)
+	}
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedNativeState(nativeexport.Snapshot(desiredRead.Metadata)), Current: normalizedNativeState(export.Metadata.Payload)})
+	item.State = stateItem.State
+	item.NoBaseline = stateItem.NoBaseline
+	item.Message = stateItem.Message
+	item.AllowedActions = stateItem.Actions
+	item.PlannedAction = plannedAction(command, item)
+	if command == CommandSave && desiredRead.Status == "missing" && export.Metadata.Payload.Exists {
+		item.PlannedAction = PlannedActionWouldPromote
+		item.Message = "Existing native export can be promoted into a desired artifact with save --yes; internal app settings are not semantically diffed."
 	}
 	return item
 }
@@ -1102,6 +1248,13 @@ func treeDiffInfo(kind string) *DiffInfo {
 	return &DiffInfo{Kind: kind, Mode: "metadata-only", Redaction: "raw file-tree contents omitted", Message: "File-tree diff is metadata-only; compare existence, entry counts, hash, and normalizer."}
 }
 
+func nativeExportDiffInfo(kind string) *DiffInfo {
+	if kind == "" {
+		kind = "unknown"
+	}
+	return &DiffInfo{Kind: kind, Mode: "metadata-only", Redaction: "raw native export contents omitted", Message: "Opaque native export diff is metadata-only; internal app settings are not semantically compared."}
+}
+
 func fromFileState(state filedriver.State) Snapshot {
 	snapshot := state.Snapshot()
 	return Snapshot{Exists: snapshot.Exists, SHA256: snapshot.SHA256, Normalizer: state.Normalizer, Size: snapshot.Size}
@@ -1125,6 +1278,22 @@ func normalizedFileState(state filedriver.State) v2status.NormalizedState {
 
 func normalizedTreeState(state filetreedriver.State) v2status.NormalizedState {
 	return v2status.FromFileTreeState(state)
+}
+
+func nativeSnapshot(summary nativeexport.PayloadSummary) Snapshot {
+	return Snapshot{
+		Exists:     summary.Exists,
+		SHA256:     summary.SHA256,
+		Normalizer: summary.Normalizer,
+		Size:       int(summary.Size),
+		EntryCount: summary.EntryCount,
+		FileCount:  summary.FileCount,
+		DirCount:   summary.DirCount,
+	}
+}
+
+func normalizedNativeState(summary nativeexport.PayloadSummary) v2status.NormalizedState {
+	return v2status.NormalizedState{Exists: summary.Exists, Hash: summary.SHA256, Normalizer: summary.Normalizer, DriverVersion: nativeexport.DriverVersion}
 }
 
 func desiredStatus(exists bool) string {
