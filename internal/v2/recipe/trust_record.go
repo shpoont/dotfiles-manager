@@ -41,13 +41,14 @@ type LocalRecipeTrustRecord struct {
 }
 
 type TrustWriteSurface struct {
-	Target           string                       `yaml:"target" json:"target"`
-	SchemaVersion    int                          `yaml:"schemaVersion" json:"schemaVersion"`
-	Capability       string                       `yaml:"capability" json:"capability"`
-	Locations        []TrustLocationSurface       `yaml:"locations" json:"locations"`
-	Settings         []TrustSettingSurface        `yaml:"settings" json:"settings"`
-	Resources        []TrustResourceSurface       `yaml:"resources" json:"resources"`
-	NativeOperations TrustNativeOperationsSurface `yaml:"nativeOperations" json:"nativeOperations"`
+	Target           string                        `yaml:"target" json:"target"`
+	SchemaVersion    int                           `yaml:"schemaVersion" json:"schemaVersion"`
+	Capability       string                        `yaml:"capability" json:"capability"`
+	Locations        []TrustLocationSurface        `yaml:"locations" json:"locations"`
+	LifecycleTargets []TrustLifecycleTargetSurface `yaml:"lifecycleTargets,omitempty" json:"lifecycleTargets,omitempty"`
+	Settings         []TrustSettingSurface         `yaml:"settings" json:"settings"`
+	Resources        []TrustResourceSurface        `yaml:"resources" json:"resources"`
+	NativeOperations TrustNativeOperationsSurface  `yaml:"nativeOperations" json:"nativeOperations"`
 }
 
 type TrustLocationSurface struct {
@@ -55,29 +56,36 @@ type TrustLocationSurface struct {
 	Default string `yaml:"default" json:"default"`
 }
 
+type TrustLifecycleTargetSurface struct {
+	ID     string          `yaml:"id" json:"id"`
+	Target LifecycleTarget `yaml:"target" json:"target"`
+}
+
 type TrustSettingSurface struct {
-	ID           string `yaml:"id" json:"id"`
-	Capability   string `yaml:"capability" json:"capability"`
-	Resource     string `yaml:"resource" json:"resource"`
-	Sensitivity  string `yaml:"sensitivity,omitempty" json:"sensitivity,omitempty"`
-	Redaction    string `yaml:"redaction,omitempty" json:"redaction,omitempty"`
-	Lifecycle    string `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
-	ArtifactForm string `yaml:"artifactForm,omitempty" json:"artifactForm,omitempty"`
-	ScopeDefault string `yaml:"scopeDefault,omitempty" json:"scopeDefault,omitempty"`
+	ID              string `yaml:"id" json:"id"`
+	Capability      string `yaml:"capability" json:"capability"`
+	Resource        string `yaml:"resource" json:"resource"`
+	Sensitivity     string `yaml:"sensitivity,omitempty" json:"sensitivity,omitempty"`
+	Redaction       string `yaml:"redaction,omitempty" json:"redaction,omitempty"`
+	Lifecycle       string `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+	LifecycleTarget string `yaml:"lifecycleTarget,omitempty" json:"lifecycleTarget,omitempty"`
+	ArtifactForm    string `yaml:"artifactForm,omitempty" json:"artifactForm,omitempty"`
+	ScopeDefault    string `yaml:"scopeDefault,omitempty" json:"scopeDefault,omitempty"`
 }
 
 type TrustResourceSurface struct {
-	ID          string    `yaml:"id" json:"id"`
-	Driver      string    `yaml:"driver" json:"driver"`
-	Location    string    `yaml:"location" json:"location"`
-	Path        string    `yaml:"path" json:"path"`
-	Capability  string    `yaml:"capability" json:"capability"`
-	Sensitivity string    `yaml:"sensitivity,omitempty" json:"sensitivity,omitempty"`
-	Redaction   string    `yaml:"redaction,omitempty" json:"redaction,omitempty"`
-	Lifecycle   string    `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
-	Include     []string  `yaml:"include,omitempty" json:"include,omitempty"`
-	Exclude     []string  `yaml:"exclude,omitempty" json:"exclude,omitempty"`
-	Selector    *Selector `yaml:"selector,omitempty" json:"selector,omitempty"`
+	ID              string    `yaml:"id" json:"id"`
+	Driver          string    `yaml:"driver" json:"driver"`
+	Location        string    `yaml:"location" json:"location"`
+	Path            string    `yaml:"path" json:"path"`
+	Capability      string    `yaml:"capability" json:"capability"`
+	Sensitivity     string    `yaml:"sensitivity,omitempty" json:"sensitivity,omitempty"`
+	Redaction       string    `yaml:"redaction,omitempty" json:"redaction,omitempty"`
+	Lifecycle       string    `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+	LifecycleTarget string    `yaml:"lifecycleTarget,omitempty" json:"lifecycleTarget,omitempty"`
+	Include         []string  `yaml:"include,omitempty" json:"include,omitempty"`
+	Exclude         []string  `yaml:"exclude,omitempty" json:"exclude,omitempty"`
+	Selector        *Selector `yaml:"selector,omitempty" json:"selector,omitempty"`
 }
 
 type TrustNativeOperationsSurface struct {
@@ -305,12 +313,13 @@ func RecipeWriteSurface(rec *Recipe) (TrustWriteSurface, string, error) {
 		return TrustWriteSurface{}, "", err
 	}
 	surface := TrustWriteSurface{
-		Target:        rec.Target,
-		SchemaVersion: rec.SchemaVersion,
-		Capability:    rec.Capability,
-		Locations:     []TrustLocationSurface{},
-		Settings:      []TrustSettingSurface{},
-		Resources:     []TrustResourceSurface{},
+		Target:           rec.Target,
+		SchemaVersion:    rec.SchemaVersion,
+		Capability:       rec.Capability,
+		Locations:        []TrustLocationSurface{},
+		LifecycleTargets: []TrustLifecycleTargetSurface{},
+		Settings:         []TrustSettingSurface{},
+		Resources:        []TrustResourceSurface{},
 		NativeOperations: TrustNativeOperationsSurface{
 			Supported: false,
 			Count:     0,
@@ -334,14 +343,15 @@ func RecipeWriteSurface(rec *Recipe) (TrustWriteSurface, string, error) {
 			continue
 		}
 		surface.Settings = append(surface.Settings, TrustSettingSurface{
-			ID:           settingID,
-			Capability:   capability,
-			Resource:     setting.Resource,
-			Sensitivity:  setting.Sensitivity,
-			Redaction:    setting.Redaction,
-			Lifecycle:    setting.Lifecycle,
-			ArtifactForm: setting.ArtifactForm,
-			ScopeDefault: setting.ScopeDefault,
+			ID:              settingID,
+			Capability:      capability,
+			Resource:        setting.Resource,
+			Sensitivity:     setting.Sensitivity,
+			Redaction:       setting.Redaction,
+			Lifecycle:       setting.Lifecycle,
+			LifecycleTarget: setting.LifecycleTarget,
+			ArtifactForm:    setting.ArtifactForm,
+			ScopeDefault:    setting.ScopeDefault,
 		})
 		if resource, ok := rec.Resources[setting.Resource]; ok && resource.Location != "" {
 			locationIDs[resource.Location] = true
@@ -359,18 +369,22 @@ func RecipeWriteSurface(rec *Recipe) (TrustWriteSurface, string, error) {
 		sort.Strings(exclude)
 		locationIDs[resource.Location] = true
 		surface.Resources = append(surface.Resources, TrustResourceSurface{
-			ID:          resourceID,
-			Driver:      resource.Driver,
-			Location:    resource.Location,
-			Path:        resource.Path,
-			Capability:  capability,
-			Sensitivity: resource.Sensitivity,
-			Redaction:   resource.Redaction,
-			Lifecycle:   resource.Lifecycle,
-			Include:     include,
-			Exclude:     exclude,
-			Selector:    copySelector(resource.Selector),
+			ID:              resourceID,
+			Driver:          resource.Driver,
+			Location:        resource.Location,
+			Path:            resource.Path,
+			Capability:      capability,
+			Sensitivity:     resource.Sensitivity,
+			Redaction:       resource.Redaction,
+			Lifecycle:       resource.Lifecycle,
+			LifecycleTarget: resource.LifecycleTarget,
+			Include:         include,
+			Exclude:         exclude,
+			Selector:        copySelector(resource.Selector),
 		})
+	}
+	for _, targetID := range sortedKeys(rec.LifecycleTargets) {
+		surface.LifecycleTargets = append(surface.LifecycleTargets, TrustLifecycleTargetSurface{ID: targetID, Target: copyLifecycleTarget(rec.LifecycleTargets[targetID])})
 	}
 	for _, locationID := range sortedBoolKeys(locationIDs) {
 		if location, ok := rec.Locations[locationID]; ok {
@@ -402,6 +416,12 @@ func nativeOperationsSurface(operations map[string]NativeOperation) []TrustNativ
 		surface = append(surface, TrustNativeOperationSurface{ID: id, Operation: copyNativeOperation(operations[id])})
 	}
 	return surface
+}
+
+func copyLifecycleTarget(target LifecycleTarget) LifecycleTarget {
+	copy := target
+	copy.Detect.Names = append([]string(nil), target.Detect.Names...)
+	return copy
 }
 
 func copyNativeOperation(operation NativeOperation) NativeOperation {

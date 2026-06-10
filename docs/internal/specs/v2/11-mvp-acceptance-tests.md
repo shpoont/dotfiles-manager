@@ -74,7 +74,7 @@ A v2 MVP release must not be called production-ready unless these areas pass:
 | Plist/defaults | Selected keys only, read-only defaults, unsupported write attempts. |
 | Platform/filesystem | macOS roots, Linux XDG roots, unsupported Windows/unknown OS, unsupported driver gating, case-conflict and permission behavior. |
 | Redaction | Display redaction, blocked save, unavailable redaction, safe values. |
-| Lifecycle | Running app allowed/warn/blocked, quit declined, reopen failure. |
+| Lifecycle | Running app allowed/warn/blocked, explicit lifecycle target validation, non-interactive and `--yes` manual prompt blocks, bounded/hardened detection, native import-operation lifecycle enforcement, apply-only lifecycle actions, truthful dry-run records, quit declined/failed before backup/write, still-running recheck, reopen failure after verified write. |
 | Native export | Diffable export, opaque export, passphrase prompt, size/category limits. |
 | Ledger | Last-applied update only after verified success, partial failure recording. |
 | Restore | Restore preview, backup-before-restore, unsupported restore path. |

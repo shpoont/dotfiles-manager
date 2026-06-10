@@ -89,6 +89,13 @@ const (
 )
 
 const (
+	LifecycleDetectProcessName  = "process-name"
+	LifecycleControlUnsupported = "unsupported"
+	LifecycleControlManaged     = "managed"
+	LifecycleReopenNone         = "none"
+)
+
+const (
 	ZshRiskShellStartupFileCode     = "zsh.risk.shell-startup-file"
 	ZshBlockedZshenvCode            = "zsh.blocked.zshenv"
 	ZshBlockedHistoryCode           = "zsh.blocked.history"
@@ -116,6 +123,7 @@ type Recipe struct {
 	SupportLevel     string                     `yaml:"supportLevel"`
 	Capability       string                     `yaml:"capability"`
 	Locations        map[string]Location        `yaml:"locations"`
+	LifecycleTargets map[string]LifecycleTarget `yaml:"lifecycleTargets,omitempty"`
 	SettingsGroups   map[string]SettingsGroup   `yaml:"settingsGroups,omitempty"`
 	Settings         map[string]Setting         `yaml:"settings"`
 	Resources        map[string]Resource        `yaml:"resources"`
@@ -135,16 +143,17 @@ type SettingsGroup struct {
 }
 
 type Setting struct {
-	Label         string          `yaml:"label,omitempty"`
-	SupportLevel  string          `yaml:"supportLevel,omitempty"`
-	Capability    string          `yaml:"capability,omitempty"`
-	ArtifactForm  string          `yaml:"artifactForm,omitempty"`
-	Sensitivity   string          `yaml:"sensitivity,omitempty"`
-	Redaction     string          `yaml:"redaction,omitempty"`
-	Lifecycle     string          `yaml:"lifecycle,omitempty"`
-	WriteWarnings []ReviewWarning `yaml:"writeWarnings,omitempty"`
-	ScopeDefault  string          `yaml:"scopeDefault"`
-	Resource      string          `yaml:"resource"`
+	Label           string          `yaml:"label,omitempty"`
+	SupportLevel    string          `yaml:"supportLevel,omitempty"`
+	Capability      string          `yaml:"capability,omitempty"`
+	ArtifactForm    string          `yaml:"artifactForm,omitempty"`
+	Sensitivity     string          `yaml:"sensitivity,omitempty"`
+	Redaction       string          `yaml:"redaction,omitempty"`
+	Lifecycle       string          `yaml:"lifecycle,omitempty"`
+	LifecycleTarget string          `yaml:"lifecycleTarget,omitempty"`
+	WriteWarnings   []ReviewWarning `yaml:"writeWarnings,omitempty"`
+	ScopeDefault    string          `yaml:"scopeDefault"`
+	Resource        string          `yaml:"resource"`
 }
 
 type Resource struct {
@@ -159,6 +168,7 @@ type Resource struct {
 	Sensitivity           string            `yaml:"sensitivity,omitempty"`
 	Redaction             string            `yaml:"redaction,omitempty"`
 	Lifecycle             string            `yaml:"lifecycle,omitempty"`
+	LifecycleTarget       string            `yaml:"lifecycleTarget,omitempty"`
 	ContentSafetyPolicy   string            `yaml:"contentSafetyPolicy,omitempty"`
 	WriteWarnings         []ReviewWarning   `yaml:"writeWarnings,omitempty"`
 	Include               []string          `yaml:"include,omitempty"`
@@ -178,6 +188,7 @@ type NativeOperation struct {
 	TimeoutSeconds    int                        `yaml:"timeoutSeconds"`
 	ExpectedExitCodes []int                      `yaml:"expectedExitCodes"`
 	Command           NativeCommand              `yaml:"command"`
+	LifecycleTarget   string                     `yaml:"lifecycleTarget,omitempty"`
 	Stdin             NativeStdinPolicy          `yaml:"stdin"`
 	Stdout            NativeStreamPolicy         `yaml:"stdout"`
 	Stderr            NativeStreamPolicy         `yaml:"stderr"`
@@ -246,6 +257,22 @@ type NativeExportMetadataPolicy struct {
 type NativeApplyPolicy struct {
 	Backup string `yaml:"backup,omitempty"`
 	Verify string `yaml:"verify,omitempty"`
+}
+
+type LifecycleTarget struct {
+	DisplayName string                 `yaml:"displayName,omitempty"`
+	Detect      LifecycleDetectPolicy  `yaml:"detect"`
+	Quit        LifecycleControlPolicy `yaml:"quit,omitempty"`
+	Reopen      LifecycleControlPolicy `yaml:"reopen,omitempty"`
+}
+
+type LifecycleDetectPolicy struct {
+	Kind  string   `yaml:"kind"`
+	Names []string `yaml:"names,omitempty"`
+}
+
+type LifecycleControlPolicy struct {
+	Kind string `yaml:"kind"`
 }
 
 type ReviewWarning struct {
@@ -458,6 +485,11 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		if resource.Lifecycle != "" && !knownLifecycle(resource.Lifecycle) {
 			add("resource.lifecycle.unsupported", resourcePath+".lifecycle", fmt.Sprintf("resource %s unsupported lifecycle policy", resourceID))
 		}
+		if resource.LifecycleTarget != "" {
+			if _, ok := r.LifecycleTargets[resource.LifecycleTarget]; !ok {
+				add("resource.lifecycleTarget.unknown", resourcePath+".lifecycleTarget", fmt.Sprintf("resource %s references unknown lifecycleTarget %s", resourceID, resource.LifecycleTarget))
+			}
+		}
 		if resource.ContentSafetyPolicy != "" && !knownContentSafetyPolicy(resource.ContentSafetyPolicy) {
 			add("resource.contentSafetyPolicy.unsupported", resourcePath+".contentSafetyPolicy", fmt.Sprintf("resource %s unsupported content safety policy", resourceID))
 		}
@@ -497,6 +529,11 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		if setting.Lifecycle != "" && !knownLifecycle(setting.Lifecycle) {
 			add("setting.lifecycle.unsupported", settingPath+".lifecycle", fmt.Sprintf("setting %s unsupported lifecycle policy", settingID))
 		}
+		if setting.LifecycleTarget != "" {
+			if _, ok := r.LifecycleTargets[setting.LifecycleTarget]; !ok {
+				add("setting.lifecycleTarget.unknown", settingPath+".lifecycleTarget", fmt.Sprintf("setting %s references unknown lifecycleTarget %s", settingID, setting.LifecycleTarget))
+			}
+		}
 		for idx, warning := range setting.WriteWarnings {
 			addReviewWarningDiagnostics(add, settingPath+fmt.Sprintf(".writeWarnings[%d]", idx), "setting "+settingID, warning)
 		}
@@ -508,6 +545,13 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		} else if _, ok := r.Resources[setting.Resource]; !ok {
 			add("setting.resource.unknown", settingPath+".resource", fmt.Sprintf("setting %s references unknown resource %s", settingID, setting.Resource))
 		}
+	}
+
+	for _, targetID := range sortedKeys(r.LifecycleTargets) {
+		target := r.LifecycleTargets[targetID]
+		targetPath := "$.lifecycleTargets." + targetID
+		addErr("lifecycleTarget.id.invalid", targetPath, ValidatePublicID("lifecycleTarget", targetID))
+		addLifecycleTargetDiagnostics(add, targetPath, targetID, target)
 	}
 
 	for _, groupID := range sortedKeys(r.SettingsGroups) {
@@ -547,6 +591,11 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 		operation := r.NativeOperations[operationID]
 		addNativeOperationDiagnostics(add, operationID, operation)
 		addNativeOperationLocationDiagnostics(add, "$.nativeOperations."+operationID, operationID, operation, r.Locations)
+		if operation.LifecycleTarget != "" {
+			if _, ok := r.LifecycleTargets[operation.LifecycleTarget]; !ok {
+				add("nativeOperation.lifecycleTarget.unknown", "$.nativeOperations."+operationID+".lifecycleTarget", fmt.Sprintf("native operation %s references unknown lifecycleTarget %s", operationID, operation.LifecycleTarget))
+			}
+		}
 	}
 
 	for _, resourceID := range sortedKeys(r.Resources) {
@@ -617,6 +666,8 @@ func (r *Recipe) ValidationDiagnostics() []ValidationDiagnostic {
 			add("setting.artifactForm.nativeExportUnsupported", settingPath+".artifactForm", fmt.Sprintf("setting %s native-export resource requires artifactForm native-export or opaque", settingID))
 		}
 	}
+
+	addLifecyclePolicyReferenceDiagnostics(add, r)
 
 	return normalizeDiagnostics(diagnostics)
 }
@@ -827,6 +878,120 @@ func addNativePathSpecsDiagnostics(add func(string, string, string), path string
 			add("nativeOperation.path.temp.importRootUnsupported", specPath+".root", fmt.Sprintf("native operation %s import temp paths must use temp root", operationID))
 		}
 	}
+}
+
+func addLifecycleTargetDiagnostics(add func(string, string, string), targetPath string, targetID string, target LifecycleTarget) {
+	if strings.TrimSpace(target.DisplayName) != target.DisplayName {
+		add("lifecycleTarget.displayName.invalid", targetPath+".displayName", fmt.Sprintf("lifecycleTarget %s displayName must not have surrounding whitespace", targetID))
+	}
+	if target.Detect.Kind != LifecycleDetectProcessName {
+		add("lifecycleTarget.detect.kind.unsupported", targetPath+".detect.kind", fmt.Sprintf("lifecycleTarget %s unsupported detect kind", targetID))
+	}
+	if len(target.Detect.Names) == 0 {
+		add("lifecycleTarget.detect.names.required", targetPath+".detect.names", fmt.Sprintf("lifecycleTarget %s process-name detection requires at least one exact process name", targetID))
+	}
+	seenNames := map[string]bool{}
+	for idx, name := range target.Detect.Names {
+		namePath := targetPath + fmt.Sprintf(".detect.names[%d]", idx)
+		if err := validateLifecycleProcessName(name); err != nil {
+			add("lifecycleTarget.detect.name.invalid", namePath, fmt.Sprintf("lifecycleTarget %s process name is invalid: %s", targetID, err.Error()))
+			continue
+		}
+		if seenNames[name] {
+			add("lifecycleTarget.detect.name.duplicate", namePath, fmt.Sprintf("lifecycleTarget %s duplicates process name", targetID))
+		}
+		seenNames[name] = true
+	}
+	if target.Quit.Kind != "" && target.Quit.Kind != LifecycleControlUnsupported && target.Quit.Kind != LifecycleControlManaged {
+		add("lifecycleTarget.quit.kind.unsupported", targetPath+".quit.kind", fmt.Sprintf("lifecycleTarget %s unsupported quit kind", targetID))
+	}
+	if target.Reopen.Kind != "" && target.Reopen.Kind != LifecycleReopenNone && target.Reopen.Kind != LifecycleControlManaged {
+		add("lifecycleTarget.reopen.kind.unsupported", targetPath+".reopen.kind", fmt.Sprintf("lifecycleTarget %s unsupported reopen kind", targetID))
+	}
+}
+
+func validateLifecycleProcessName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("must not be blank")
+	}
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("must not have surrounding whitespace")
+	}
+	if strings.ContainsAny(name, "\x00\r\n/\\*?[]{}$`|;&<>") {
+		return fmt.Errorf("must be an exact process basename without path, glob, regex, shell, or control characters")
+	}
+	return nil
+}
+
+func addLifecyclePolicyReferenceDiagnostics(add func(string, string, string), r *Recipe) {
+	if r == nil {
+		return
+	}
+	for _, resourceID := range sortedKeys(r.Resources) {
+		resource := r.Resources[resourceID]
+		path := "$.resources." + resourceID
+		addLifecycleSubjectReferenceDiagnostics(add, r, path, "resource "+resourceID, resource.Lifecycle, resource.LifecycleTarget)
+	}
+	for _, settingID := range sortedKeys(r.Settings) {
+		setting := r.Settings[settingID]
+		resource := Resource{}
+		if setting.Resource != "" {
+			resource = r.Resources[setting.Resource]
+		}
+		targetID := setting.LifecycleTarget
+		if targetID == "" {
+			targetID = resource.LifecycleTarget
+		}
+		path := "$.settings." + settingID
+		addLifecycleSubjectReferenceDiagnostics(add, r, path, "setting "+settingID, setting.Lifecycle, targetID)
+	}
+	for _, operationID := range sortedKeys(r.NativeOperations) {
+		operation := r.NativeOperations[operationID]
+		path := "$.nativeOperations." + operationID
+		addLifecycleSubjectReferenceDiagnostics(add, r, path, "native operation "+operationID, operation.Lifecycle, operation.LifecycleTarget)
+	}
+}
+
+func addLifecycleSubjectReferenceDiagnostics(add func(string, string, string), r *Recipe, path string, subject string, lifecycle string, targetID string) {
+	if lifecycle == "" || !knownLifecycle(lifecycle) || !lifecycleNeedsTarget(lifecycle) {
+		return
+	}
+	if strings.TrimSpace(targetID) == "" {
+		add("lifecycleTarget.required", path+".lifecycleTarget", fmt.Sprintf("%s lifecycle policy requires an explicit lifecycleTarget", subject))
+		return
+	}
+	target, ok := r.LifecycleTargets[targetID]
+	if !ok {
+		return
+	}
+	if lifecycleNeedsManagedQuit(lifecycle) && target.Quit.Kind != LifecycleControlManaged {
+		add("lifecycleTarget.quit.unsupported", path+".lifecycleTarget", fmt.Sprintf("%s lifecycle policy requires lifecycleTarget %s to declare managed quit", subject, targetID))
+	}
+	if lifecycleNeedsManagedReopen(lifecycle) && target.Reopen.Kind != LifecycleControlManaged {
+		add("lifecycleTarget.reopen.unsupported", path+".lifecycleTarget", fmt.Sprintf("%s lifecycle policy requires lifecycleTarget %s to declare managed reopen", subject, targetID))
+	}
+}
+
+func lifecycleNeedsTarget(value string) bool {
+	switch value {
+	case LifecycleAskToQuit, LifecycleQuitIfRunning, LifecycleBlockIfRunning, LifecycleReopenIfStoppedByTool:
+		return true
+	default:
+		return false
+	}
+}
+
+func lifecycleNeedsManagedQuit(value string) bool {
+	switch value {
+	case LifecycleQuitIfRunning, LifecycleReopenIfStoppedByTool:
+		return true
+	default:
+		return false
+	}
+}
+
+func lifecycleNeedsManagedReopen(value string) bool {
+	return value == LifecycleReopenIfStoppedByTool
 }
 
 func addNativeOperationLocationDiagnostics(add func(string, string, string), operationPath string, operationID string, operation NativeOperation, locations map[string]Location) {

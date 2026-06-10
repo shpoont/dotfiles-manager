@@ -1,5 +1,7 @@
 package ledger
 
+import "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
+
 type RunStatus string
 
 const (
@@ -51,25 +53,26 @@ type LedgerEntry struct {
 }
 
 type ItemRecord struct {
-	TargetRef        string          `json:"targetRef"`
-	SettingRef       string          `json:"settingRef"`
-	Operation        string          `json:"operation"`
-	ResourceID       string          `json:"resourceId"`
-	Driver           string          `json:"driver"`
-	DriverVersion    string          `json:"driverVersion"`
-	DesiredURI       string          `json:"desiredUri,omitempty"`
-	DesiredRelPath   string          `json:"desiredRelPath,omitempty"`
-	LivePath         string          `json:"livePath,omitempty"`
-	DesiredPath      string          `json:"desiredPath,omitempty"`
-	ArtifactRefs     ArtifactRefs    `json:"artifactRefs"`
-	Before           NormalizedState `json:"before"`
-	Desired          NormalizedState `json:"desired"`
-	VerifiedState    NormalizedState `json:"verifiedState"`
-	SourceBackupRefs []string        `json:"sourceBackupRefs,omitempty"`
-	BackupRefs       []string        `json:"backupRefs,omitempty"`
-	Verification     Verification    `json:"verification"`
-	Result           ItemResult      `json:"result"`
-	Diagnostics      []Diagnostic    `json:"diagnostics,omitempty"`
+	TargetRef        string                   `json:"targetRef"`
+	SettingRef       string                   `json:"settingRef"`
+	Operation        string                   `json:"operation"`
+	ResourceID       string                   `json:"resourceId"`
+	Driver           string                   `json:"driver"`
+	DriverVersion    string                   `json:"driverVersion"`
+	DesiredURI       string                   `json:"desiredUri,omitempty"`
+	DesiredRelPath   string                   `json:"desiredRelPath,omitempty"`
+	LivePath         string                   `json:"livePath,omitempty"`
+	DesiredPath      string                   `json:"desiredPath,omitempty"`
+	ArtifactRefs     ArtifactRefs             `json:"artifactRefs"`
+	Before           NormalizedState          `json:"before"`
+	Desired          NormalizedState          `json:"desired"`
+	VerifiedState    NormalizedState          `json:"verifiedState"`
+	SourceBackupRefs []string                 `json:"sourceBackupRefs,omitempty"`
+	BackupRefs       []string                 `json:"backupRefs,omitempty"`
+	Verification     Verification             `json:"verification"`
+	Result           ItemResult               `json:"result"`
+	Lifecycle        []lifecycle.ActionRecord `json:"lifecycle,omitempty"`
+	Diagnostics      []Diagnostic             `json:"diagnostics,omitempty"`
 }
 
 type ArtifactRefs struct {

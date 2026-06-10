@@ -458,13 +458,22 @@ default. It must still stop on safety, trust, lifecycle, and secret blockers.
 `--non-interactive` must fail with exit code `4` if a prompt would be required.
 It must not silently choose destructive, trust, opaque, or lifecycle answers.
 
+Lifecycle prompts are narrower than general write confirmation. `--yes` may
+authorize managed `quit-if-running` and `reopen-if-stopped-by-tool` behavior
+when the recipe declares a supported lifecycle target. It must not override
+`blocked`, `block-if-running`, missing/unsupported lifecycle targets, ambiguous
+detection, failed quit, still-running recheck, or unsupported controller
+behavior. `ask-to-quit` remains manual: JSON/non-interactive mode must block
+instead of pretending the app was closed, `--yes` must block instead of
+auto-answering the manual step, and text mode without `--yes` may ask the user
+to quit manually then re-check before writing.
+
 Native apply blockers are safety blockers, not prompts. Missing or unsupported
 native apply backup/verification policy, untrusted or changed local native
-recipe evidence, lifecycle policies that require app shutdown/reopen handling,
-backup creation failure, import failure, and post-import verification failure
-must return safety exit `5` or a partial-success exit `6` when independent items
-also succeeded. `--yes` confirms the reviewed action; it must not override those
-blockers.
+recipe evidence, lifecycle blockers, backup creation failure, import failure,
+and post-import verification failure must return safety exit `5` or a
+partial-success exit `6` when independent items also succeeded. `--yes`
+confirms the reviewed action; it must not override those blockers.
 
 ### Exit codes
 

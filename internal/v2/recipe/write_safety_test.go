@@ -219,6 +219,118 @@ func TestSafetyValidationRejectsInvalidRedactionAndLifecycleShapes(t *testing.T)
 	require.NotContains(t, err.Error(), "run-app-script")
 }
 
+func TestLifecycleTargetValidationRequiresExplicitSafeDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		code string
+	}{
+		{
+			name: "action lifecycle without target",
+			body: lifecycleTargetValidationRecipe("quit-if-running", "", `lifecycleTargets:
+  app:
+    detect:
+      kind: process-name
+      names: ["Example App"]
+    quit:
+      kind: managed
+`, ""),
+			code: "lifecycleTarget.required",
+		},
+		{
+			name: "unknown lifecycle target",
+			body: lifecycleTargetValidationRecipe("block-if-running", "missing", `lifecycleTargets:
+  app:
+    detect:
+      kind: process-name
+      names: ["Example App"]
+`, ""),
+			code: "resource.lifecycleTarget.unknown",
+		},
+		{
+			name: "glob process name rejected",
+			body: lifecycleTargetValidationRecipe("block-if-running", "app", `lifecycleTargets:
+  app:
+    detect:
+      kind: process-name
+      names: ["Example*"]
+`, ""),
+			code: "lifecycleTarget.detect.name.invalid",
+		},
+		{
+			name: "unsupported detector rejected",
+			body: lifecycleTargetValidationRecipe("block-if-running", "app", `lifecycleTargets:
+  app:
+    detect:
+      kind: shell
+      names: ["Example App"]
+`, ""),
+			code: "lifecycleTarget.detect.kind.unsupported",
+		},
+		{
+			name: "managed quit required",
+			body: lifecycleTargetValidationRecipe("quit-if-running", "app", `lifecycleTargets:
+  app:
+    detect:
+      kind: process-name
+      names: ["Example App"]
+    quit:
+      kind: unsupported
+`, ""),
+			code: "lifecycleTarget.quit.unsupported",
+		},
+		{
+			name: "managed reopen required",
+			body: lifecycleTargetValidationRecipe("reopen-if-stopped-by-tool", "app", `lifecycleTargets:
+  app:
+    detect:
+      kind: process-name
+      names: ["Example App"]
+    quit:
+      kind: managed
+    reopen:
+      kind: none
+`, ""),
+			code: "lifecycleTarget.reopen.unsupported",
+		},
+		{
+			name: "allowed does not require target",
+			body: lifecycleTargetValidationRecipe("allowed", "", "", ""),
+			code: "",
+		},
+		{
+			name: "warn does not require target",
+			body: lifecycleTargetValidationRecipe("warn", "", "", ""),
+			code: "",
+		},
+		{
+			name: "blocked does not require target",
+			body: lifecycleTargetValidationRecipe("blocked", "", "", ""),
+			code: "",
+		},
+		{
+			name: "native operation action lifecycle without target",
+			body: nativeOperationLifecycleValidationRecipe(),
+			code: "lifecycleTarget.required",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Decode("recipe.yaml", strings.NewReader(tc.body))
+			if tc.code == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			requireDiagnosticCodes(t, ValidationDiagnostics(err), tc.code)
+		})
+	}
+}
+
 func TestWriteSafetyHelperBranches(t *testing.T) {
 	t.Parallel()
 
@@ -232,6 +344,112 @@ func TestWriteSafetyHelperBranches(t *testing.T) {
 	require.False(t, knownLifecycle("run-app-script"))
 }
 
+func lifecycleTargetValidationRecipe(lifecycle string, lifecycleTarget string, lifecycleTargets string, extra string) string {
+	targetLine := ""
+	if lifecycleTarget != "" {
+		targetLine = "    lifecycleTarget: " + lifecycleTarget + "\n"
+	}
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: lifecycle-test
+displayName: Lifecycle test
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ~/.example-tool
+` + lifecycleTargets + `settings:
+  email:
+    capability: read-write
+    artifactForm: native-export
+    scopeDefault: user
+    sensitivity: personal
+    redaction: redacted-for-display
+    resource: config
+resources:
+  config:
+    driver: yaml-file
+    location: config
+    path: config.yaml
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: ` + lifecycle + `
+` + targetLine + extra + `    selector:
+      path: [user, email]
+`
+}
+
+func nativeOperationLifecycleValidationRecipe() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: lifecycle-test
+displayName: Lifecycle test
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ~/.example-tool
+settings:
+  email:
+    scopeDefault: user
+    sensitivity: personal
+    redaction: redacted-for-display
+    resource: config
+resources:
+  config:
+    driver: native-export
+    nativeOperation: export-settings
+    nativeImportOperation: import-settings
+    nativeApply:
+      backup: pre-apply-export
+      verify: post-import-export-hash
+    capability: read-write
+    sensitivity: personal
+    redaction: metadata-only
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 30
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/true
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    redaction: metadata-only
+  import-settings:
+    kind: import
+    reviewed: true
+    runner: command
+    platforms: [darwin]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: block-if-running
+    workingDirectory: temp
+    timeoutSeconds: 30
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/true
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    redaction: metadata-only
+`
+}
+
 func writeSafeSelectedPathRecipe(target string, driver string, resourcePath string) string {
 	body := validSelectedPathRecipe(target, driver, resourcePath)
 	body = strings.Replace(body, "    artifactForm: scalar\n    scopeDefault: user", "    artifactForm: scalar\n    sensitivity: personal\n    redaction: redacted-for-display\n    scopeDefault: user", 1)
@@ -240,6 +458,22 @@ func writeSafeSelectedPathRecipe(target string, driver string, resourcePath stri
 }
 
 func resourceOnlySafetyRecipe(sensitivity string, redaction string, lifecycle string) string {
+	lifecycleTargets := ""
+	lifecycleTargetRef := ""
+	if lifecycleNeedsTarget(lifecycle) {
+		lifecycleTargets = `lifecycleTargets:
+  app:
+    displayName: Example Tool
+    detect:
+      kind: process-name
+      names: ["example-tool"]
+    quit:
+      kind: managed
+    reopen:
+      kind: managed
+`
+		lifecycleTargetRef = "    lifecycleTarget: app\n"
+	}
 	return `schema: dotfiles-manager.v2.recipe
 schemaVersion: 1
 target: safety-test
@@ -249,6 +483,7 @@ capability: read-write
 locations:
   config:
     default: ~/.example-tool
+` + lifecycleTargets + `
 settings:
   read-only-setting:
     capability: read-only
@@ -259,6 +494,7 @@ resources:
     sensitivity: ` + sensitivity + `
     redaction: ` + redaction + `
     lifecycle: ` + lifecycle + `
+` + lifecycleTargetRef + `
     driver: yaml-file
     location: config
     path: config.yaml

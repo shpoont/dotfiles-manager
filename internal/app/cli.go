@@ -16,6 +16,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
+	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	v2resolution "github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -742,15 +743,17 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.stateRoot.default", err.Error(), nil)
 	}
 	result, err := v2selectedlive.Run(v2selectedlive.Options{
-		Command:        commandOpts.Name,
-		RepoRoot:       repoRoot,
-		StateRoot:      stateRoot,
-		Ref:            commandOpts.PathArg,
-		MachineID:      commandOpts.V2.MachineID,
-		UserID:         commandOpts.V2.UserID,
-		ExtraLayers:    commandOpts.V2.Profiles,
-		Confirmed:      commandOpts.Yes,
-		NonInteractive: commandOpts.NonInteractive,
+		Command:           commandOpts.Name,
+		RepoRoot:          repoRoot,
+		StateRoot:         stateRoot,
+		Ref:               commandOpts.PathArg,
+		MachineID:         commandOpts.V2.MachineID,
+		UserID:            commandOpts.V2.UserID,
+		ExtraLayers:       commandOpts.V2.Profiles,
+		Confirmed:         commandOpts.Yes,
+		NonInteractive:    commandOpts.NonInteractive,
+		JSONMode:          commandOpts.JSONOutput,
+		LifecyclePrompter: selectedLivePrompter(cmd, commandOpts),
 	})
 	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), result.Report, commandOpts.JSONOutput); emitErr != nil {
 		return emitErr
@@ -778,6 +781,13 @@ func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, r
 		return emitErr
 	}
 	return err
+}
+
+func selectedLivePrompter(cmd *cobra.Command, commandOpts commandOptions) v2lifecycle.Prompter {
+	if commandOpts.JSONOutput || commandOpts.NonInteractive {
+		return nil
+	}
+	return v2lifecycle.TextPrompter{In: cmd.InOrStdin(), Out: cmd.OutOrStdout()}
 }
 
 func selectedPreviewRepoRoot(opts *rootOptions) (string, error) {
