@@ -135,6 +135,55 @@ Prompt rules for `add`:
 - `--dry-run` performs the same target, profile, setting, scope, and conflict
   validation and emits the same planned changes, but writes nothing.
 
+### `sync [ref]` guided-choice contract
+
+The first implemented `sync` tranche is a v2-only guided flow:
+
+```text
+dotfiles-manager sync [ref] [--choice <setting-ref=save|apply|skip>]... [--yes] [--non-interactive] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
+```
+
+`sync` always starts with a read-only planning phase. The plan lists every
+resolved item with current state, recommended action when one is safe to
+recommend, allowed choices, selected choice, resource/selector summary, and
+diagnostics or blockers. Planning output alone must not mutate desired
+artifacts, live files, backups, ledgers, app state, native state, or trust
+records.
+
+Interactive text mode prompts for explicit `save`, `apply`, or `skip` choices
+only for actionable changed, no-baseline, conflict, missing, or opaque-changed
+items. The prompt must say that choosing `save` or `apply` mutates that item.
+All prompted choices must be collected and validated before any live mutation.
+If any required prompt is unanswered, invalid, interrupted, or unavailable, the
+command fails with no writes.
+
+Non-interactive execution requires explicit repeatable `--choice` flags and
+`--yes`. `--choice` without `--yes` is a validated plan only and must fail
+before mutation when any chosen action would write. Missing required choices in
+`--yes` execution fail with no writes. `--json` with no choices is plan-only and
+must emit the full machine-readable plan without prompting or writing.
+
+Choice validation is strict and happens before execution:
+
+- unknown setting refs fail;
+- duplicate refs fail;
+- malformed choices fail;
+- choices not allowed for the item's state fail;
+- choices for safety-blocked, lifecycle-blocked, or unsupported items fail.
+
+Execution uses deterministic plan order. `skip` is recorded in the `sync`
+result and does not invoke live mutation. `save` and `apply` choices may compose
+the existing per-setting live mutation path. If one chosen mutation fails,
+`sync` stops remaining mutations and reports already executed, failed, skipped,
+blocked, and `not_attempted` items explicitly. This tranche does not claim
+cross-item atomic rollback; separate underlying run IDs and backup refs must be
+visible in the aggregate result when execution happens.
+
+`sync` must never choose save/apply because of a recommendation alone. Conflict,
+no-baseline, and opaque-changed states require an explicit user or CLI choice.
+Unsupported and blocked states remain blockers; they are not silently skipped
+or converted into inferred mutations.
+
 ### Advanced authoring commands
 
 Advanced commands may exist outside the normal path:

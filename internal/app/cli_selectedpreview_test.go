@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
@@ -768,6 +769,89 @@ func TestV2FileResourceExplicitArtifactBinding(t *testing.T) {
 	require.Equal(t, "desired://user/leon/targets/test.files/artifacts/config", item["desiredUri"])
 	require.Equal(t, "would-promote", item["plannedAction"])
 	require.NotContains(t, stdout, "EXPLICIT-BINDING-LIVE")
+}
+
+func TestV2GuidedSyncJSONPlanAndChoiceRequiresYes(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	require.Equal(t, "dotfiles-manager.v2.guided-sync", payload["schema"])
+	require.Equal(t, "sync", payload["command"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "needs-choice", summary["status"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "test.app:identity.email", item["settingRef"])
+	require.Equal(t, "planned", item["outcome"])
+	require.ElementsMatch(t, []any{"save", "apply", "skip"}, item["allowedChoices"].([]any))
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, "desired@example.com")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "--choice", "test.app:identity.email=save", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "guidedsync.confirmationRequired", payload["error"].(map[string]any)["code"])
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "desired@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+}
+
+func TestV2GuidedSyncCLIChoiceYesSavesSelectedValue(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "--choice", "test.app:identity.email=save", "--yes", "test.app:identity.email"})
+	require.NoError(t, err)
+	require.Equal(t, "changed", payload["summary"].(map[string]any)["status"])
+	item := payload["items"].([]any)[0].(map[string]any)
+	require.Equal(t, "executed", item["outcome"])
+	require.Equal(t, "save", item["selectedChoice"])
+	require.NotEmpty(t, item["underlyingRunId"])
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+}
+
+func TestV2GuidedSyncInteractivePromptSavesWithoutYes(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	stdout, stderr, err := runSyncTextCLI(t, []string{"sync", "--user-id", "leon", "test.app:identity.email"}, "save\n")
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.Contains(t, stdout, "Choosing save/apply will mutate this item")
+	require.Contains(t, stdout, "outcome=executed")
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
+	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, stdout, "desired@example.com")
+}
+
+func TestV2GuidedSyncInteractiveInvalidPromptFailsBeforeWrites(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	stdout, _, err := runSyncTextCLI(t, []string{"sync", "--user-id", "leon", "test.app:identity.email"}, "later\n")
+	require.Error(t, err)
+	require.Contains(t, stdout, "guidedsync.choice.invalid")
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "desired@example.com")
+}
+
+func runSyncTextCLI(t *testing.T, args []string, stdin string) (string, string, error) {
+	t.Helper()
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetIn(strings.NewReader(stdin))
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return stdout.String(), stderr.String(), err
 }
 
 type cliV2SelectedPreviewFixture struct {
