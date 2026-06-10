@@ -1055,6 +1055,69 @@ func TestNativeExportResourceShapeValidation(t *testing.T) {
 	require.False(t, knownNativeReviewReason("other"))
 }
 
+func TestNativeApplyResourcePolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	_, err := Decode("native-apply.yaml", strings.NewReader(nativeApplyRecipeValidationBody()))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "missing import operation",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "    nativeImportOperation: import-settings\n", "", 1),
+			wantErr: "native apply requires nativeImportOperation",
+		},
+		{
+			name:    "wrong import kind",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "kind: import", "kind: verify", 1),
+			wantErr: "must be kind import",
+		},
+		{
+			name:    "unsupported backup policy",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "backup: pre-apply-export", "backup: manual", 1),
+			wantErr: "backup policy must be pre-apply-export",
+		},
+		{
+			name:    "unsupported verify policy",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "verify: post-import-export-hash", "verify: manual", 1),
+			wantErr: "verify policy must be post-import-export-hash",
+		},
+		{
+			name:    "setting must be import capable",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "    capability: read-write\n    artifactForm", "    capability: export-only\n    artifactForm", 1),
+			wantErr: "setting settings import-capable native resource requires capability read-write",
+		},
+		{
+			name:    "setting import only is reserved for future native apply",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "    capability: read-write\n    artifactForm", "    capability: import-only\n    artifactForm", 1),
+			wantErr: "setting settings import-capable native resource requires capability read-write",
+		},
+		{
+			name:    "resource must be import capable",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "    capability: read-write\n    sensitivity", "    capability: export-only\n    sensitivity", 1),
+			wantErr: "resource settings import-capable native resource requires capability read-write",
+		},
+		{
+			name:    "resource import only is reserved for future native apply",
+			body:    strings.Replace(nativeApplyRecipeValidationBody(), "    capability: read-write\n    sensitivity", "    capability: import-only\n    sensitivity", 1),
+			wantErr: "resource settings import-capable native resource requires capability read-write",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Decode("native-apply.yaml", strings.NewReader(tc.body))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestNativeExportOperationDiagnosticHelpers(t *testing.T) {
 	t.Parallel()
 
@@ -2427,5 +2490,101 @@ resources:
     redaction: known-safe
     selector:
       key: AppleShowAllFiles
+`
+}
+
+func nativeApplyRecipeValidationBody() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: native.app
+displayName: Native App
+supportLevel: experimental
+capability: read-write
+settings:
+  settings:
+    label: Settings bundle
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: native-export
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: settings
+resources:
+  settings:
+    driver: native-export
+    nativeOperation: export-settings
+    nativeImportOperation: import-settings
+    nativeApply:
+      backup: pre-apply-export
+      verify: post-import-export-hash
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: export
+        - output: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    outputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
+    exportMetadata:
+      capturedCategories: [settings]
+  import-settings:
+    kind: import
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: import
+        - input: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    inputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
 `
 }

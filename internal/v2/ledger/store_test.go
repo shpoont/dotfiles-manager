@@ -11,6 +11,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedvalue"
@@ -701,6 +702,84 @@ func TestWriteSelectedValueBackupPersistsMetadataAndPayload(t *testing.T) {
 	require.NotEmpty(t, SelectedValueNormalizer(recipe.YAMLFileDriverID))
 	require.Empty(t, SelectedValueNormalizer("other"))
 	require.Equal(t, NormalizedState{Exists: true, Hash: "h", Normalizer: "n", DriverVersion: YAMLFileSelectedDriverVersion}, SelectedValueState(selectedvalue.Snapshot{Exists: true, SHA256: "h", Normalizer: "n"}, recipe.YAMLFileDriverID))
+}
+
+func TestWriteNativeExportBackupPersistsManagerOwnedArtifact(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	stateRoot := realLedgerTempDir(t)
+	store, err := NewStore(stateRoot, WithClock(fixedTime))
+	require.NoError(t, err)
+	expected := nativeexport.ExpectedIdentity{TargetRef: "native.app", SettingRef: "native.app:settings", ResourceID: "settings", OperationID: "export-settings", ArtifactForm: "native-export"}
+	staging := nativeExportBackupStagingFixture(t, expected, "native-before-secret")
+
+	item, err := store.WriteNativeExportBackup("run-native", fixedTime(), NativeExportBackupRequest{
+		RepoRoot:     repoRoot,
+		TargetRef:    "native.app",
+		SettingRef:   "native.app:settings",
+		ResourceID:   "settings",
+		StagingRoot:  staging,
+		Expected:     expected,
+		Before:       NormalizedState{Exists: true, Hash: "before", Normalizer: nativeexport.Normalizer},
+		OperationID:  "export-settings",
+		ArtifactForm: "native-export",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "state://backups/run-native/native.app_settings-settings", item.Ref)
+	require.Equal(t, recipe.NativeExportDriverID, item.Driver)
+	require.Equal(t, nativeexport.DriverVersion, item.DriverVersion)
+	require.Equal(t, "payloads/native.app_settings-settings/native-export", item.PayloadRelPath)
+	require.False(t, item.Restore.Compatible)
+	require.Contains(t, item.Restore.Message, "automatic native restore is not implemented")
+	require.Equal(t, "native-before-secret", readFile(t, filepath.Join(stateRoot, "backups", "run-native", item.PayloadRelPath, nativeexport.PayloadDir, "bundle.txt")))
+
+	metadata := requireBackupMetadata(t, stateRoot, "run-native")
+	require.Len(t, metadata.Items, 1)
+	require.NotContains(t, mustMarshalJSON(t, metadata), "native-before-secret")
+
+	var nilStore *Store
+	_, err = nilStore.WriteNativeExportBackup("run-native", fixedTime(), NativeExportBackupRequest{})
+	require.Error(t, err)
+	_, err = store.WriteNativeExportBackup("../bad", fixedTime(), NativeExportBackupRequest{RepoRoot: repoRoot, StagingRoot: staging, Expected: expected})
+	require.Error(t, err)
+	_, err = store.WriteNativeExportBackup("run-missing-staging", fixedTime(), NativeExportBackupRequest{RepoRoot: repoRoot, Expected: expected})
+	require.Error(t, err)
+}
+
+func nativeExportBackupStagingFixture(t *testing.T, expected nativeexport.ExpectedIdentity, body string) string {
+	t.Helper()
+	root := t.TempDir()
+	payload := filepath.Join(root, nativeexport.PayloadDir)
+	writeFile(t, filepath.Join(payload, "bundle.txt"), body)
+	summary, err := nativeexport.SummarizePayload(payload, nativeexport.Limits{MaxBytes: 1024, MaxEntries: 10})
+	require.NoError(t, err)
+	require.NoError(t, nativeexport.WriteMetadata(root, nativeexport.Metadata{
+		Schema:        nativeexport.MetadataSchema,
+		SchemaVersion: nativeexport.SchemaVersion,
+		TargetRef:     expected.TargetRef,
+		SettingRef:    expected.SettingRef,
+		ResourceID:    expected.ResourceID,
+		OperationID:   expected.OperationID,
+		Operation:     nativeexport.OperationMetadata{ArtifactForm: expected.ArtifactForm},
+		Payload:       summary,
+	}))
+	return root
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(data)
+}
+
+func realLedgerTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	real, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	return real
 }
 
 func TestExecuteAndBackupValidationBranches(t *testing.T) {

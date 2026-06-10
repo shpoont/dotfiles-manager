@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-07
+last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/09-security-redaction-trust.md
 source-concept-sections:
   - Security/privacy/trust model
@@ -253,12 +253,15 @@ Invalidation rules:
 
 Arbitrary recipe scripts are not allowed in MVP.
 
-If constrained native command IO is implemented for bundled reviewed recipes,
-it must use:
+If constrained native command IO is implemented for bundled or explicitly trusted
+reviewed recipes, it must use:
 
 - argv arrays, not shell strings;
 - fixed executable or reviewed command source, never inherited `PATH` lookup;
 - validated paths, named locations, and operation-kind-specific IO roots;
+- import operations closed to manager-owned `artifact`/`temp` roots only; live
+  named-location roots are forbidden through input, output, temp, argv, and
+  environment channels;
 - non-inherited empty environment plus explicit safe `DFM_` declarations;
 - timeout;
 - declared input/output files;
@@ -291,6 +294,15 @@ environment values, local paths, and captured output are not normal user-facing
 data.
 
 Unreviewed command-backed save/apply is deferred.
+
+
+Native apply has an additional trust boundary: the reviewed import operation
+must receive only a manager-owned temp copy of the desired payload, never the
+repository desired artifact path. Local native recipes must have matching trust
+evidence for the exact native-operation write surface, including import and
+verify declarations. `--yes` confirms the reviewed action but must not override
+trust mismatch, lifecycle handling gaps, missing backup/verification policy,
+backup failure, import failure, or verification failure.
 
 ### Lifecycle policy
 

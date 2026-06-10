@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/06-recipe-schema.md
 source-concept-sections:
   - Recipe
@@ -239,6 +239,34 @@ include/exclude globs are invalid; typed native-operation paths own all live,
 artifact, and temp locations. The setting itself must use `capability:
 export-only` and `artifactForm: native-export` or `opaque`.
 
+An import-capable native resource is still declared with `driver:
+native-export`, but it must be explicit and closed-policy:
+
+```yaml
+resources:
+  settings:
+    driver: native-export
+    nativeOperation: export-settings        # kind: export
+    nativeImportOperation: import-settings  # kind: import
+    nativeApply:
+      backup: pre-apply-export
+      verify: post-import-export-hash
+    capability: read-write
+```
+
+For import-capable native resources, the bound setting and resource capability
+must be `read-write`; `import-only` is reserved for a future native-apply
+capability pass and is not accepted by #110. Missing import operation, wrong
+operation kind, unknown apply policy, or weaker backup/verification policy is a
+recipe validation error. `nativeVerifyOperation` may point to a reviewed
+`verify` operation for future supplementary checks, but MVP success is defined
+by a post-import export whose payload hash and normalizer match the desired
+native artifact. Import operations must not expose live `location` roots through
+inputs, outputs, temp paths, argv tokens, or environment tokens; import receives
+only a manager-owned temp copy of the desired payload plus manager temp paths.
+Lifecycle policies that require app shutdown/reopen handling remain blocked
+until that lifecycle driver is implemented.
+
 Native export operations may additionally declare:
 
 - `review.required`, `review.reasons`, and a single-line review message for
@@ -275,7 +303,8 @@ Capabilities:
 - `inspect-only`;
 - `read-only`;
 - `read-write`;
-- `import-only`;
+- `import-only` (reserved for future apply-only capability handling; not
+  accepted for #110 native apply);
 - `export-only`;
 - `never`.
 

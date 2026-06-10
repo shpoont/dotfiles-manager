@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/02-cli-contract.md
 source-concept-sections:
   - CLI contract v2
@@ -310,13 +310,20 @@ environment variables, captured output, local paths containing secrets, or
 value-bearing defaults.
 
 The reviewed native-operation runner may be invoked only through an explicitly
-selected `native-export` resource whose recipe has trusted reviewed export
-metadata. In the #109 tranche, `diff` and `save`/`save --dry-run` may run that
-read-only export into manager-owned temp staging so they can compare opaque
-payload metadata. `status` must not run native exports in this tranche, and
-`apply` must block before native execution until native import support is
-implemented. Commands must not invoke native operations merely because a recipe
-declares them.
+selected `native-export` resource whose recipe has trusted reviewed operation
+metadata. `diff` and `save`/`save --dry-run` may run the reviewed export into
+manager-owned temp staging so they can compare opaque payload metadata.
+`status` must not run native exports in this tranche. For import-capable native
+resources, `apply --dry-run` must not run export/import/verify commands by
+default; it validates the desired native artifact and reports the native apply
+plan. `apply` without `--yes` stops with confirmation-required exit `4` before
+backup/export/import/verification, including `--json` and `--non-interactive`
+invocations. `apply --yes` may run native apply only for a
+trusted resource with the explicit `pre-apply-export` backup policy and
+`post-import-export-hash` verification policy; native trust, lifecycle, backup,
+import, and verification failures are safety/execution blockers and use exit
+`5`, not confirmation exit `4`. Commands must not invoke native operations
+merely because a recipe declares them.
 
 #### `recipe.explain` JSON output
 
@@ -337,7 +344,7 @@ recipeExplain:
     ref: git
     displayName: Git
     supportLevel: stable | read-only | experimental | deprecated | blocked
-    capability: inspect-only | read-only | read-write | import-only | export-only | never
+    capability: inspect-only | read-only | read-write | export-only | never  # import-only is reserved
     platformSupport: supported | unsupported | unknown
   recipe:
     source: bundled | local
@@ -400,12 +407,17 @@ exit code `4` in normal operation. Exit code `6` is not expected for the single-
 | `--verbose` | Include profile stack, artifact URIs, drivers, and ledger refs. |
 
 `--dry-run` may read current state, run a declared read-only native export for
-a selected trusted `native-export` resource, and write manager-owned temporary
-state. It must not change desired artifacts or live state. If the native export
-is review-required because it may be opaque, account-bound, large, or
-privacy-sensitive, the command must fail closed before executing the export
-unless the user has explicitly opted in, such as with `--yes` where that flag is
-available.
+`diff`/`save` on a selected trusted `native-export` resource, and write
+manager-owned temporary state. It must not change desired artifacts or live
+state. For native apply, dry-run is preview-only by default: it validates the
+desired native artifact and policy but does not run backup export, import, or
+post-import export. Live native import receives only a manager-owned temp copy of
+the desired payload; import operations must not expose live `location` roots
+through typed input, output, temp, argv, or environment channels. If a native
+export is review-required because it may be
+opaque, account-bound, large, or privacy-sensitive, the command must fail closed
+before executing that export unless the user has explicitly opted in, such as
+with `--yes` where that flag is available.
 
 `--machine-id` and `--user-id` are advanced identity inputs. They must validate
 against the identity grammar in `03-profile-and-scope-resolution.md`. If a
@@ -445,6 +457,14 @@ default. It must still stop on safety, trust, lifecycle, and secret blockers.
 
 `--non-interactive` must fail with exit code `4` if a prompt would be required.
 It must not silently choose destructive, trust, opaque, or lifecycle answers.
+
+Native apply blockers are safety blockers, not prompts. Missing or unsupported
+native apply backup/verification policy, untrusted or changed local native
+recipe evidence, lifecycle policies that require app shutdown/reopen handling,
+backup creation failure, import failure, and post-import verification failure
+must return safety exit `5` or a partial-success exit `6` when independent items
+also succeeded. `--yes` confirms the reviewed action; it must not override those
+blockers.
 
 ### Exit codes
 

@@ -98,6 +98,13 @@ func TestNativeOperationValidationRejectsUnsafeShapes(t *testing.T) {
 			op.Kind = "import"
 			op.Inputs = map[string]NativePathSpec{"source": {Root: "location", Location: "home", Path: "x"}}
 		}, code: "nativeOperation.path.input.importRootUnsupported"},
+		{name: "import temp path must not be location", mut: func(op *NativeOperation) {
+			op.Kind = "import"
+			op.Outputs = map[string]NativePathSpec{"bundle": {Root: "temp", Path: "exports/settings.bundle"}}
+			op.TempPaths = map[string]NativePathSpec{"scratch": {Root: "location", Location: "home", Path: "scratch"}}
+			op.Command.Args = append(op.Command.Args, NativeArg{Temp: "scratch"})
+			op.Env["DFM_SCRATCH"] = NativeEnvValue{Temp: "scratch"}
+		}, code: "nativeOperation.path.temp.importRootUnsupported"},
 		{name: "export input desired unsupported", mut: func(op *NativeOperation) {
 			op.Inputs = map[string]NativePathSpec{"desired": {Root: "artifact", Path: "x"}}
 		}, code: "nativeOperation.path.input.exportArtifactUnsupported"},

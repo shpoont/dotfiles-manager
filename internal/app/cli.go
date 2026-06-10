@@ -201,6 +201,7 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
 	var yes bool
+	var nonInteractive bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
@@ -209,18 +210,20 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSelectedPreviewRootCommand(cmd, opts, commandOptions{
-				Name:       "save",
-				PathArg:    firstArg(args),
-				JSONOutput: jsonOutput,
-				DryRun:     dryRun,
-				Yes:        yes,
-				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
+				Name:           "save",
+				PathArg:        firstArg(args),
+				JSONOutput:     jsonOutput,
+				DryRun:         dryRun,
+				Yes:            yes,
+				NonInteractive: nonInteractive,
+				V2:             selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value save without writing desired artifacts")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live save without interactive prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if selected-value save needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
@@ -230,6 +233,7 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
 	var yes bool
+	var nonInteractive bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
@@ -238,18 +242,20 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSelectedPreviewRootCommand(cmd, opts, commandOptions{
-				Name:       "apply",
-				PathArg:    firstArg(args),
-				JSONOutput: jsonOutput,
-				DryRun:     dryRun,
-				Yes:        yes,
-				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
+				Name:           "apply",
+				PathArg:        firstArg(args),
+				JSONOutput:     jsonOutput,
+				DryRun:         dryRun,
+				Yes:            yes,
+				NonInteractive: nonInteractive,
+				V2:             selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value apply without writing live state")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live apply without interactive prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if selected-value apply needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
@@ -412,15 +418,16 @@ func newMigratePromotePreviewCmd() *cobra.Command {
 }
 
 type commandOptions struct {
-	Name         string
-	PathArg      string
-	JSONOutput   bool
-	DryRun       bool
-	Yes          bool
-	Direction    string
-	ContextLines int
-	IncludePatch bool
-	V2           selectedPreviewCommandOptions
+	Name           string
+	PathArg        string
+	JSONOutput     bool
+	DryRun         bool
+	Yes            bool
+	NonInteractive bool
+	Direction      string
+	ContextLines   int
+	IncludePatch   bool
+	V2             selectedPreviewCommandOptions
 }
 
 type selectedPreviewFlagOptions struct {
@@ -735,14 +742,15 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.stateRoot.default", err.Error(), nil)
 	}
 	result, err := v2selectedlive.Run(v2selectedlive.Options{
-		Command:     commandOpts.Name,
-		RepoRoot:    repoRoot,
-		StateRoot:   stateRoot,
-		Ref:         commandOpts.PathArg,
-		MachineID:   commandOpts.V2.MachineID,
-		UserID:      commandOpts.V2.UserID,
-		ExtraLayers: commandOpts.V2.Profiles,
-		Confirmed:   commandOpts.Yes,
+		Command:        commandOpts.Name,
+		RepoRoot:       repoRoot,
+		StateRoot:      stateRoot,
+		Ref:            commandOpts.PathArg,
+		MachineID:      commandOpts.V2.MachineID,
+		UserID:         commandOpts.V2.UserID,
+		ExtraLayers:    commandOpts.V2.Profiles,
+		Confirmed:      commandOpts.Yes,
+		NonInteractive: commandOpts.NonInteractive,
 	})
 	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), result.Report, commandOpts.JSONOutput); emitErr != nil {
 		return emitErr

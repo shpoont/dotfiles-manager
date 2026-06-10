@@ -361,12 +361,16 @@ func (e ExpectedIdentity) Matches(metadata Metadata) error {
 }
 
 func WriteDesired(desiredPath string, stagingRoot string, expected ExpectedIdentity) error {
-	cleanDesiredPath, err := cleanAbs(desiredPath)
+	return WriteArtifact(desiredPath, stagingRoot, expected)
+}
+
+func WriteArtifact(artifactPath string, stagingRoot string, expected ExpectedIdentity) error {
+	cleanDesiredPath, err := cleanAbs(artifactPath)
 	if err != nil {
 		return err
 	}
-	desiredPath = cleanDesiredPath
-	if read := ReadDesired(desiredPath, expected); read.Status != "missing" && read.Status != "present" {
+	artifactPath = cleanDesiredPath
+	if read := ReadDesired(artifactPath, expected); read.Status != "missing" && read.Status != "present" {
 		return fmt.Errorf(read.Diagnostic.Message)
 	}
 	metadata, err := readMetadata(filepath.Join(stagingRoot, MetadataFile))
@@ -379,12 +383,12 @@ func WriteDesired(desiredPath string, stagingRoot string, expected ExpectedIdent
 	if _, err := SummarizePayload(filepath.Join(stagingRoot, PayloadDir), Limits{MaxBytes: int64(recipe.MaxNativeExportBytes), MaxEntries: recipe.MaxNativeExportEntries}); err != nil {
 		return err
 	}
-	parent := filepath.Dir(desiredPath)
-	base := filepath.Base(desiredPath)
+	parent := filepath.Dir(artifactPath)
+	base := filepath.Base(artifactPath)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
 	}
-	if err := validateNoSymlinkParents(filepath.Dir(parent), desiredPath); err != nil {
+	if err := validateNoSymlinkParents(filepath.Dir(parent), artifactPath); err != nil {
 		return err
 	}
 	tmp, err := os.MkdirTemp(parent, "."+base+".tmp-*")
@@ -395,23 +399,58 @@ func WriteDesired(desiredPath string, stagingRoot string, expected ExpectedIdent
 	if err := copyTree(stagingRoot, tmp); err != nil {
 		return err
 	}
-	if err := validateNoSymlinkParents(parent, desiredPath); err != nil {
+	if err := validateNoSymlinkParents(parent, artifactPath); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(desiredPath); errors.Is(err, os.ErrNotExist) {
-		return os.Rename(tmp, desiredPath)
+	if _, err := os.Lstat(artifactPath); errors.Is(err, os.ErrNotExist) {
+		return os.Rename(tmp, artifactPath)
 	} else if err != nil {
 		return err
 	}
 	backup := filepath.Join(parent, "."+base+".old-"+fmt.Sprintf("%d", time.Now().UnixNano()))
-	if err := os.Rename(desiredPath, backup); err != nil {
+	if err := os.Rename(artifactPath, backup); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, desiredPath); err != nil {
-		_ = os.Rename(backup, desiredPath)
+	if err := os.Rename(tmp, artifactPath); err != nil {
+		_ = os.Rename(backup, artifactPath)
 		return err
 	}
 	return os.RemoveAll(backup)
+}
+
+func CopyPayload(srcPayload string, dstPayload string) error {
+	src, err := cleanAbs(srcPayload)
+	if err != nil {
+		return err
+	}
+	dst, err := cleanAbs(dstPayload)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return err
+	}
+	if err := validateNoSymlinkPath(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return err
+	}
+	return copyTree(src, dst)
+}
+
+func ValidatePayload(root string, expected PayloadSummary, limits Limits) (PayloadSummary, error) {
+	summary, err := SummarizePayload(root, limits)
+	if err != nil {
+		return PayloadSummary{}, err
+	}
+	if expected.Exists && expected.SHA256 != "" && summary.SHA256 != expected.SHA256 {
+		return PayloadSummary{}, fmt.Errorf("native export payload hash does not match metadata")
+	}
+	if expected.Exists && expected.Normalizer != "" && summary.Normalizer != expected.Normalizer {
+		return PayloadSummary{}, fmt.Errorf("native export payload normalizer does not match metadata")
+	}
+	return summary, nil
 }
 
 func Snapshot(metadata *Metadata) PayloadSummary {

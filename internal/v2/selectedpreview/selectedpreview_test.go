@@ -12,6 +12,7 @@ import (
 
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
+	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -316,6 +317,38 @@ func TestBuildNativeExportStatusAndApplyDoNotExecuteRunner(t *testing.T) {
 	require.Equal(t, 0, executor.calls)
 	require.Equal(t, v2status.StateUnsupported, applyReport.Items[0].State)
 	requireDiagnostic(t, applyReport.Items[0], "selectedpreview.nativeExport.applyUnsupported")
+}
+
+func TestBuildNativeApplyDryRunPlansWithoutExecutingRunner(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupNativeApplyFixture(t)
+	fixture.trustNativeRecipe()
+	fixture.writeNativeDesiredArtifact("desired-native-secret")
+	executor := &recordingNativeExecutor{body: "must-not-run"}
+
+	report, err := Build(Options{
+		Command:        CommandApply,
+		RepoRoot:       fixture.repoRoot,
+		StateRoot:      fixture.stateRoot,
+		Ref:            "native.app:settings",
+		UserID:         "leon",
+		MachineID:      "mbp",
+		DryRun:         true,
+		NativeExecutor: executor,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, executor.calls)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, v2status.StateReadyToApply, item.State)
+	require.Equal(t, PlannedActionWouldApply, item.PlannedAction)
+	require.NotNil(t, item.NativeExport)
+	require.True(t, item.NativeExport.ApplySupported)
+	require.Equal(t, "import-settings", item.NativeExport.ImportOperationID)
+	require.Equal(t, "pre-apply-export", item.NativeExport.BackupPolicy)
+	require.Equal(t, "post-import-export-hash", item.NativeExport.VerifyPolicy)
+	require.NotContains(t, mustJSON(t, report), "desired-native-secret")
 }
 
 func TestBuildNativeExportReviewGateBlocksBeforeRunner(t *testing.T) {
@@ -837,6 +870,17 @@ func setupNativeExportFixture(t *testing.T, reviewRequired bool) fixture {
 	return fixture{repoRoot: repoRoot, stateRoot: stateRoot, recipe: rec, t: t}
 }
 
+func setupNativeApplyFixture(t *testing.T) fixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeNativeExportRoot(t, repoRoot)
+	body := nativeApplyRecipeBody()
+	writeFile(t, filepath.Join(repoRoot, "recipes", "local", "native.app", "recipe.yaml"), body)
+	rec := decodeRecipe(t, body)
+	return fixture{repoRoot: repoRoot, stateRoot: stateRoot, recipe: rec, t: t}
+}
+
 func (f fixture) trustNativeRecipe() {
 	_, err := recipe.RecordLocalRecipeTrust(f.repoRoot, f.stateRoot, f.recipe)
 	require.NoError(f.t, err)
@@ -848,6 +892,29 @@ func (f fixture) trustNativeRecipe() {
 
 func (f fixture) desiredArtifactPath() string {
 	return filepath.Join(f.repoRoot, "desired", "user", "leon", "targets", "native.app", "artifacts", "settings")
+}
+
+func (f fixture) writeNativeDesiredArtifact(body string) {
+	f.t.Helper()
+	payloadRoot := filepath.Join(f.desiredArtifactPath(), nativeexport.PayloadDir)
+	require.NoError(f.t, os.MkdirAll(payloadRoot, 0o755))
+	require.NoError(f.t, os.WriteFile(filepath.Join(payloadRoot, "bundle.txt"), []byte(body), 0o644))
+	summary, err := nativeexport.SummarizePayload(payloadRoot, nativeexport.EffectiveLimits(f.recipe.NativeOperations["export-settings"]))
+	require.NoError(f.t, err)
+	require.NoError(f.t, nativeexport.WriteMetadata(f.desiredArtifactPath(), nativeexport.Metadata{
+		Schema:        nativeexport.MetadataSchema,
+		SchemaVersion: nativeexport.SchemaVersion,
+		TargetRef:     "native.app",
+		SettingRef:    "native.app:settings",
+		ResourceID:    "settings",
+		OperationID:   "export-settings",
+		Recipe:        nativeexport.RecipeMetadata{Source: recipe.RecipeSourceLocal, TrustStatus: string(recipe.TrustStatusTrusted)},
+		Operation:     nativeexport.OperationMetadata{ArtifactForm: "native-export", DiffMode: "metadata-only", Redaction: "metadata-only", OutputIDs: []string{"bundle"}},
+		Source:        nativeexport.SourceMetadata{Scope: "user", Subject: "leon", MachineID: "mbp", UserID: "leon"},
+		CapturedAt:    "2026-06-09T12:00:00Z",
+		Payload:       summary,
+		Native:        nativeexport.NativeRunMetadata{Status: nativeexport.StatusSucceeded},
+	}))
 }
 
 func writeNativeExportRoot(t *testing.T, root string) {
@@ -928,6 +995,104 @@ nativeOperations:
       accountExclusions: [sessions]
       limitations:
         - Internal app settings are not semantically compared` + review + `
+`
+}
+
+func nativeApplyRecipeBody() string {
+	return `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: native.app
+displayName: Native App
+supportLevel: experimental
+capability: read-write
+settings:
+  settings:
+    label: Settings bundle
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: native-export
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: settings
+resources:
+  settings:
+    driver: native-export
+    nativeOperation: export-settings
+    nativeImportOperation: import-settings
+    nativeApply:
+      backup: pre-apply-export
+      verify: post-import-export-hash
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+nativeOperations:
+  export-settings:
+    kind: export
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: export
+        - output: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    outputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
+    exportMetadata:
+      capturedCategories: [settings]
+      limitations:
+        - Internal app settings are not semantically compared
+  import-settings:
+    kind: import
+    reviewed: true
+    runner: command
+    platforms: [darwin, linux]
+    artifactForm: native-export
+    diffMode: metadata-only
+    lifecycle: allowed
+    workingDirectory: temp
+    timeoutSeconds: 5
+    expectedExitCodes: [0]
+    command:
+      executable: /usr/bin/native-safe-tool
+      args:
+        - literal: import
+        - input: bundle
+    stdin:
+      mode: none
+    stdout:
+      mode: discard
+    stderr:
+      mode: discard
+    inputs:
+      bundle:
+        root: artifact
+        path: bundle.txt
+    redaction: metadata-only
+    limits:
+      maxBytes: 1024
+      maxEntries: 10
 `
 }
 

@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/07-driver-interface.md
 source-concept-sections:
   - Driver
@@ -109,7 +109,13 @@ Initial MVP drivers are:
 - `yaml-file`;
 - `toml-file`;
 - `plist-file`;
-- `macos-defaults-readonly`.
+- `macos-defaults-readonly`;
+- `native-export` for reviewed native export artifacts and explicitly declared
+  native import/apply flows.
+
+For #110, import-capable `native-export` resources remain `read-write`; the
+`import-only` capability is reserved until a dedicated end-to-end capability
+pass covers explain, add, resolution, preview, live execution, and write safety.
 
 Write-capable `macos-defaults`, general `command-io`, `manual`, and
 `do-not-manage` are not ordinary MVP write drivers unless separately specified.
@@ -159,6 +165,28 @@ The MVP metadata policy is content-and-presence only:
   file's current permission bits while replacing bytes;
 - unsupported and rejected before mutation: symlinks, hard-link identity,
   device files, sockets, FIFOs, and other special entries.
+
+### Native-export driver apply contract
+
+`native-export` is metadata-only from the manager's perspective. It does not
+semantic-diff internal app settings. Export-only resources support `diff` and
+`save` through reviewed export capture and block `apply`. Import-capable
+resources support `apply` only when recipe validation has accepted an explicit
+import operation and closed native apply policy.
+
+A live native apply transaction must run in this order:
+
+1. validate the desired native artifact and payload hash;
+2. copy desired payload to a manager-owned temp input and validate the copy;
+3. run a pre-apply export and persist it as local backup;
+4. run the reviewed import operation using only the temp input root;
+5. run a post-import export;
+6. compare post-import payload hash and normalizer to desired;
+7. write success/last-applied metadata only after verification passes.
+
+If any step before import fails, import must not run. If import or verification
+fails after backup, the run record must retain the backup reference but must not
+write a successful ledger entry.
 
 ### Driver safety requirements
 

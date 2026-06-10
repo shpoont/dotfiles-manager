@@ -180,6 +180,7 @@ func TestNativeRunnerImportsStayConfinedToNativeExportFlow(t *testing.T) {
 	require.NoError(t, err)
 	importPath := "github.com/shpoont/dotfiles-manager/internal/v2/nativeops"
 	allowedProductionImporters := map[string]bool{
+		filepath.Join("internal", "v2", "nativeapply", "nativeapply.go"):         true,
 		filepath.Join("internal", "v2", "nativeexport", "nativeexport.go"):       true,
 		filepath.Join("internal", "v2", "selectedlive", "selectedlive.go"):       true,
 		filepath.Join("internal", "v2", "selectedpreview", "selectedpreview.go"): true,

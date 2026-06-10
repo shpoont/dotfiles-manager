@@ -339,7 +339,7 @@ What operations a target or setting supports.
 | `inspect-only` | Detect/explain only. |
 | `read-only` | Read/status/diff, no write. |
 | `read-write` | Save and apply through deterministic drivers. |
-| `import-only` | Apply through native import, cannot safely save. |
+| `import-only` | Reserved future capability for apply-only management; not accepted by the #110 native-apply MVP. |
 | `export-only` | Save through native export, cannot safely apply. |
 | `never` | Explicit do-not-manage boundary. |
 
