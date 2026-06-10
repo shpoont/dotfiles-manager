@@ -68,6 +68,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
 	rootCmd.AddCommand(newAddCmd(opts))
+	rootCmd.AddCommand(newBackupCmd(opts))
+	rootCmd.AddCommand(newRestoreCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))
 	rootCmd.AddCommand(newRecipeCmd(opts))
 

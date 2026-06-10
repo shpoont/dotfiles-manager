@@ -393,6 +393,8 @@ func driverVersion(driver string) string {
 	switch driver {
 	case recipe.FileTreeDriverID:
 		return FileTreeDriverVersion
+	case recipe.IniFileDriverID, recipe.JSONFileDriverID, recipe.YAMLFileDriverID, recipe.TOMLFileDriverID, recipe.PlistFileDriverID, recipe.MacOSDefaultsReadOnlyDriverID:
+		return selectedValueDriverVersion(driver)
 	default:
 		return FileDriverVersion
 	}
