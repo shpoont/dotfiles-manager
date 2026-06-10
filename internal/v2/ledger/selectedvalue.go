@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/inidriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/jsondriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
@@ -50,17 +51,14 @@ func (s *Store) WriteSelectedValueBackup(runID string, createdAt time.Time, req 
 	key := selectedValueItemKey(req.SettingRef, req.ResourceID)
 	ref := stateURI("backups", runID, key)
 	payloadRel := ""
-	if req.Before.Exists {
+	before := fileStateFromSelectedValueBackup(req.BeforeFile)
+	if before.Exists {
 		payloadRel = filepath.ToSlash(filepath.Join("payloads", key, "before"))
 		if err := writeFileAtomic(filepath.Join(s.root, "backups", runID, payloadRel), append([]byte(nil), req.BeforeFile...), 0o600); err != nil {
 			return BackupItem{}, fmt.Errorf("write selected-value backup payload: %w", err)
 		}
 	}
-	before := req.Before
 	before.DriverVersion = driverVersion
-	if before.Normalizer == "" {
-		before.Normalizer = selectedValueNormalizer(req.Driver)
-	}
 	item := NormalizeBackupItem(BackupItem{
 		Ref:            ref,
 		TargetRef:      req.TargetRef,
@@ -76,7 +74,7 @@ func (s *Store) WriteSelectedValueBackup(runID string, createdAt time.Time, req 
 			Compatible:    true,
 			Driver:        req.Driver,
 			DriverVersion: driverVersion,
-			Normalizer:    selectedValueNormalizer(req.Driver),
+			Normalizer:    filedriver.NormalizerID,
 			Message:       "Restore payload compatibility is recorded for the whole pre-mutation file; selected-value restore execution is handled by the restore flow.",
 		},
 	})
@@ -84,6 +82,14 @@ func (s *Store) WriteSelectedValueBackup(runID string, createdAt time.Time, req 
 		return BackupItem{}, err
 	}
 	return item, nil
+}
+
+func fileStateFromSelectedValueBackup(beforeFile []byte) NormalizedState {
+	if beforeFile == nil {
+		return NormalizedState{Exists: false, Normalizer: filedriver.NormalizerID}
+	}
+	state := filedriver.Driver{}.Normalize(beforeFile)
+	return NormalizedState{Exists: true, Hash: state.SHA256, Normalizer: state.Normalizer, Size: len(state.Bytes)}
 }
 
 func SelectedValueDriverVersion(driver string) string {
