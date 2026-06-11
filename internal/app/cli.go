@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/dfmerr"
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
+	v2appauthor "github.com/shpoont/dotfiles-manager/internal/v2/appauthor"
 	v2guidedsync "github.com/shpoont/dotfiles-manager/internal/v2/guidedsync"
 	v2initcmd "github.com/shpoont/dotfiles-manager/internal/v2/initcmd"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
@@ -73,6 +74,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newSyncCmd(opts))
 	rootCmd.AddCommand(newInitCmd(opts))
 	rootCmd.AddCommand(newAddCmd(opts))
+	rootCmd.AddCommand(newAppCmd(opts))
 	rootCmd.AddCommand(newListCmd(opts))
 	rootCmd.AddCommand(newBackupCmd(opts))
 	rootCmd.AddCommand(newRestoreCmd(opts))
@@ -371,6 +373,80 @@ func newAddCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Plan profile selection changes without writing")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Accept safe recipe defaults without prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail with missing-choice diagnostics when input is required")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newAppCmd(opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "app",
+		Short: "Author and validate custom local v2 app recipes",
+	}
+	cmd.AddCommand(newAppCreateCmd(opts))
+	cmd.AddCommand(newAppValidateCmd(opts))
+	return cmd
+}
+
+func newAppCreateCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+	var template string
+	var fromPath string
+	var displayName string
+	var settingID string
+	var settingLabel string
+	var driver string
+	var selector string
+	var scopeDefault string
+	var lifecycle string
+
+	cmd := &cobra.Command{
+		Use:   "create <target-id>",
+		Short: "Create a custom local v2 app recipe scaffold",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppCreateCommand(cmd, opts, v2appauthor.CreateOptions{
+				TargetID:     args[0],
+				Template:     template,
+				FromPath:     fromPath,
+				DisplayName:  displayName,
+				SettingID:    settingID,
+				SettingLabel: settingLabel,
+				Driver:       driver,
+				Selector:     selector,
+				ScopeDefault: scopeDefault,
+				Lifecycle:    lifecycle,
+				DryRun:       dryRun,
+			}, jsonOutput)
+		},
+	}
+
+	cmd.Flags().StringVar(&template, "template", "", "Recipe template: file|selected-value|native-export")
+	cmd.Flags().StringVar(&fromPath, "from-path", "", "Home-relative config path, for example ~/.config/app/config.yaml")
+	cmd.Flags().StringVar(&displayName, "display-name", "", "Human-readable app display name")
+	cmd.Flags().StringVar(&settingID, "setting", "", "Setting id to scaffold")
+	cmd.Flags().StringVar(&settingLabel, "setting-label", "", "Human-readable setting label")
+	cmd.Flags().StringVar(&driver, "driver", "", "Resource driver for selected-value templates")
+	cmd.Flags().StringVar(&selector, "selector", "", "Dot-separated selected-value selector")
+	cmd.Flags().StringVar(&scopeDefault, "scope-default", "", "Default scope: shared|user|machine|machine-user")
+	cmd.Flags().StringVar(&lifecycle, "lifecycle", "", "Lifecycle policy for writes")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Plan local recipe files without writing")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newAppValidateCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "validate <target-id>",
+		Short: "Validate a custom local v2 app recipe",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppValidateCommand(cmd, opts, v2appauthor.ValidateOptions{TargetID: args[0]}, jsonOutput)
+		},
+	}
+
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
@@ -1114,6 +1190,48 @@ func emitSelectedPreviewError(cmd *cobra.Command, commandOpts commandOptions, co
 	return &v2selectedpreview.Error{Code: code, Message: message, Exit: 2, Details: details}
 }
 
+func runAppCreateCommand(cmd *cobra.Command, opts *rootOptions, createOpts v2appauthor.CreateOptions, jsonOutput bool) error {
+	repoRoot, err := selectedPreviewRepoRootFor(opts, "app create")
+	if err != nil {
+		report := v2appCreateErrorReport(createOpts.DryRun, v2appauthor.CodeRepoInvalid, err.Error())
+		_ = emitAppCreateReport(cmd.OutOrStdout(), report, jsonOutput)
+		if !jsonOutput {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		}
+		return &v2appauthor.Error{Code: v2appauthor.CodeRepoInvalid, Message: err.Error(), Exit: 2}
+	}
+	createOpts.RepoRoot = repoRoot
+	report, runErr := v2appauthor.RunCreate(createOpts)
+	if emitErr := emitAppCreateReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	if runErr != nil && !jsonOutput {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), runErr.Error())
+	}
+	return runErr
+}
+
+func runAppValidateCommand(cmd *cobra.Command, opts *rootOptions, validateOpts v2appauthor.ValidateOptions, jsonOutput bool) error {
+	repoRoot, err := selectedPreviewRepoRootFor(opts, "app validate")
+	if err != nil {
+		report := v2appValidateErrorReport(v2appauthor.CodeRepoInvalid, err.Error())
+		_ = emitAppValidateReport(cmd.OutOrStdout(), report, jsonOutput)
+		if !jsonOutput {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		}
+		return &v2appauthor.Error{Code: v2appauthor.CodeRepoInvalid, Message: err.Error(), Exit: 2}
+	}
+	validateOpts.RepoRoot = repoRoot
+	report, runErr := v2appauthor.RunValidate(validateOpts)
+	if emitErr := emitAppValidateReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	if runErr != nil && !jsonOutput {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), runErr.Error())
+	}
+	return runErr
+}
+
 func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
 	repoRoot, err := recipeExplainRepoRoot(opts)
 	if err != nil {
@@ -1215,6 +1333,61 @@ func recipeExplainRepoRoot(opts *rootOptions) (string, error) {
 		return filepath.Dir(abs), nil
 	}
 	return os.Getwd()
+}
+
+func emitAppCreateReport(stdout io.Writer, report *v2appauthor.CreateReport, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2appauthor.JSONCreate(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2appauthor.TextCreate(report))
+	return err
+}
+
+func emitAppValidateReport(stdout io.Writer, report *v2appauthor.ValidateReport, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2appauthor.JSONValidate(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2appauthor.TextValidate(report))
+	return err
+}
+
+func v2appCreateErrorReport(dryRun bool, code string, message string) *v2appauthor.CreateReport {
+	report := &v2appauthor.CreateReport{
+		Schema:        v2appauthor.CreateSchema,
+		SchemaVersion: 1,
+		Command:       v2appauthor.CreateCommand,
+		RunID:         v2appauthor.CreateRunID,
+		DryRun:        dryRun,
+		Summary:       v2appauthor.CreateSummary{Status: "blocked", Blocked: 1, Failed: 1},
+		AppCreate:     v2appauthor.CreateResult{Files: []v2appauthor.FileAction{}, NextActions: []string{}},
+		Diagnostics:   []v2appauthor.Diagnostic{{Code: code, Severity: "error", Message: message}},
+		Error:         &v2appauthor.ErrorObject{Code: code, Message: message},
+	}
+	return report
+}
+
+func v2appValidateErrorReport(code string, message string) *v2appauthor.ValidateReport {
+	report := &v2appauthor.ValidateReport{
+		Schema:        v2appauthor.ValidateSchema,
+		SchemaVersion: 1,
+		Command:       v2appauthor.ValidateCommand,
+		RunID:         v2appauthor.ValidateRunID,
+		Summary:       v2appauthor.ValidateSummary{Status: "blocked", Blocked: 1, Failed: 1},
+		AppValidate:   v2appauthor.ValidateResult{Fixtures: []v2appauthor.FixtureCheck{}, Trust: v2appauthor.TrustInfo{LocalTrustState: "not-checked"}},
+		Diagnostics:   []v2appauthor.Diagnostic{{Code: code, Severity: "error", Message: message}},
+		Error:         &v2appauthor.ErrorObject{Code: code, Message: message},
+	}
+	return report
 }
 
 func emitRecipeExplainReport(stdout io.Writer, report *v2recipe.ExplainReport, jsonOutput bool) error {
