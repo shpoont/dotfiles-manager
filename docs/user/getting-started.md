@@ -1,114 +1,223 @@
-# Getting started
+# Getting started with v2
 
-## 1) Install the CLI
+Start with the safe temporary-home workflow. It exercises the real v2 command
+surface without touching your real `~/.gitconfig`.
 
-```bash
-brew install shpoont/tap/dotfiles-manager
-```
+If you have not installed the CLI yet, see
+[`install-and-release.md`](./install-and-release.md).
 
-Or install with Go:
+## 1) Verify the binary
 
-```bash
-go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
-```
-
-## 1.1) Check installed version
+Use `dotfiles-manager` if it is installed on `PATH`, or set `DFM` to a local
+source build.
 
 ```bash
-dotfiles-manager --version
-# or
-dotfiles-manager version
+DFM=${DFM:-dotfiles-manager}
+"$DFM" version
+"$DFM" init --help
+"$DFM" save --help
+"$DFM" apply --help
 ```
 
-Release builds show semantic version.
-Local non-release builds show `dev`.
+## 2) Safe quickstart using a temporary HOME
 
-## 2) Prepare your repo
-
-Create or choose a repo where your managed dotfiles live.
-
-## 3) Create config file
-
-Use YAML (default filename: `.dotfiles-manager.yaml` in your current working directory).
-
-```yaml
-syncs:
-  - target: .config/nvim
-    source: .config/nvim
-  - target: ./
-    source: "./$HOSTNAME/$USER"
-```
-
-Path rules:
-- `target` is relative to `$HOME` after env expansion
-- `source` is relative to the directory containing the config file after env expansion
-- config paths must be relative after env expansion (no absolute paths)
-- config paths must not escape base directories via `..` after normalization
-- env vars are supported in `target`/`source`: `$VAR` and `${VAR}`
-- expansion happens before path validation
-- missing or empty env values are errors
-- expanded path must still be relative and non-escaping
-
-Optional editor schema:
-- `docs/internal/contracts/config-schema.json`
-
-## 4) Run status first
+This workflow creates a temporary repository and a temporary home directory. The
+only live file it mutates is the temporary `$DFM_HOME/.gitconfig`.
 
 ```bash
-dotfiles-manager status
+DFM=${DFM:-dotfiles-manager}
+DFM_DEMO_ROOT=$(mktemp -d)
+DFM_HOME="$DFM_DEMO_ROOT/home"
+DFM_REPO="$DFM_DEMO_ROOT/repo"
+mkdir -p "$DFM_HOME" "$DFM_REPO"
+
+HOME="$DFM_HOME" git config --global user.email first@example.test
+HOME="$DFM_HOME" git config --global user.name "First User"
+
+cd "$DFM_REPO"
+HOME="$DFM_HOME" "$DFM" init --machine-id docs-machine --user-id docs-user
 ```
 
-This previews what `deploy` and `import` would do.
+`init` creates the v2 repository scaffold:
 
-## 4.1) Inspect unified patch preview (optional)
+```text
+dotfiles-manager.v2.yaml
+profiles/stacks/default.yaml
+profiles/layers/global.yaml
+```
+
+It also writes local identity state under the platform-specific v2 local state
+root described in [`configuration.md`](./configuration.md); it does not store
+identity under the repository by default.
+
+### Inspect available Git support
 
 ```bash
-dotfiles-manager diff ~/.config/nvim
-dotfiles-manager diff --json --direction deploy ~/.config/nvim
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml recipe discover git
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml recipe explain git
 ```
 
-`diff` is preview-only and does not write files.
+`recipe explain git` should show `git:user.email` and `git:user.name`, and it
+should state that credential sections, signing keys, includes, aliases, and
+repository-local `.git/config` are not managed.
 
-## 5) Dry-run deploy/import
+### Select one setting
 
 ```bash
-dotfiles-manager deploy --dry-run ~/.config/nvim
-dotfiles-manager import --dry-run ~/.config/nvim
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  add git --setting user.email --scope user --profile global --yes
+
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  list --user-id docs-user
 ```
 
-`--dry-run` is available on `deploy` and `import` only.
+The selected setting is `git:user.email`. With `--scope user`, desired state is
+resolved for the logical user id `docs-user`, not for one machine only.
 
-## 6) Apply changes
+### Preview and save desired state
+
+`save` copies the selected live value into desired state. Preview first:
 
 ```bash
-dotfiles-manager deploy ~/.config/nvim
-dotfiles-manager import ~/.config/nvim
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  status --user-id docs-user git:user.email
+
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  save --dry-run --user-id docs-user git:user.email
 ```
 
-## 7) Optional overrides for config path
-
-Precedence is:
-1. `--config <path>`
-2. `DOTFILES_MANAGER_CONFIG`
-3. `./.dotfiles-manager.yaml` (current directory fallback)
+If the dry run reports `action=would-promote`, confirm the save:
 
 ```bash
-export DOTFILES_MANAGER_CONFIG=./.dotfiles-manager.yaml
-dotfiles-manager status
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  save --yes --user-id docs-user git:user.email
 ```
 
-You can also override with CLI:
+The desired value is now stored in the repository at:
+
+```text
+desired/user/docs-user/targets/git/settings.yaml
+```
+
+That file contains the actual email value because the manager needs an actual
+desired value to apply later. Normal command output keeps the raw value redacted.
+
+### Preview and apply desired state
+
+Change the temporary live Git config to create drift, then preview and apply the
+saved desired value back to the temporary live file:
 
 ```bash
-dotfiles-manager --config ./custom-config.yaml status
+HOME="$DFM_HOME" git config --global user.email changed@example.test
+
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  diff --user-id docs-user git:user.email
+
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  apply --dry-run --user-id docs-user git:user.email
+
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  apply --yes --user-id docs-user git:user.email
 ```
 
-## Notes
+When `apply --yes` writes live state, it records local backup and ledger
+evidence under the v2 local state root. Normal output prints a `run=` id and one
+or more `state://backups/...` references without printing the raw email value.
 
-- Source is treated as the manifest/source of truth.
-- Commands fail fast on runtime errors.
-- Add `--json` when you need machine-readable output.
-- Logs are written to:
-  - macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
-  - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
-- Use `--log-file <path>` to override the log file destination.
+### Inspect backups and preview recovery
+
+List backups:
+
+```bash
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml backup list
+```
+
+Copy the first-column run id that looks like
+`selected-value-YYYYMMDDTHHMMSS.NNNNNNNNNZ`, then inspect it:
+
+```bash
+RUN_ID=selected-value-YYYYMMDDTHHMMSS.NNNNNNNNNZ
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml backup show "$RUN_ID"
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  restore "$RUN_ID" --dry-run --user-id docs-user
+```
+
+Only after the dry run shows the expected live path and change, confirm restore:
+
+```bash
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  restore "$RUN_ID" --yes --user-id docs-user
+```
+
+For a selected value backed by a file, restore rolls back the whole backing file
+from the backup payload. It is not a semantic single-value rollback.
+
+Clean up the demo when finished:
+
+```bash
+rm -rf "$DFM_DEMO_ROOT"
+```
+
+## 3) Use your real Git config
+
+Only do this after the temporary-home workflow is clear. These commands can
+read from and write to your real `~/.gitconfig`.
+
+```bash
+mkdir -p ~/dotfiles-manager-v2
+cd ~/dotfiles-manager-v2
+
+dotfiles-manager init --machine-id <your-machine-id> --user-id <your-user-id>
+dotfiles-manager --config dotfiles-manager.v2.yaml recipe explain git
+
+dotfiles-manager --config dotfiles-manager.v2.yaml \
+  add git --setting user.email --scope user --profile global --dry-run
+
+dotfiles-manager --config dotfiles-manager.v2.yaml \
+  add git --setting user.email --scope user --profile global --yes
+
+dotfiles-manager --config dotfiles-manager.v2.yaml \
+  save --dry-run --user-id <your-user-id> git:user.email
+```
+
+If the `save --dry-run` output is what you expect, confirm:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml \
+  save --yes --user-id <your-user-id> git:user.email
+```
+
+Before applying to real `~/.gitconfig`, preview first:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml \
+  apply --dry-run --user-id <your-user-id> git:user.email
+```
+
+Only confirm `apply --yes` when the desired path, live path, and selected ref
+are exactly what you intend:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml \
+  apply --yes --user-id <your-user-id> git:user.email
+```
+
+If an apply changes the wrong live value, use `backup list`, `backup show`, and
+`restore <run-id> --dry-run` before confirming `restore <run-id> --yes`.
+
+## 4) Next targets
+
+After Git, inspect other bundled targets with:
+
+```bash
+dotfiles-manager recipe list
+dotfiles-manager recipe explain starship
+dotfiles-manager recipe explain zsh
+dotfiles-manager recipe explain tmux
+dotfiles-manager recipe explain ssh
+dotfiles-manager recipe explain nvim
+```
+
+Read each recipe's exclusions before adding it. Do not select files that contain
+secrets, private keys, tokens, generated caches, or app/account exports unless a
+reviewed recipe explicitly says that item is supported.

@@ -4,178 +4,99 @@
 
 # dotfiles-manager
 
-`dotfiles-manager` is **the best** config-driven tool for syncing dotfiles between a repository-managed **source** (manifest, source of truth) and one or more `$HOME`-relative **targets**.
+`dotfiles-manager` is a local settings manager. The v2 workflow lets you select
+supported application settings, save desired state into a repository, apply that
+desired state on another machine/profile, and recover from local backups.
 
-<p align="center"><em>If its not working for you - you are doing something wrong.</em></p>
-
----
-
-## Introduction
-
-This repository contains the CLI implementation plus internal/user docs for behavior, contracts, and engineering standards.
-
-Core workflows:
-- `status` — preview drift and candidate operations
-- `diff` — preview unified patches for candidate changes
-- `deploy` — apply source -> target
-- `import` — apply target -> source (managed updates + optional unmanaged/missing rules)
-- `version` / `--version` — print CLI version and exit
+The legacy v1 file-sync workflow (`.dotfiles-manager.yaml` with `status`,
+`diff`, `deploy`, and `import`) remains available for existing configs.
 
 ---
 
-## Installation
+## Current v2 workflow
 
-### Install with Homebrew (recommended)
-
-```bash
-brew install shpoont/tap/dotfiles-manager
+```text
+install -> init -> recipe discover/explain -> add -> status -> save --dry-run ->
+save --yes -> diff/status -> apply --dry-run -> apply --yes -> backup/restore
 ```
 
-### Install with Go
+Start with the safe temporary-home quickstart before touching real dotfiles:
+
+- [`docs/user/install-and-release.md`](./docs/user/install-and-release.md)
+- [`docs/user/getting-started.md`](./docs/user/getting-started.md)
+
+## Current supported surface
+
+Bundled v2 support is experimental and intentionally narrow:
+
+- Git selected non-credential identity values (`git:user.email`,
+  `git:user.name`);
+- Starship selected root TOML values;
+- Zsh, tmux, and SSH selected whole-file resources;
+- Neovim config-tree resource;
+- local recipe authoring and synthetic roundtrip fixtures for advanced users;
+- legacy v1 file-sync compatibility.
+
+Do not manage secrets, credentials, private keys, tokens, account exports,
+generated caches, or runtime state unless a reviewed recipe explicitly says that
+item is supported.
+
+## Install
+
+For the current checkout:
 
 ```bash
-go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
-```
-
-### Build locally from source
-
-```bash
-git clone <repo-url>
+git clone https://github.com/shpoont/dotfiles-manager.git
 cd dotfiles-manager
-go build -o dotfiles-manager ./cmd/dotfiles-manager
+go test ./...
+go build -o ./bin/dotfiles-manager ./cmd/dotfiles-manager
+./bin/dotfiles-manager version
+./bin/dotfiles-manager init --help
 ```
 
-### Release artifacts
-
-GitHub Releases publish:
-- macOS amd64/arm64
-- Linux amd64/arm64
-- checksums
-
----
-
-## Main concepts
-
-1. **Source vs target**
-   - `source` = manifest, source of truth (relative to config file directory)
-   - `target` = live location under `$HOME` (relative path in config)
-   - both may include environment variables (`$VAR` / `${VAR}`) that are expanded at runtime
-   - expansion happens before normalization/validation
-   - missing/empty env vars are errors; expanded paths must still be relative and non-escaping
-
-2. **Sync entries**
-   - config has `syncs[]`, each with one `target` + one `source`
-
-3. **Pattern-driven behavior**
-   - deploy cleanup: `on.deploy.remove-unmanaged`
-   - import unmanaged adds: `on.import.add-unmanaged.include/exclude`
-   - import missing deletes: `on.import.remove-missing.include/exclude`
-   - defaults are safe (`[]`): unmanaged/missing candidate scans stay off unless explicitly configured
-
-4. **Scoped runs**
-   - optional `[path]` narrows commands to matching target subpaths
-   - matching uses post-expansion target roots
-
-5. **Preview and safety**
-   - `status` is preview
-   - `diff` is preview
-   - `deploy`/`import` support `--dry-run`
-
-6. **Config resolution order**
-   - `--config <path>` (highest priority)
-   - `DOTFILES_MANAGER_CONFIG` (if `--config` is not provided)
-   - `./.dotfiles-manager.yaml` in the current working directory (fallback)
-   - no parent-directory search is performed
-
-7. **Logging destination**
-   - logs are always written to a log file
-   - default paths:
-     - macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
-     - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
-   - `--log-file <path>` overrides the destination path
-   - logs are always human-readable text (no log format option)
-
-8. **Logging level**
-   - default log level is `info`
-   - set `--log-level <debug|info|warn|error>` for verbosity control
-
-9. **stderr behavior**
-   - warnings and errors are emitted as human-readable diagnostics on stderr
-   - command output remains on stdout
-
----
-
-## Quick start
-
-1) Create config file in your project root:
-
-```yaml
-# .dotfiles-manager.yaml
-syncs:
-  - target: .config/nvim
-    source: .config/nvim
-  - target: ./
-    source: ./global
-  - target: ./
-    source: "./$HOSTNAME/$USER"
-    on:
-      deploy:
-        remove-unmanaged:
-          - '**/*.bak'
-      import:
-        add-unmanaged:
-          include:
-            - '**'
-          exclude:
-            - '**/*.tmp'
-        remove-missing:
-          include:
-            - 'lua/**'
-```
-
-2) Run commands (using default config discovery in current directory):
+Published releases and the Homebrew tap exist, but a published binary can lag
+these docs. After any install, verify v2 command help:
 
 ```bash
-dotfiles-manager --version
-dotfiles-manager status
-dotfiles-manager diff ~/.config/nvim
-dotfiles-manager deploy --dry-run ~/.config/nvim
-dotfiles-manager deploy ~/.config/nvim
-dotfiles-manager import --dry-run ~/.config/nvim
-dotfiles-manager import ~/.config/nvim
+dotfiles-manager version
+dotfiles-manager init --help
+dotfiles-manager add --help
+dotfiles-manager save --help
+dotfiles-manager apply --help
 ```
 
-`--version`/`version` prints `dotfiles-manager version <value>` and exits (`dev` on local non-release builds).
+If those v2 commands are missing, build from the current source checkout or use
+a newer release.
 
-3) Optional explicit override:
+## Safe v2 Git email example
+
+Use a temporary home first:
 
 ```bash
-dotfiles-manager --config ./custom-config.yaml status
+DFM=${DFM:-dotfiles-manager}
+DFM_DEMO_ROOT=$(mktemp -d)
+DFM_HOME="$DFM_DEMO_ROOT/home"
+DFM_REPO="$DFM_DEMO_ROOT/repo"
+mkdir -p "$DFM_HOME" "$DFM_REPO"
+
+HOME="$DFM_HOME" git config --global user.email first@example.test
+cd "$DFM_REPO"
+HOME="$DFM_HOME" "$DFM" init --machine-id docs-machine --user-id docs-user
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  add git --setting user.email --scope user --profile global --yes
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
+  save --dry-run --user-id docs-user git:user.email
 ```
 
----
-
-## Example workflow
-
-Use path-scoped deploy for only `nvim/lua`:
-
-```bash
-dotfiles-manager deploy --dry-run ~/.config/nvim/lua
-dotfiles-manager deploy ~/.config/nvim/lua
-```
-
-Use JSON for automation:
-
-```bash
-dotfiles-manager status --json ~/.config/nvim
-dotfiles-manager diff --json --direction deploy ~/.config/nvim
-```
-
----
+Continue with the full workflow in
+[`docs/user/getting-started.md`](./docs/user/getting-started.md).
 
 ## Documentation map
 
-- `docs/README.md` — full docs map (audience + scope levels)
-- `docs/internal/README.md` — canonical internal specs/contracts/engineering docs
-- `docs/user/README.md` — user-facing usage docs
-- `docs/internal/contracts/config-schema.json` — JSON Schema for `.dotfiles-manager.yaml`
+- [`docs/README.md`](./docs/README.md) — full docs map.
+- [`docs/user/README.md`](./docs/user/README.md) — user-facing v2 docs.
+- [`docs/user/configuration.md`](./docs/user/configuration.md) — profiles,
+  scopes, desired artifacts, and local state.
+- [`docs/user/commands.md`](./docs/user/commands.md) — command reference.
+- [`docs/internal/README.md`](./docs/internal/README.md) — canonical internal
+  specs/contracts/engineering docs.

@@ -1,99 +1,237 @@
-# Configuration guide
+# v2 configuration and data layout
 
-`dotfiles-manager` is config-driven. All behavior is defined in YAML.
+v2 uses a small control plane in the repository, desired-state artifacts in the
+repository, and local state outside the repository.
 
 ## Config loading
 
-Config is resolved in strict order:
-1. `--config <path>` (highest priority)
-2. `DOTFILES_MANAGER_CONFIG=<path>`
-3. `./.dotfiles-manager.yaml` in the current working directory (fallback)
+For v2 workflows, use the v2 root config:
 
-No parent-directory config search is performed.
-The default config filename is `.dotfiles-manager.yaml`.
+```text
+dotfiles-manager.v2.yaml
+```
 
-## Basic schema
+Most v2 examples pass it explicitly:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml list
+```
+
+Some preview commands can find a v2 root when the current directory is inside a
+repository containing `dotfiles-manager.v2.yaml`. Mutating commands should be
+run from the intended repository and should use explicit `--config` in scripts.
+
+Legacy v1 file sync still uses `.dotfiles-manager.yaml`; see the legacy section
+at the end of this file.
+
+## Repository control plane
+
+`dotfiles-manager init` creates this minimal repository scaffold:
+
+```text
+dotfiles-manager.v2.yaml
+profiles/
+  stacks/
+    default.yaml
+  layers/
+    global.yaml
+```
+
+Example root config:
+
+```yaml
+schema: dotfiles-manager.v2.root-config
+schemaVersion: 1
+activeProfileStack: default
+```
+
+Example profile stack:
+
+```yaml
+schema: dotfiles-manager.v2.profile-stack
+schemaVersion: 1
+profileStack:
+  - global
+```
+
+Example profile layer selecting one Git value:
+
+```yaml
+schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  git:
+    settings:
+      user.email:
+        scope: user
+```
+
+A stack is an ordered list of layers. Later layers override earlier selections
+for the same `target:setting`. Commands can add extra layers with repeated
+`--profile <layer>` flags, so one machine can use multiple profile layers such
+as global + work + machine-local overrides.
+
+## Scopes
+
+Scopes choose the desired-state subject. They do not decide the live file path;
+the recipe resource and named location decide live paths.
+
+| Scope | Desired subject | Meaning |
+| --- | --- | --- |
+| `shared` | `desired/shared/-/...` | Same desired value for everyone and every machine. |
+| `user` | `desired/user/<user-id>/...` | Same desired value for one logical user across machines. |
+| `machine` | `desired/machine/<machine-id>/...` | Same desired value for everyone on one machine. |
+| `machine-user` | `desired/machine-user/<machine-id>/<user-id>/...` | Value specific to one logical user on one machine. |
+
+Examples:
+
+```text
+desired://shared/-/targets/git/settings#shared.aliases
+desired://user/leon/targets/git/settings#user.email
+desired://machine/mbp-2026/targets/git/settings#host.name
+desired://machine-user/mbp-2026/leon/targets/git/settings#local.theme
+```
+
+## Desired data plane
+
+Desired state is stored under `desired/` in the repository.
+
+Selected scalar settings use `settings.yaml`:
+
+```text
+desired/user/docs-user/targets/git/settings.yaml
+```
+
+Example shape:
+
+```yaml
+schema: dotfiles-manager.v2.desired-settings
+schemaVersion: 1
+values:
+  user.email:
+    intent: set
+    kind: string
+    value: first@example.test
+```
+
+Whole-file resources use `artifacts/`:
+
+```text
+desired/user/docs-user/targets/tmux/artifacts/home.conf
+desired/user/docs-user/targets/ssh/artifacts/config
+```
+
+File-tree resources use an artifact directory:
+
+```text
+desired/user/docs-user/targets/nvim/artifacts/config/
+```
+
+Desired artifacts may contain the actual managed bytes. Do not commit secrets,
+credentials, private keys, tokens, account exports, generated caches, or runtime
+state unless a reviewed recipe explicitly supports that data.
+
+## Named locations and live paths
+
+Recipes define named locations such as:
+
+- `home` — paths under `$HOME`, for example `home:.gitconfig`;
+- `config` — XDG-style config paths, for example `config:starship.toml` or
+  `config:nvim`;
+- `recipe-defined` — used by low-level custom resources.
+
+A resource combines a named location, a path, a driver, and sometimes a
+selector. Example from the Git recipe:
+
+```text
+resource=user-email driver=ini-file location=home:.gitconfig selector=[user] email
+```
+
+Named locations are intentionally explicit because some programs support
+non-default config locations. Current bundled recipes document when non-default
+locations are not supported, for example `STARSHIP_CONFIG`, `ZDOTDIR`, or
+`NVIM_APPNAME` exclusions.
+
+## Internal URI style
+
+User-facing output may show internal URI schemes:
+
+- `desired://...` points to desired repository artifacts;
+- `state://...` points to local state artifacts such as backups or ledger runs;
+- `recipe://...` identifies bundled or local recipe metadata.
+
+These URIs are stable references in reports, not filesystem paths by themselves.
+Use the matching command (`backup show`, `recipe explain`, `list --json`, etc.)
+when you need details.
+
+## Local state
+
+v2 local state is outside the repository by default and is keyed by a stable hash
+of the real repository path.
+
+Default local state roots:
+
+```text
+macOS: ~/Library/Application Support/dotfiles-manager/v2/<repo-state-id>/
+Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<repo-state-id>/
+```
+
+Current state subtrees include:
+
+```text
+identity/machine.yaml
+identity/users/<local-account-key>.yaml
+backups/<run-id>/backup.yaml
+backups/<run-id>/payloads/...
+ledger/ledger.jsonl
+ledger/runs/<run-id>.json
+```
+
+Normal backup and ledger metadata is redacted/metadata-oriented. Backup payloads
+may contain the actual pre-apply managed bytes so restore can put them back.
+Treat the local state root as sensitive.
+
+## Custom local recipes
+
+Advanced users can draft local recipes under:
+
+```text
+recipes/local/<target-id>/
+```
+
+Synthetic fixtures for local recipe roundtrip tests live under:
+
+```text
+recipes/local/<target-id>/fixtures/roundtrip/<fixture-name>/
+```
+
+`app create` writes recipe metadata and docs. `app validate` validates recipe
+metadata. `app test --roundtrip` uses synthetic fixtures and temporary roots; it
+does not touch real app config.
+
+Native export/import and arbitrary scripts are not promoted for general public
+use in this tranche. A native or command-backed recipe needs explicit reviewed
+metadata and safety behavior before docs should present it as supported.
+
+## Legacy v1 configuration
+
+Existing file-sync workflows use `.dotfiles-manager.yaml` with `syncs[]`:
 
 ```yaml
 syncs:
   - target: .config/nvim
     source: .config/nvim
-  - target: ./
-    source: "./$HOSTNAME/$USER"
-    on:
-      deploy:
-        remove-unmanaged:
-          - '**/*.bak'
-      import:
-        add-unmanaged:
-          include:
-            - '**'
-          exclude:
-            - '**/*.tmp'
-        remove-missing:
-          include:
-            - 'lua/**'
-          exclude:
-            - 'lua/local/**'
 ```
 
-## JSON Schema reference
+v1 commands are still available for that config:
 
-Schema file:
-- `docs/internal/contracts/config-schema.json`
-
-You can use it for editor validation/autocomplete (for example with YAML language server):
-
-```yaml
-# yaml-language-server: $schema=./docs/internal/contracts/config-schema.json
-syncs:
-  - target: .config/nvim
-    source: .config/nvim
+```bash
+dotfiles-manager status
+dotfiles-manager diff
+dotfiles-manager deploy --dry-run
+dotfiles-manager import --dry-run
 ```
 
-Runtime validation is still authoritative.
-
-## `syncs[]` keys
-
-Required:
-- `target` — relative to `$HOME` after env expansion
-- `source` — relative to config file directory after env expansion
-
-Env expansion in paths:
-- supported in `target` and `source`: `$VAR` and `${VAR}`
-- expansion runs before path normalization and validation
-- missing or empty env values are errors
-- expanded paths must still be relative and must not escape base via `..`
-
-Optional behavior keys:
-- `on.deploy.remove-unmanaged` — patterns for unmanaged target paths removed during `deploy`
-- `on.import.add-unmanaged.include` — patterns for target-only files that can be added to source during `import`
-- `on.import.add-unmanaged.exclude` — patterns excluded from unmanaged import candidates
-- `on.import.remove-missing.include` — patterns for source paths missing in target that can be removed during `import`
-- `on.import.remove-missing.exclude` — patterns excluded from missing-delete candidates
-
-## Defaults (when omitted)
-
-- no unmanaged removal on deploy
-- no unmanaged import on import
-- no delete-on-missing on import
-- include-gated candidate sets stay disabled by default (`include: []`)
-- practical effect: only manifest paths are evaluated unless you opt into unmanaged/missing patterns
-- this safety default still applies for broad targets (for example `target: ./`)
-
-## Pattern behavior
-
-- Glob engine with `**`
-- Patterns are sync-relative
-- Separator is `/`
-- Include is evaluated before exclude (exclude wins)
-- Case sensitivity and escaping are OS-dependent
-
-## Path and order behavior
-
-- Config paths are relative-only after env expansion.
-- Path normalization is lexical.
-- Paths must not escape their base via `..` after normalization.
-- Overlapping syncs are allowed.
-- Syncs run in config order.
-- If overlapping syncs mutate the same final path, later sync wins.
+Use `migrate --dry-run` to inspect a generated v2 migration plan. Plain
+`migrate` writes generated output under `migrations/v1-to-v2/<run-id>/` for
+review; it does not replace active root v2 files automatically.

@@ -2,40 +2,52 @@
 
 ## Command format
 
+Common v2 local-settings-manager commands:
+
 ```text
 dotfiles-manager --version
 dotfiles-manager version
-dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] status [--json] [path]
-dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
-dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] deploy [--dry-run] [--json] [path]
-dotfiles-manager [--config <path>] [--log-file <path>] [--log-level <debug|info|warn|error>] import [--dry-run] [--json] [path]
-dotfiles-manager [--config <path>] migrate [--dry-run] [--json]
+dotfiles-manager init [--dry-run] [--json] [--machine-id <id>] [--user-id <id>] [--non-interactive] [--yes]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe list [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe discover [target] [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe explain <target> [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <id>] [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <id>] [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup list [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup show <run-id> [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] restore <run-id> [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app create <target-id> --template <file|selected-value|native-export> ...
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app validate <target-id> [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app test <target-id> --roundtrip [--fixture <name>] [--json]
-dotfiles-manager recipe list [--json]
-dotfiles-manager recipe discover [target] [--json]
-dotfiles-manager recipe explain <target> [--json]
+```
+
+Legacy v1 file-sync commands remain available for `.dotfiles-manager.yaml`:
+
+```text
+dotfiles-manager [--config <.dotfiles-manager.yaml>] status [--json] [path]
+dotfiles-manager [--config <.dotfiles-manager.yaml>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
+dotfiles-manager [--config <.dotfiles-manager.yaml>] deploy [--dry-run] [--json] [path]
+dotfiles-manager [--config <.dotfiles-manager.yaml>] import [--dry-run] [--json] [path]
+dotfiles-manager [--config <.dotfiles-manager.yaml>] migrate [--dry-run] [--json]
 ```
 
 Config is resolved in this order:
 1. `--config <path>`
 2. `DOTFILES_MANAGER_CONFIG`
-3. `./.dotfiles-manager.yaml` in the current working directory
+3. `./.dotfiles-manager.yaml` in the current working directory for legacy v1
+   commands; v2 commands expect `dotfiles-manager.v2.yaml` and can detect a v2
+   root for supported preview paths when no v1 config is present.
 
-No parent-directory config search is performed.
+No parent-directory search is performed for v1 config discovery.
 `version`/`--version` do not require config resolution.
 
-For v2 selected-setting commands, `--config` must point at
-`dotfiles-manager.v2.yaml`. If no v1 `.dotfiles-manager.yaml` exists and the
-current directory is inside a v2 root, `status` and `diff` can auto-detect the
-v2 root. Live `save` and `apply` require a v2 root and require `--yes` before a
-planned write is performed.
+For v2 selected-setting commands, scripts should pass `--config
+<dotfiles-manager.v2.yaml>` explicitly. Live `save`, `apply`, and `restore`
+require a v2 root and require `--yes` before a planned write is performed.
 
 Log file destination:
 - default paths:
@@ -68,6 +80,57 @@ Behavior:
 - they do not accept `[path]`, `--json`, or `--dry-run`
 - release builds print semantic version
 - local non-release builds print `dev`
+
+## v2 `init`
+
+`init` creates the v2 repository scaffold and local identity state:
+
+```bash
+dotfiles-manager init --machine-id docs-machine --user-id docs-user
+```
+
+Repository files:
+
+```text
+dotfiles-manager.v2.yaml
+profiles/stacks/default.yaml
+profiles/layers/global.yaml
+```
+
+Identity files are written under the platform-specific v2 local state root and
+are reported as `state://identity/...` references. `init --dry-run` previews the
+plan; `init --json` emits `dotfiles-manager.v2.init`.
+
+## v2 `list`
+
+`list` shows selected managed settings in the resolved profile:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml list --user-id docs-user
+```
+
+It prints the selected ref, scope, subject, source layer, resource driver, named
+location, selector, desired URI, and suggested next commands. Use repeated
+`--profile <layer>` flags to preview extra profile layers on top of the active
+stack.
+
+## v2 backups and restore
+
+Use backup commands after an `apply --yes` or `restore --yes` creates local
+backup evidence:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml backup list
+dotfiles-manager --config dotfiles-manager.v2.yaml backup show <run-id>
+dotfiles-manager --config dotfiles-manager.v2.yaml restore <run-id> --dry-run --user-id <user-id>
+dotfiles-manager --config dotfiles-manager.v2.yaml restore <run-id> --yes --user-id <user-id>
+```
+
+Restore should always be previewed first. For selected values backed by files,
+restore rolls back the whole backing file from the backup payload; it is not a
+semantic single-value rollback. Backup payload contents are not printed by
+`backup list` or `backup show`, but local backup payloads can contain actual
+managed bytes.
 
 ## `status [--json] [path]`
 
