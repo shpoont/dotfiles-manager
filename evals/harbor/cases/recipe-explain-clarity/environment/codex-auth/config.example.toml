@@ -1,0 +1,9 @@
+# Non-secret Codex defaults for local-private Harbor verifier runs.
+# This is an example only. Do not put tokens, account identifiers,
+# user-specific paths, endpoints, or machine-local assumptions in this file.
+# The generated config.toml and real auth.json are local-only, ignored, and
+# must never be committed or baked into Docker images.
+model = "gpt-5.5"
+model_reasoning_effort = "low"
+sandbox_mode = "danger-full-access"
+approval_policy = "never"

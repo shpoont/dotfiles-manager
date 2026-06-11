@@ -1,0 +1,39 @@
+schema_version = "1.2"
+artifacts = []
+
+[task]
+name = "local/issue-quality-v2-specs"
+description = "Harbor agent test case: Issue quality from v2 specs"
+keywords = ["harbor-agent-tests", "dotfiles-manager-v2", "release-readiness"]
+
+[[task.authors]]
+name = "Harbor Agent Tests"
+
+[metadata]
+issue = "121"
+purpose = "Evaluate whether a generated v2 GitHub issue is scoped, spec-referenced, acceptance-testable, and safe for implementation agents."
+
+[verifier]
+timeout_sec = 1200.0
+user = "root"
+
+[verifier.env]
+CODEX_AUTH_SOURCE = "/run/codex-auth-source"
+VERIFIER_CODEX_HOME = "/tmp/verifier-codex-home"
+
+[agent]
+timeout_sec = 1200.0
+
+[environment]
+build_timeout_sec = 1800.0
+os = "linux"
+cpus = 1
+memory_mb = 4096
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+mcp_servers = []
+
+[environment.env]
+
+[solution.env]

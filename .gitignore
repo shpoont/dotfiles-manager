@@ -17,6 +17,7 @@ dist/
 
 # Systems Mapping / Evaluation local state
 .systems-mapping/working-record.json
+.systems-mapping/session-events.jsonl
 .systems-mapping/records/
 .systems-mapping/output/
 .systems-mapping/tmp/
@@ -26,25 +27,30 @@ dist/
 evals/harbor/jobs/
 evals/harbor/all-jobs/
 evals/harbor/results/
+evals/harbor/dashboard/
 evals/harbor/output/
 evals/harbor/tmp/
 evals/harbor/local-auth/
 evals/harbor/local-build/
 evals/harbor/local-output/
+evals/harbor/**/*.jsonl
+evals/harbor/**/transcript*
 
 # Harbor local/private auth backstops
 evals/harbor/.env
 evals/harbor/.env.*
 !evals/harbor/.env.example
 evals/harbor/.codex/
-evals/harbor/codex-auth/
 evals/harbor/codex-auth.json
 evals/harbor/**/.codex/
-evals/harbor/**/codex-auth/
 evals/harbor/**/codex-auth.json
+evals/harbor/**/codex-auth/auth.json
+evals/harbor/**/.harbor-auth-prepared
 
 # Harbor local Docker/build context backstops
 evals/harbor/**/build-context/
 evals/harbor/**/build-contexts/
 evals/harbor/**/docker-context/
 evals/harbor/**/.docker/
+# Harbor generated non-secret verifier config; examples are committed instead.
+evals/harbor/**/environment/codex-auth/config.toml

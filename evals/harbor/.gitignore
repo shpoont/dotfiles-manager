@@ -1,0 +1,15 @@
+jobs/
+all-jobs/
+results/
+dashboard/
+output/
+tmp/
+local-auth/
+local-build/
+local-output/
+*.jsonl
+**/*.jsonl
+**/transcript*
+**/environment/codex-auth/auth.json
+**/.harbor-auth-prepared
+**/environment/codex-auth/config.toml

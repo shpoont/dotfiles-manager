@@ -1,0 +1,26 @@
+[judge]
+judge = "codex"
+model = "gpt-5.5"
+cwd = "/app"
+isolated = false
+timeout = 600
+
+[[criterion]]
+name = "requirements"
+description = "Inspect /app/solution.md. Does it explain the normal v2 user flow with init, add, status, diff, save, and apply while accurately distinguishing preview, desired data, and live mutation?"
+type = "binary"
+weight = 2.0
+
+[[criterion]]
+name = "user_convenience"
+description = "Rate how convenient and understandable the explanation is for an end user who does not want internal schema details first. Penalize jargon-first structure or missing next steps."
+type = "likert"
+points = 5
+weight = 1.0
+
+[[criterion]]
+name = "safety_clarity"
+description = "Rate whether trust, backups, ledgers, dry-run, live-state boundaries, native export/import, unsupported settings, and secrets are clear without making the product feel unnecessarily complex."
+type = "likert"
+points = 5
+weight = 1.0

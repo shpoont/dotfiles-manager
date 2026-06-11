@@ -1,0 +1,19 @@
+# Local-private auth and generated markers must never enter Docker build context.
+codex-auth/
+codex-auth/auth.json
+**/auth.json
+.harbor-auth-prepared
+**/.harbor-auth-prepared
+
+# Defensive local-output exclusions for accidental files under environment/.
+.env
+.env.*
+.codex/
+**/.codex/
+jobs/
+all-jobs/
+results/
+tmp/
+local-auth/
+local-build/
+local-output/

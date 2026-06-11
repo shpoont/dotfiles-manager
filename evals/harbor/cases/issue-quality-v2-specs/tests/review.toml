@@ -1,0 +1,26 @@
+[judge]
+judge = "codex"
+model = "gpt-5.5"
+cwd = "/app"
+isolated = false
+timeout = 600
+
+[[criterion]]
+name = "requirements"
+description = "Inspect /app/solution.md. Does the answer turn the weak issue draft into an implementation-ready v2 issue with scope, out-of-scope, acceptance criteria, definition of done, exact v2 spec references, v1 preservation, safety constraints, and deterministic tests?"
+type = "binary"
+weight = 2.0
+
+[[criterion]]
+name = "issue_quality"
+description = "Rate whether the issue outline is agent-sized, reviewable, and actionable without requiring the implementation agent to infer from broad concept prose. Penalize vague acceptance criteria or missing file/spec references."
+type = "likert"
+points = 5
+weight = 1.0
+
+[[criterion]]
+name = "safety_judgment"
+description = "Rate whether the answer preserves v1 behavior and makes trust, redaction, lifecycle, native execution, backups, and ledgers explicit when relevant. Penalize unsafe shortcuts or treating Harbor as a deterministic test replacement."
+type = "likert"
+points = 5
+weight = 1.0
