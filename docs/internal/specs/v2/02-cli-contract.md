@@ -447,18 +447,16 @@ targets.
 
 ```text
 dotfiles-manager app create <target-id>
-  [--template file|selected-value|native-export]
+  --template file|selected-value|native-export
   [--from-path <path>]
   [--display-name <name>]
-  [--setting <setting-id>]
-  [--setting-label <label>]
-  [--driver file|ini-file|json-file|yaml-file|toml-file]
+  --setting <setting-id>
+  --setting-label <label>
+  [--driver file|ini-file|json-file|yaml-file|toml-file|plist-file]
   [--selector <selector>]
-  [--scope-default shared|user|machine|machine-user]
-  [--lifecycle allowed|warn|blocked|ask-to-quit|quit-if-running|block-if-running|reopen-if-stopped-by-tool]
+  --scope-default shared|user|machine|machine-user
+  --lifecycle allowed|warn|blocked|ask-to-quit|quit-if-running|block-if-running|reopen-if-stopped-by-tool
   [--dry-run]
-  [--yes]
-  [--non-interactive]
   [--json]
 ```
 
@@ -474,7 +472,6 @@ The command may create only repository files under:
 recipes/local/<target-id>/recipe.yaml
 recipes/local/<target-id>/README.md
 recipes/local/<target-id>/fixtures/README.md
-recipes/local/<target-id>/fixtures/roundtrip/<fixture-name>/...
 ```
 
 It must not add the target to profile layers, write desired artifacts, create
@@ -496,25 +493,26 @@ allowed roots, path traversal, backslashes, empty path segments, symlink/path
 escapes, and any input that would require storing a raw machine-local absolute
 path in `recipe.yaml`.
 
-Interactive mode may ask for enough fields to create a validate-ready file or
-selected-value draft. JSON mode and `--non-interactive` must not prompt. In
-non-interactive mode, template-specific required choices must be supplied as
-flags; otherwise the command exits `4` with stable `missingChoices`. `--yes` may
-accept only safe deterministic defaults. It must not approve trust, lifecycle
-risk, opaque/native execution, overwrite, or live-state inspection.
+The #119 implementation is deliberately non-interactive. Template-specific
+required choices must be supplied as flags; otherwise the command exits `2` with
+stable diagnostics. `--yes` and `--non-interactive` are not part of the #119
+command surface because there are no prompts to approve. Future interactive
+creation may add exit `4` missing-choice behavior without changing the generated
+layout.
 
-Template-specific non-interactive requirements are:
+Template-specific requirements are:
 
 | Template | Required non-interactive fields | Generated validity target |
 | --- | --- | --- |
 | `file` | `--from-path`, `--setting`, `--setting-label`, `--scope-default`, `--lifecycle` | Validate-ready whole-file draft. Driver is `file`; `--driver` is rejected unless it is also `file`. |
 | `selected-value` | `--from-path`, `--driver`, `--selector`, `--setting`, `--setting-label`, `--scope-default`, `--lifecycle` | Validate-ready selected-value draft when the selector parses for the chosen driver. `--driver file` is rejected. |
-| `native-export` | `--display-name` and any schema-required native-export metadata that can be drafted without execution | Declarative candidate draft only. Roundtrip is skipped or unsupported unless future reviewed stubs exist. |
+| `native-export` | `--setting`, `--setting-label`, `--scope-default`, `--lifecycle` | Declarative draft only. The generated native operation has `reviewed: false` and an intentionally invalid placeholder executable, and is expected to fail `app validate` until the author replaces and reviews the metadata. Roundtrip is unsupported. |
 
 For `--selector`, the MVP authoring CLI accepts a dot-separated path of literal
-key segments for JSON, YAML, and TOML selected-value drivers. INI selectors use
-`section.key`. Escaping, array indexes, wildcards, filters, JSONPath, jq syntax,
-and partial expressions are not part of this authoring contract.
+key segments for JSON, YAML, TOML, and plist selected-value drivers. INI
+selectors use `section.key`. Escaping, array indexes, wildcards, filters,
+JSONPath, jq syntax, and partial expressions are not part of this authoring
+contract.
 
 `app create --json` uses:
 
@@ -536,11 +534,13 @@ appCreate:
     id: local-file-demo
     displayName: Local File Demo
     recipeRef: recipe://local/local-file-demo
+  template: file | selected-value | native-export
   files:
-    - kind: recipe | readme | fixtures-readme | fixture-manifest | fixture-input | fixture-expected
+    - kind: recipe | readme | fixtures-readme
       path: recipes/local/local-file-demo/recipe.yaml
-      action: create | unchanged
-  missingChoices: []
+      action: create | planned
+  nextActions:
+    - dotfiles-manager app validate local-file-demo
 diagnostics: []
 error: null
 ```
@@ -606,7 +606,10 @@ write desired artifacts, or mark anything trusted.
 Validation covers recipe schema, IDs, named locations, resources, driver
 bindings, selectors, scopes, lifecycle declarations, sensitivity/redaction
 metadata, native-operation declarations, fixture manifests, and write-surface
-trust implications. Untrusted local write-capable recipes are a warning or
+trust implications. It also fails closed when the requested `<target-id>` is a
+bundled canonical ID or alias, when the loaded recipe's internal `target` does
+not match `<target-id>`, or when the local recipe metadata path includes
+symlink/path escapes. Untrusted local write-capable recipes are a warning or
 advisory, not a validation failure: a recipe can be structurally valid while
 remaining blocked for future writes until local trust evidence exists under the
 local state root.
@@ -762,14 +765,19 @@ Native-export candidate draft:
 ```bash
 dotfiles-manager app create local-native-export-demo \
   --template native-export \
-  --display-name "Local Native Export Demo"
+  --display-name "Local Native Export Demo" \
+  --setting settings \
+  --setting-label "Settings export" \
+  --scope-default machine-user \
+  --lifecycle blocked
 ```
 
-The file and selected-value examples create recipe scaffolds for synthetic local
-fixtures. The native-export example creates declarative candidate metadata only:
-it must not name a real app, include executable command promises, or imply
-`app test --roundtrip` support unless a later implementation issue defines
-reviewed stubs.
+The file and selected-value examples create validate-ready recipe scaffolds for
+synthetic local fixtures. The native-export example creates declarative candidate
+metadata only: it includes placeholder command metadata with `reviewed: false`
+and an intentionally invalid executable placeholder, must not be treated as
+executable, and is expected to fail `app validate` until a recipe author replaces
+and reviews the native metadata.
 
 ### `recipe list` read-only contract
 

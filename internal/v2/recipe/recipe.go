@@ -282,14 +282,14 @@ type ReviewWarning struct {
 }
 
 type Selector struct {
-	Section         string   `yaml:"section,omitempty"`
-	Key             string   `yaml:"key,omitempty"`
-	Path            []string `yaml:"path,omitempty"`
-	MissingSection  string   `yaml:"missingSection,omitempty"`
-	MissingKey      string   `yaml:"missingKey,omitempty"`
-	CreateMissing   string   `yaml:"createMissing,omitempty"`
-	DuplicatePolicy string   `yaml:"duplicatePolicy,omitempty"`
-	DeleteKey       string   `yaml:"deleteKey,omitempty"`
+	Section         string   `yaml:"section,omitempty" json:"section,omitempty"`
+	Key             string   `yaml:"key,omitempty" json:"key,omitempty"`
+	Path            []string `yaml:"path,omitempty" json:"path,omitempty"`
+	MissingSection  string   `yaml:"missingSection,omitempty" json:"missingSection,omitempty"`
+	MissingKey      string   `yaml:"missingKey,omitempty" json:"missingKey,omitempty"`
+	CreateMissing   string   `yaml:"createMissing,omitempty" json:"createMissing,omitempty"`
+	DuplicatePolicy string   `yaml:"duplicatePolicy,omitempty" json:"duplicatePolicy,omitempty"`
+	DeleteKey       string   `yaml:"deleteKey,omitempty" json:"deleteKey,omitempty"`
 }
 
 type INISelector = Selector
