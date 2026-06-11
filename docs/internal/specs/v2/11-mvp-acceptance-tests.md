@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-05
+last-updated: 2026-06-11
 canonical-source: docs/internal/specs/v2/11-mvp-acceptance-tests.md
 source-concept-sections:
   - MVP acceptance test matrix
@@ -169,6 +169,28 @@ Every Harbor case must identify:
 - the deterministic tests it complements;
 - the out-of-scope behavior it must not ask the agent to implement.
 
+Initial local-private suite:
+
+| Case | Release-readiness question |
+| --- | --- |
+| `evals/harbor/cases/issue-quality-v2-specs` | Are agent-authored implementation issues scoped, spec-referenced, acceptance-testable, v2-only, and safe? |
+| `evals/harbor/cases/happy-path-ux-v2-cli` | Is the normal user flow convenient and understandable without hiding preview, desired-data, trust, backup, ledger, live-state, or native boundaries? |
+| `evals/harbor/cases/recipe-explain-clarity` | Does support explanation make scopes, named locations, managed/unmanaged settings, optional groups, lifecycle, redaction, and native summaries clear without live reads? |
+| `evals/harbor/cases/native-safety-review` | Does native export/import review fail closed around arbitrary commands, secrets/account data, opaque diffs, lifecycle, trust, backup, verification, and opt-in? |
+
+The concrete suite remains local-private. It must not introduce a runtime CLI
+dependency, CI/cloud auth dependency, committed generated Harbor results, or
+Docker images/build contexts that contain copied Codex auth. Local verifier
+auth may be mounted only as a read-only runtime source and copied inside the
+container to a temporary writable verifier `CODEX_HOME` that is removed on
+exit, because Codex writes helper state while initializing. The Harbor
+validator must fail when copied auth or generated Harbor result artifacts are
+present under `evals/harbor/`, so those files cannot accidentally become part
+of a review or commit.
+Verifier `environment/codex-auth/config.toml` is generated local state, not a
+committed source file; committed examples may document non-secret defaults, but
+real auth/config generated for a run must be cleaned before validation.
+
 ### First vertical slice gate
 
 Before broad app support, one vertical slice must pass:
@@ -296,7 +318,8 @@ This file is satisfied when:
 - broad app reverse-engineering tests;
 - running Harbor cases;
 - defining CI/cloud Harbor execution;
-- copying or normalizing Codex auth;
+- copying or normalizing Codex auth outside the local-private verifier runtime
+  setup described above;
 - treating Harbor results as production release gates before a separate
   CI/cloud-safe design exists.
 
