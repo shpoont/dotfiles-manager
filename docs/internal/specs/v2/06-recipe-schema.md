@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-10
+last-updated: 2026-06-11
 canonical-source: docs/internal/specs/v2/06-recipe-schema.md
 source-concept-sections:
   - Recipe
@@ -72,8 +72,10 @@ Local repository recipes are stored at:
 recipes/local/<recipe-id>/recipe.yaml
 ```
 
-`<recipe-id>` is a single path segment matching
-`[A-Za-z0-9][A-Za-z0-9._-]*`. A local recipe file must carry:
+For local target recipes, `<recipe-id>` is the public `<target-id>` and follows
+the lower-case target grammar from `00-vocabulary.md`. It is a single safe path
+segment, not a setting ref, URI, display name, or filesystem path. A local
+recipe file must carry:
 
 ```yaml
 schema: dotfiles-manager.v2.recipe

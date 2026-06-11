@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-10
+last-updated: 2026-06-11
 canonical-source: docs/internal/specs/v2/02-cli-contract.md
 source-concept-sections:
   - CLI contract v2
@@ -421,10 +421,10 @@ Advanced commands may exist outside the normal path:
 dotfiles-manager recipe list
 dotfiles-manager recipe discover [target]
 dotfiles-manager recipe explain <target>
-dotfiles-manager app create <target>
-dotfiles-manager app edit <target>
-dotfiles-manager app validate <target>
-dotfiles-manager app test <target> --roundtrip
+dotfiles-manager app create <target-id>
+dotfiles-manager app edit <target-id>
+dotfiles-manager app validate <target-id>
+dotfiles-manager app test <target-id> --roundtrip
 ```
 
 `recipe list`, `recipe discover [target]`, and `recipe explain <target>` are
@@ -436,8 +436,340 @@ selected settings, settings groups, resources, drivers, lifecycle policy,
 redaction behavior, support levels, and capability limits without reading live
 target state.
 
-Mutating authoring commands such as `app create`, `app edit`, `app validate`,
-and `app test` need their own later contract before implementation.
+Advanced app-authoring commands are for recipe authors and power users, not the
+normal app-management happy path. They define and test local recipe metadata
+only. Normal users should still start with `add <target>` for supported bundled
+targets.
+
+### `app create <target-id>` local recipe draft contract
+
+`app create` creates or previews a local recipe scaffold:
+
+```text
+dotfiles-manager app create <target-id>
+  [--template file|selected-value|native-export]
+  [--from-path <path>]
+  [--display-name <name>]
+  [--setting <setting-id>]
+  [--setting-label <label>]
+  [--driver file|ini-file|json-file|yaml-file|toml-file]
+  [--selector <selector>]
+  [--scope-default shared|user|machine|machine-user]
+  [--lifecycle allowed|warn|blocked|ask-to-quit|quit-if-running|block-if-running|reopen-if-stopped-by-tool]
+  [--dry-run]
+  [--yes]
+  [--non-interactive]
+  [--json]
+```
+
+`<target-id>` is a public target ID using the lower-case grammar from
+`00-vocabulary.md`. It is not a setting ref, URI, filesystem path, or display
+name. `app create` fails with exit code `2` when `<target-id>` collides with a
+bundled canonical target ID or bundled alias, because bundled recipes remain
+authoritative and a shadowed local recipe would be misleading.
+
+The command may create only repository files under:
+
+```text
+recipes/local/<target-id>/recipe.yaml
+recipes/local/<target-id>/README.md
+recipes/local/<target-id>/fixtures/README.md
+recipes/local/<target-id>/fixtures/roundtrip/<fixture-name>/...
+```
+
+It must not add the target to profile layers, write desired artifacts, create
+trust records, write ledgers or backups, inspect live values, touch live app
+paths, run native commands, or mark the recipe trusted. Existing local recipe
+directories fail closed; overwrite, repair, adoption, and merge behavior are
+out of scope for this contract.
+
+`--template native-export` means a declarative native-export candidate. It must
+not imply arbitrary app integration, arbitrary script execution, or trusted
+native operations. A local recipe cannot make native operations executable by
+setting `reviewed: true`; future write execution still requires local trust
+evidence and write-surface matching from `09-security-redaction-trust.md`.
+
+`--from-path` records only a named-location/path shape. It must not read file
+contents. For the MVP authoring surface, paths should be expressible through a
+safe named location such as `home`. The command rejects absolute paths outside
+allowed roots, path traversal, backslashes, empty path segments, symlink/path
+escapes, and any input that would require storing a raw machine-local absolute
+path in `recipe.yaml`.
+
+Interactive mode may ask for enough fields to create a validate-ready file or
+selected-value draft. JSON mode and `--non-interactive` must not prompt. In
+non-interactive mode, template-specific required choices must be supplied as
+flags; otherwise the command exits `4` with stable `missingChoices`. `--yes` may
+accept only safe deterministic defaults. It must not approve trust, lifecycle
+risk, opaque/native execution, overwrite, or live-state inspection.
+
+Template-specific non-interactive requirements are:
+
+| Template | Required non-interactive fields | Generated validity target |
+| --- | --- | --- |
+| `file` | `--from-path`, `--setting`, `--setting-label`, `--scope-default`, `--lifecycle` | Validate-ready whole-file draft. Driver is `file`; `--driver` is rejected unless it is also `file`. |
+| `selected-value` | `--from-path`, `--driver`, `--selector`, `--setting`, `--setting-label`, `--scope-default`, `--lifecycle` | Validate-ready selected-value draft when the selector parses for the chosen driver. `--driver file` is rejected. |
+| `native-export` | `--display-name` and any schema-required native-export metadata that can be drafted without execution | Declarative candidate draft only. Roundtrip is skipped or unsupported unless future reviewed stubs exist. |
+
+For `--selector`, the MVP authoring CLI accepts a dot-separated path of literal
+key segments for JSON, YAML, and TOML selected-value drivers. INI selectors use
+`section.key`. Escaping, array indexes, wildcards, filters, JSONPath, jq syntax,
+and partial expressions are not part of this authoring contract.
+
+`app create --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.app.create
+schemaVersion: 1
+command: app.create
+runId: app-create
+dryRun: false
+summary:
+  status: changed | ok | blocked | error
+  planned: 0
+  written: 0
+  unchanged: 0
+  blocked: 0
+  failed: 0
+appCreate:
+  target:
+    id: local-file-demo
+    displayName: Local File Demo
+    recipeRef: recipe://local/local-file-demo
+  files:
+    - kind: recipe | readme | fixtures-readme | fixture-manifest | fixture-input | fixture-expected
+      path: recipes/local/local-file-demo/recipe.yaml
+      action: create | unchanged
+  missingChoices: []
+diagnostics: []
+error: null
+```
+
+Paths are repository-relative. JSON and text output must not include raw live
+values, raw home-directory paths when a named location can be shown, timestamps,
+durations, captured output, secrets, or local state-root paths.
+
+### `app edit <target-id>` editable-path contract
+
+`app edit` is a cross-platform helper that resolves editable local recipe files:
+
+```text
+dotfiles-manager app edit <target-id> [--print-path] [--json]
+```
+
+It does not launch `$EDITOR` in the MVP contract. Text output should say which
+file to edit. `--print-path` is script-friendly and emits only the primary
+repository-relative path, normally `recipes/local/<target-id>/recipe.yaml`, with
+no prose. `--json` emits structured path metadata.
+
+`app edit` must not validate or modify the recipe, create missing files, create
+trust records, inspect live state, or open a platform editor. If the target is
+bundled-only, unknown, ambiguous, missing as a local recipe, or unsafe to
+resolve, the command fails deterministically.
+
+`app edit --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.app.edit
+schemaVersion: 1
+command: app.edit
+runId: app-edit
+summary:
+  status: ok | error
+  files: 1
+  failed: 0
+appEdit:
+  target:
+    id: local-file-demo
+    recipeRef: recipe://local/local-file-demo
+  editableFiles:
+    - kind: recipe
+      path: recipes/local/local-file-demo/recipe.yaml
+      primary: true
+diagnostics: []
+error: null
+```
+
+### `app validate <target-id>` local recipe validation contract
+
+`app validate` validates local recipe metadata and fixture manifests:
+
+```text
+dotfiles-manager app validate <target-id> [--json]
+```
+
+It reads recipe metadata and fixture manifests only. It must not read live app
+values, run native commands, run drivers against user paths, write temp state
+except ordinary parser scratch, create trust records, update ledgers/backups,
+write desired artifacts, or mark anything trusted.
+
+Validation covers recipe schema, IDs, named locations, resources, driver
+bindings, selectors, scopes, lifecycle declarations, sensitivity/redaction
+metadata, native-operation declarations, fixture manifests, and write-surface
+trust implications. Untrusted local write-capable recipes are a warning or
+advisory, not a validation failure: a recipe can be structurally valid while
+remaining blocked for future writes until local trust evidence exists under the
+local state root.
+
+Validation exits `2` for invalid schema, IDs, drivers, selectors, named
+locations, lifecycle declarations, arbitrary scripts, native-operation metadata,
+or fixture manifests. It exits `5` only when metadata cannot be safely read or
+rendered, such as unsafe symlink/path situations or redaction-blocked metadata.
+It must not use exit `5` merely because the local recipe is not trusted yet.
+
+`app validate --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.app.validate
+schemaVersion: 1
+command: app.validate
+runId: app-validate
+summary:
+  status: ok | blocked | error | partial
+  checked: 0
+  warnings: 0
+  blocked: 0
+  failed: 0
+appValidate:
+  target:
+    id: local-file-demo
+    recipeRef: recipe://local/local-file-demo
+  trust:
+    localTrustState: not-checked
+    writeTrustRequired: true
+    writeSurfaceFingerprint: redacted-or-stable-fingerprint
+  fixtures:
+    - name: basic
+      state: valid | invalid | blocked | skipped
+diagnostics: []
+error: null
+```
+
+### `app test <target-id> --roundtrip` fixture contract
+
+`app test --roundtrip` tests a local recipe against synthetic fixtures only:
+
+```text
+dotfiles-manager app test <target-id> --roundtrip [--fixture <name>] [--json]
+```
+
+It must never touch the user's actual config path, desired repository root,
+backups, ledgers, trust records, or live app state. The command copies fixture
+trees into a manager-owned temp directory, overrides named locations to point at
+those temp fixture roots, and runs deterministic driver operations there.
+
+MVP roundtrip support is limited to deterministic `file` and selected-value
+drivers. Native-export candidates are validate-only unless a later
+implementation issue defines reviewed fixture stubs. Local recipes must not
+execute native commands during `app test --roundtrip`.
+
+Fixture layout is co-located with the local recipe for discoverability:
+
+```text
+recipes/local/<target-id>/fixtures/
+  README.md
+  roundtrip/
+    <fixture-name>/
+      manifest.yaml
+      input/
+        live/
+        desired/
+      expected/
+        desired/
+        live/
+```
+
+`input/live/` is the simulated live target tree. `input/desired/` is a simulated
+desired root whose paths mirror canonical desired artifact layout, such as
+`shared/-/targets/<target-id>/...` or
+`user/fixture-user/targets/<target-id>/...`. `expected/desired/` is the expected
+desired tree after a simulated save/import. `expected/live/` is the expected
+live tree after applying the desired fixture.
+
+Fixtures must be synthetic or sanitized. Users must not copy live app data into
+fixtures when it contains personal, secret, account-bound, opaque, native-export,
+or machine-local payloads. Text output, JSON output, diagnostics, fixture
+manifests, and test reports must remain redaction-safe and must not print raw
+fixture values by default.
+
+`app test --roundtrip --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.app.test-roundtrip
+schemaVersion: 1
+command: app.test-roundtrip
+runId: app-test-roundtrip
+summary:
+  status: ok | partial | blocked | error
+  cases: 0
+  passed: 0
+  skipped: 0
+  blocked: 0
+  failed: 0
+appTestRoundtrip:
+  target:
+    id: local-file-demo
+    recipeRef: recipe://local/local-file-demo
+  fixtures:
+    - name: basic
+      status: passed | skipped | blocked | failed
+      reason: stable-reason-code
+diagnostics: []
+error: null
+```
+
+### App authoring exit codes and examples
+
+| Command | Exit 0 | Exit 2 | Exit 4 | Exit 5 | Exit 6 |
+| --- | --- | --- | --- | --- | --- |
+| `app create` | Files created, or valid dry-run plan. | Invalid target ID, collision, existing local recipe, unsupported template, invalid path shape. | Required interactive choices unavailable. | Unsafe repository path, symlink/path escape, safety policy blocker. | Not expected for single-target create. |
+| `app edit` | Path metadata printed. | Unknown target, bundled-only target, invalid ref, missing local recipe. | Not expected. | Unsafe recipe path or metadata-render safety block. | Not expected. |
+| `app validate` | Structurally valid, including untrusted-local warnings. | Invalid recipe/schema/selector/fixture/native metadata. | Not expected. | Cannot safely read/render metadata. | Optional only if multiple independent fixtures or sections produce mixed results. |
+| `app test --roundtrip` | All required runnable cases pass. | Invalid recipe/fixture or roundtrip mismatch. | Missing fixture choice when multiple fixtures exist and no default is defined. | Fixture path escape, unsafe symlink, attempted native execution, redaction/safety blocker. | Some independent cases pass and others fail/block/skip. |
+
+Recipe-authoring examples use neutral local demo target IDs and are examples
+only, not supported bundled apps.
+
+Whole-file recipe draft:
+
+```bash
+dotfiles-manager app create local-file-demo \
+  --template file \
+  --from-path ~/.config/local-file-demo/config.txt \
+  --display-name "Local File Demo" \
+  --setting config \
+  --setting-label "Config file" \
+  --scope-default user \
+  --lifecycle allowed
+```
+
+Selected-value recipe draft:
+
+```bash
+dotfiles-manager app create local-yaml-demo \
+  --template selected-value \
+  --from-path ~/.config/local-yaml-demo/config.yaml \
+  --driver yaml-file \
+  --selector preferences.theme \
+  --setting preferences.theme \
+  --setting-label "Theme" \
+  --scope-default user \
+  --lifecycle allowed
+```
+
+Native-export candidate draft:
+
+```bash
+dotfiles-manager app create local-native-export-demo \
+  --template native-export \
+  --display-name "Local Native Export Demo"
+```
+
+The file and selected-value examples create recipe scaffolds for synthetic local
+fixtures. The native-export example creates declarative candidate metadata only:
+it must not name a real app, include executable command promises, or imply
+`app test --roundtrip` support unless a later implementation issue defines
+reviewed stubs.
 
 ### `recipe list` read-only contract
 
