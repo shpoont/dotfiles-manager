@@ -15,6 +15,9 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--machine-
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <id>] [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app create <target-id> --template <file|selected-value|native-export> ...
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app validate <target-id> [--json]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app test <target-id> --roundtrip [--fixture <name>] [--json]
 dotfiles-manager recipe list [--json]
 dotfiles-manager recipe discover [target] [--json]
 dotfiles-manager recipe explain <target> [--json]
@@ -296,6 +299,44 @@ For file and file-tree settings, `add` writes explicit artifact metadata such
 as `artifact: artifacts/config` so desired state is stored as an artifact
 payload. For scalar settings, the profile entry can remain scope-only and later
 `save` stores the value in `settings.yaml`.
+
+## v2 app authoring: custom local recipes
+
+Advanced users can draft custom local recipes under
+`recipes/local/<target-id>/`:
+
+```bash
+dotfiles-manager app create local-my-app \
+  --template file \
+  --from-path ~/.config/my-app/config.yaml \
+  --setting config \
+  --setting-label "Config file" \
+  --scope-default user \
+  --lifecycle allowed
+
+dotfiles-manager app validate local-my-app
+dotfiles-manager app test local-my-app --roundtrip
+```
+
+`app create` writes recipe metadata and documentation only. It does not read
+live app files, import values, create trust records, or select the app in a
+profile. `app validate` checks recipe metadata without reading live app config.
+
+`app test --roundtrip` runs only synthetic fixtures from:
+
+```text
+recipes/local/<target-id>/fixtures/roundtrip/<fixture-name>/
+```
+
+It copies fixture data into a temporary directory, maps named recipe locations
+to `input/live/locations/<location-id>/...`, and compares results with
+`expected/desired/` and `expected/live/`. It does not touch real app config,
+the real desired root, trust records, backups, or ledgers.
+
+Supported roundtrip drivers in this tranche are whole-file `file` resources and
+selected values backed by `ini-file`, `json-file`, `yaml-file`, `toml-file`, or
+`plist-file`. Native export/import and `file-tree` fixtures are validate-only or
+unsupported until later implementation work.
 
 ## v2 selected settings: Git identity example
 

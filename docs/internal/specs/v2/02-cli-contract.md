@@ -661,10 +661,19 @@ backups, ledgers, trust records, or live app state. The command copies fixture
 trees into a manager-owned temp directory, overrides named locations to point at
 those temp fixture roots, and runs deterministic driver operations there.
 
-MVP roundtrip support is limited to deterministic `file` and selected-value
-drivers. Native-export candidates are validate-only unless a later
-implementation issue defines reviewed fixture stubs. Local recipes must not
-execute native commands during `app test --roundtrip`.
+MVP roundtrip support is limited to deterministic `file` resources and
+selected-value resources backed by `ini-file`, `json-file`, `yaml-file`,
+`toml-file`, or `plist-file`. `file-tree`, native export/import, lifecycle
+stop/reopen actions, trust-record reads, live desired-root writes, ledgers, and
+backups are explicitly outside this tranche. Native-export candidates are
+validate-only and must produce a skipped/no-runnable fixture result; local
+recipes must not execute native commands during `app test --roundtrip`.
+
+Roundtrip uses temp-root driver operations after recipe metadata has passed
+app-authoring safety checks. It must not expose a user-configurable trust bypass:
+fixture simulation is internal to `app test --roundtrip`, does not read or
+create local trust records, and does not grant any trust to live save/apply
+commands.
 
 Fixture layout is co-located with the local recipe for discoverability:
 
@@ -682,11 +691,49 @@ recipes/local/<target-id>/fixtures/
         live/
 ```
 
-`input/live/` is the simulated live target tree. `input/desired/` is a simulated
-desired root whose paths mirror canonical desired artifact layout, such as
-`shared/-/targets/<target-id>/...` or
-`user/fixture-user/targets/<target-id>/...`. `expected/desired/` is the expected
-desired tree after a simulated save/import. `expected/live/` is the expected
+`manifest.yaml` is strict YAML with duplicate keys and unknown fields rejected:
+
+```yaml
+schema: dotfiles-manager.v2.app.roundtrip-fixture
+schemaVersion: 1
+target: local-file-demo
+name: basic        # optional; when present, must match the directory name
+synthetic: true    # required; real copied app data is not allowed
+modes: [save, apply] # optional; defaults to both, order-independent
+settings: [config]   # optional; defaults to all recipe settings
+subjects:            # optional; defaults shown here
+  user: fixture-user
+  machine: fixture-machine
+```
+
+Omitting `--fixture` runs every fixture directory under `fixtures/roundtrip/` in
+lexical order. If there are no fixture directories, the command fails with
+`app.test.fixture.none`; it does not auto-create fixture data. `--fixture <name>`
+runs exactly one fixture and fails if that fixture is absent or unsafe.
+
+`input/live/` is the simulated live target tree. Live files are addressed by
+named recipe locations:
+
+```text
+input/live/locations/<location-id>/<resource.path>
+expected/live/locations/<location-id>/<resource.path>
+```
+
+`input/desired/` is a simulated desired root whose paths mirror canonical
+desired layout. Supported roots are:
+
+```text
+shared/-/targets/<target-id>/...
+user/<fixture-user>/targets/<target-id>/...
+machine/<fixture-machine>/targets/<target-id>/...
+machine-user/<fixture-machine>/<fixture-user>/targets/<target-id>/...
+```
+
+For whole-file resources, desired artifacts are stored under
+`artifacts/<setting-id>`. For selected-value resources, settings are stored in
+`settings.yaml` and addressed through the corresponding
+`desired://.../settings#<setting-id>` URI. `expected/desired/` is the
+expected desired tree after a simulated save. `expected/live/` is the expected
 live tree after applying the desired fixture.
 
 Fixtures must be synthetic or sanitized. Users must not copy live app data into
@@ -717,6 +764,13 @@ appTestRoundtrip:
     - name: basic
       status: passed | skipped | blocked | failed
       reason: stable-reason-code
+      modes: [save, apply]
+      cases:
+        - setting: config
+          resource: config-file
+          driver: file
+          save: passed | skipped | blocked | failed
+          apply: passed | skipped | blocked | failed
 diagnostics: []
 error: null
 ```
@@ -728,7 +782,7 @@ error: null
 | `app create` | Files created, or valid dry-run plan. | Invalid target ID, collision, existing local recipe, unsupported template, invalid path shape. | Required interactive choices unavailable. | Unsafe repository path, symlink/path escape, safety policy blocker. | Not expected for single-target create. |
 | `app edit` | Path metadata printed. | Unknown target, bundled-only target, invalid ref, missing local recipe. | Not expected. | Unsafe recipe path or metadata-render safety block. | Not expected. |
 | `app validate` | Structurally valid, including untrusted-local warnings. | Invalid recipe/schema/selector/fixture/native metadata. | Not expected. | Cannot safely read/render metadata. | Optional only if multiple independent fixtures or sections produce mixed results. |
-| `app test --roundtrip` | All required runnable cases pass. | Invalid recipe/fixture or roundtrip mismatch. | Missing fixture choice when multiple fixtures exist and no default is defined. | Fixture path escape, unsafe symlink, attempted native execution, redaction/safety blocker. | Some independent cases pass and others fail/block/skip. |
+| `app test --roundtrip` | All required runnable cases pass. | Invalid recipe/fixture, missing fixture data, no runnable cases, or all-failing roundtrip mismatch. | Not expected; omitted `--fixture` runs all fixtures. | Fixture path escape, unsafe symlink/special file, attempted native execution, redaction/safety blocker. | Some independent cases pass and others fail/block/skip. |
 
 Recipe-authoring examples use neutral local demo target IDs and are examples
 only, not supported bundled apps.
