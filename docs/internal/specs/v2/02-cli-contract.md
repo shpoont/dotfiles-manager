@@ -80,6 +80,90 @@ The MVP command set is:
 
 `sync` must never mean blind automatic two-way merge.
 
+### `init` first-time bootstrap contract
+
+The first implemented `init` tranche is a first-time bootstrap and local
+identity-connect command:
+
+```text
+dotfiles-manager init [--machine-id <id>] [--user-id <id>] [--dry-run] [--yes] [--non-interactive] [--json]
+```
+
+It may create only:
+
+- `dotfiles-manager.v2.yaml`;
+- `profiles/stacks/default.yaml`;
+- `profiles/layers/global.yaml`;
+- local-only identity records under the manager state root:
+  `identity/machine.yaml` and
+  `identity/users/<local-account-key>.yaml`.
+
+It must not create desired artifacts, live target files, backups, ledgers,
+trust records, recipes, migration output, or app state. It must not adopt,
+rename, repair, migrate, or infer ownership of an existing repository subject.
+If no repository scaffold exists, `init` creates the minimal `default` stack
+with one `global` profile layer. If a complete scaffold already exists and has
+the expected schemas, `init` reports it unchanged. If only part of the scaffold
+exists, or an existing scaffold file has the wrong schema, `init` fails
+deterministically instead of repairing it.
+
+Identity bootstrap follows `03-profile-and-scope-resolution.md`:
+
+- existing local identity records win;
+- explicit `--machine-id` and `--user-id` may create missing identity records;
+- conflicting explicit IDs fail rather than overriding existing local records;
+- interactive text mode explains that IDs are visible in repository desired
+  paths and asks before writing;
+- `--yes` may accept safe generated candidates;
+- `--json` does **not** imply `--yes`, must not prompt, and exits `4` with
+  `missingChoices` when identity approval/input is required.
+
+Generated candidates are lower-case, path-safe strings matching
+`[a-z0-9][a-z0-9._-]*`. Hostname/account-derived text is sanitized before it is
+shown. If a generated candidate would silently collide with an existing
+repository subject directory such as `desired/machine/<id>` or
+`desired/user/<id>`, `init --yes` adds a deterministic numeric suffix instead
+of treating that as adoption.
+
+`init --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.init
+schemaVersion: 1
+command: init
+runId: init
+dryRun: false
+summary:
+  status: ok | changed | blocked | error
+  planned: 0
+  written: 0
+  unchanged: 0
+  blocked: 0
+  failed: 0
+init:
+  activeProfileStack: default
+  profileStack: [global]
+  repoFiles:
+    - kind: root-config | profile-stack | profile-layer
+      path: dotfiles-manager.v2.yaml
+      action: create | unchanged
+  identityFiles:
+    - kind: machine | user
+      path: state://identity/machine.yaml
+      id: safe-public-id
+      localAccountKey: safe-local-key
+      source: existing | explicit | generated | prompted
+      action: create | unchanged
+  missingChoices: []
+diagnostics: []
+error: null
+```
+
+Paths in JSON are repository-relative or `state://...` logical paths. The JSON
+must not include absolute state-root paths, raw hostnames, raw OS account text,
+secret values, timestamps, or run durations.
+
+
 ### `add <target>` profile-selection contract
 
 The first implemented `add` tranche accepts one bundled target per invocation:
@@ -134,6 +218,151 @@ Prompt rules for `add`:
   `missingChoices` entries.
 - `--dry-run` performs the same target, profile, setting, scope, and conflict
   validation and emits the same planned changes, but writes nothing.
+
+`add --profile <layer>` is a destination-layer flag, not a profile overlay. It
+names the single active profile layer that receives selection metadata.
+
+`add --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.add
+schemaVersion: 1
+command: add
+runId: add-target
+dryRun: false
+summary:
+  status: ok | changed | blocked | error
+  planned: 0
+  written: 0
+  unchanged: 0
+  blocked: 0
+  failed: 0
+add:
+  target:
+    id: git
+    displayName: Git
+    recipeRef: recipe://bundled/git
+  activeProfileStack: default
+  profileStack: [global, work]
+  destinationProfileLayer: work
+  discovery:
+    state: config-present | installed | config-missing | unsupported-platform | ambiguous | not-applicable
+    binaryState: installed | missing | ambiguous | not-applicable
+    configState: config-present | config-missing | ambiguous | not-applicable
+    platformState: supported | unsupported | unknown
+  settings:
+    - ref: git:user.email
+      id: user.email
+      label: User email
+      scope: user
+      scopeLabel: Me on all my machines
+      artifact: artifacts/config
+      artifactForm: scalar | file | file-tree | native | native-export | opaque
+      action: add | unchanged
+      sourceLayer: global
+      resource:
+        id: user-email
+        driverId: ini-file
+        locationId: home
+        path: .gitconfig
+      selectorSummary: "[user] email"
+      nextActions:
+        - dotfiles-manager status git:user.email
+        - dotfiles-manager save --dry-run git:user.email
+        - dotfiles-manager sync git:user.email
+  missingChoices: []
+diagnostics: []
+error: null
+```
+
+`add` text output should stay happy-path oriented. It may mention profile stack,
+destination profile layer, target discovery, scope, resource, driver, named
+location, selector summary, desired artifact binding, and next actions. It must
+not require users to understand internal resource grouping nouns.
+
+### `list` managed-selection contract
+
+`list` is the normal command for showing what the active profile currently
+manages:
+
+```text
+dotfiles-manager list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
+```
+
+It lists only managed selections from the active profile stack plus any explicit
+repeatable `--profile` overlay layers. It must not show the bundled recipe
+catalog; static supported-target discovery remains under `recipe list` and
+install/config probing remains under `recipe discover`.
+
+`list` is read-only. It must not create identity records, bootstrap state, read
+live target values, write desired artifacts, write backups or ledgers, launch
+apps, or run native export/import commands. If identity is missing for a
+selected scope, `list` still returns the managed row with
+`subject.resolved: false`, a stable `missing` identity list, no desired URI, and
+a `partial` summary. Missing identity is not an implicit request to run `init`.
+
+`list --profile <layer>` is an overlay flag, matching `status`, `diff`,
+`save`, `apply`, and `sync`: each repeatable value is appended to the active
+profile stack for this read-only view. It does not write the named layer.
+
+`list --json` uses:
+
+```yaml
+schema: dotfiles-manager.v2.list
+schemaVersion: 1
+command: list
+runId: list-managed
+summary:
+  status: ok | partial | blocked | error
+  targets: 1
+  settings: 1
+  unresolved: 0
+  blocked: 0
+  failed: 0
+list:
+  activeProfileStack: default
+  profileStack: [global, work]
+  settings:
+    - ref: git:user.email
+      target:
+        id: git
+        displayName: Git
+        recipeRef: recipe://bundled/git
+      setting:
+        id: user.email
+        label: User email
+      scope: user
+      scopeLabel: Me on all my machines
+      subject:
+        resolved: true
+        id: leon
+        missing: []
+      sourceLayer: work
+      artifact: artifacts/config
+      artifactForm: scalar
+      desiredUri: desired://user/leon/targets/git/settings#user.email
+      desiredRelPath: desired/user/leon/targets/git/settings.yaml
+      resource:
+        id: user-email
+        driverId: ini-file
+        locationId: home
+        path: .gitconfig
+      selectorSummary: "[user] email"
+      nextActions:
+        - dotfiles-manager status git:user.email
+        - dotfiles-manager save --dry-run git:user.email
+        - dotfiles-manager sync git:user.email
+diagnostics: []
+error: null
+```
+
+Rows are sorted deterministically by public setting ref. Paths in JSON are
+repository-relative or logical URIs; output must not include live values, secret
+values, absolute state-root paths, timestamps, or run durations. Text output
+should emphasize target/setting refs, scope, subject resolution, source layer,
+named settings location, selector/resource summary, desired URI when resolved,
+and next actions.
+
 
 ### `sync [ref]` guided-choice contract
 
@@ -445,7 +674,7 @@ exit code `4` in normal operation. Exit code `6` is not expected for the single-
 
 | Flag | Meaning |
 | --- | --- |
-| `--profile <layer>` | Add an explicit profile layer to the active stack. Repeatable. |
+| `--profile <layer>` | For read/preview commands, add an explicit profile layer to the active stack overlay. Repeatable. For `add`, choose the single destination profile layer to update. |
 | `--scope <scope>` | Choose `shared`, `user`, `machine`, or `machine-user` when saving. |
 | `--machine-id <id>` | Explicit machine identity input for bootstrap or transient read-only resolution; must not override an existing local machine identity. |
 | `--user-id <id>` | Explicit user identity input for bootstrap or transient read-only resolution; must not override an existing local user identity. |
