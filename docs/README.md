@@ -33,3 +33,4 @@ This directory is organized by **audience** first, then by **scope/detail level*
 For practical navigation:
 - Start at `internal/README.md` for implementation work.
 - Start at `user/README.md` for end-user usage docs.
+- Start at `user/install-and-release.md` for install paths and release-readiness notes.

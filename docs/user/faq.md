@@ -1,109 +1,200 @@
 # FAQ
 
-## Do I need `--config` every time?
+## What should I read first?
 
-No. Config is resolved in this order:
-1. `--config <path>`
-2. `DOTFILES_MANAGER_CONFIG`
-3. `./.dotfiles-manager.yaml` in the current working directory
+Use [`getting-started.md`](./getting-started.md). It starts with a temporary
+`HOME` workflow so you can run `init`, `add`, `save`, `apply`, `backup`, and
+`restore` without touching real dotfiles.
 
-If none of these is available, the command fails.
+## Does v2 store actual values?
 
-## What is the difference between `deploy` and `import`?
+Yes. The repository stores actual desired state so values can be applied later.
+For example, `git:user.email` with `--scope user --user-id docs-user` is stored
+in:
 
-- `deploy`: source → target
-- `import`: target → source
+```text
+desired/user/docs-user/targets/git/settings.yaml
+```
 
-Use `status` first to preview both sides.
+Whole-file and file-tree resources store managed bytes under `artifacts/...`.
+Normal command output, previews, backup metadata, and ledger metadata redact raw
+values, but desired artifacts and backup payloads may contain the actual managed
+bytes.
 
-## What does `diff` do?
+## Is this safe for secrets?
 
-`diff` is a preview-only command that shows unified patch-style output for candidate operations.
+No. Do not manage secrets, credentials, private keys, tokens, account exports,
+generated caches, or runtime state unless a specific reviewed recipe explicitly
+supports that data. The current product is not a secret manager.
 
-Default view includes both directions:
-- deploy-style view (target -> source comparison)
-- import-style view (source -> target comparison)
+## Where are profiles stored?
 
-Use `--direction deploy` or `--direction import` to focus one side.
+In the repository:
 
-## What is “source of truth” here?
+```text
+profiles/stacks/<stack>.yaml
+profiles/layers/<layer>.yaml
+```
 
-`source` is the manifest/source of truth. Command direction (`deploy` vs `import`) determines which side updates the other.
+The root `dotfiles-manager.v2.yaml` names the active stack. A stack lists layers,
+and later layers override earlier selections. A command can add more layers with
+repeated `--profile <layer>`, so one machine can use multiple profiles/layers.
 
-## Can I use environment variables in `source`/`target` paths?
+## Can one machine have multiple profiles?
 
-Yes.
+Yes. A machine has one local machine identity, but commands can resolve a stack
+plus extra profile layers. For example, a laptop can use `global` from the
+default stack and add `--profile work` for work-only selections.
 
-Supported syntax:
-- `$VAR`
-- `${VAR}`
+## What scopes are available?
 
-Rules:
-- expansion happens before path validation
-- missing or empty env values are errors
-- expanded paths must still be relative and must not escape base directories via `..`
+- `shared` — one desired value for everyone and every machine.
+- `user` — one desired value for a logical user across machines.
+- `machine` — one desired value for a machine.
+- `machine-user` — one desired value for a logical user on a machine.
 
-## How does `[path]` filtering work?
+Scopes decide where desired state is stored under `desired/`; recipes still
+decide live file locations.
 
-A command-scoped `[path]` only selects syncs where that path is the sync target or inside it. Parent-of-target paths do not match.
+## Where is local state stored?
 
-## Can unmanaged files be removed on deploy?
+By default, outside the repository:
 
-Yes. Configure `on.deploy.remove-unmanaged` patterns.
+```text
+macOS: ~/Library/Application Support/dotfiles-manager/v2/<repo-state-id>/
+Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<repo-state-id>/
+```
 
-## Will `target: ./` scan my whole home directory by default?
+It contains identity files, backup metadata/payloads, and ledger/run records.
+Commands display state references as `state://...` URIs.
 
-No.
+## How do I recover after a failed or wrong apply?
 
-By default, unmanaged/missing candidate lists are disabled (`include: []`), so commands evaluate manifest paths only.
-When pattern rules are enabled, discovery starts from literal pattern roots when possible (for example `.codex/skills/**` starts from `.codex/skills`).
-Wildcard-first patterns (for example `**/*.tmp`) can still require broad scans.
+1. Stop and do not run another write until you inspect backups.
+2. List backups:
 
-## Can import add files that are not in source yet?
+   ```bash
+   dotfiles-manager --config dotfiles-manager.v2.yaml backup list
+   ```
 
-Yes. Configure `on.import.add-unmanaged.include` (and optional exclude).
+3. Copy the relevant run id from the first column. Apply run ids commonly look
+   like `selected-value-YYYYMMDDTHHMMSS.NNNNNNNNNZ`.
+4. Inspect metadata:
 
-## Can import delete files from source?
+   ```bash
+   dotfiles-manager --config dotfiles-manager.v2.yaml backup show <run-id>
+   ```
 
-Yes, but only for paths matching `on.import.remove-missing.include` and not matching `on.import.remove-missing.exclude`.
+5. Preview restore:
 
-## Is there a safe preview mode for mutating commands?
+   ```bash
+   dotfiles-manager --config dotfiles-manager.v2.yaml \
+     restore <run-id> --dry-run --user-id <user-id>
+   ```
 
-Yes: `--dry-run` on `deploy` and `import`.
+6. Confirm only if the preview shows the intended live path and change:
 
-## Does `status` support `--dry-run`?
+   ```bash
+   dotfiles-manager --config dotfiles-manager.v2.yaml \
+     restore <run-id> --yes --user-id <user-id>
+   ```
 
-No. `status` is already preview-only.
+For selected values backed by files, restore rolls back the whole backing file
+from the backup payload; it is not a semantic single-value rollback.
 
-## Does `diff` support `--dry-run`?
+## How do I know what an app recipe manages?
 
-No. `diff` is already preview-only.
+Use:
 
-## Is JSON output available?
+```bash
+dotfiles-manager recipe list
+dotfiles-manager recipe discover <target>
+dotfiles-manager recipe explain <target>
+```
 
-Yes, use `--json` with `status`, `diff`, `deploy`, or `import`.
+`recipe explain` shows settings, resources, drivers, lifecycle notes, and "do
+not manage" exclusions. Read it before adding a target.
 
-With `diff --json`, patch bodies are omitted by default; add `--patch` to include them.
+## What targets are supported now?
+
+See the supported-surface matrix in [`README.md`](./README.md). The short
+version is:
+
+- Git and Starship selected values;
+- Zsh, tmux, and SSH selected whole-file resources;
+- Neovim selected file-tree resource;
+- local app authoring for reviewed/validated local recipes and synthetic
+  roundtrip fixtures;
+- legacy v1 file sync compatibility.
+
+## Does v2 support native export/import for apps like Raycast?
+
+Not as a general public workflow in this tranche. Native export/import support
+needs a reviewed recipe with explicit command metadata, lifecycle behavior,
+redaction expectations, backup/restore behavior, and tests. Do not assume an
+app's native export/import command is supported just because the app has one.
+
+## Can I add my own app?
+
+Advanced users can draft local recipes under `recipes/local/<target-id>/` and
+validate them with `app validate` and synthetic fixtures with
+`app test --roundtrip`. This is for local recipe authoring; it is not a public
+recipe marketplace or arbitrary script execution system.
+
+## What is `custom.files`?
+
+`custom.files` is a low-level file/file-tree target used by migration and
+internal dogfood flows. It has no app-specific semantics and does not classify
+secrets for you. It is not the recommended first-user path for managing a new
+application.
+
+## How does v1 compatibility work?
+
+Existing `.dotfiles-manager.yaml` file-sync configs still use:
+
+```bash
+dotfiles-manager status
+dotfiles-manager diff
+dotfiles-manager deploy --dry-run
+dotfiles-manager import --dry-run
+```
+
+v1 `deploy` means source to target. v1 `import` means target to source. v2 uses
+`dotfiles-manager.v2.yaml`, profiles, scopes, selected settings, desired
+artifacts, backups, and restore.
+
+## How do I migrate v1 file syncs?
+
+Preview first:
+
+```bash
+dotfiles-manager migrate --dry-run
+```
+
+Plain `migrate` writes a generated migration run under:
+
+```text
+migrations/v1-to-v2/<run-id>/generated/
+```
+
+It does not replace active root v2 config automatically. Review and promote the
+generated files explicitly.
+
+## Does `status` or `diff` write files?
+
+No. `status` and `diff` are previews. Mutating v2 commands use explicit flags
+such as `--yes`, and many support `--dry-run` for preview.
 
 ## Where are logs written?
 
-Logs are always written to a file.
+Logs are always written to a log file.
 
 Default paths:
+
 - macOS: `~/Library/Logs/dotfiles-manager/dotfiles-manager.log`
 - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
 
 Use `--log-file <path>` to override the log location.
-
-Warnings/errors are still emitted as human-readable diagnostics on stderr.
-Log format is always human-readable text.
-
-## Can I control log verbosity?
-
-Yes. Use `--log-level <debug|info|warn|error>`.
-
-- default log level is `info`
-- applies to all commands
 
 ## How do I check CLI version?
 
@@ -115,6 +206,5 @@ dotfiles-manager --version
 dotfiles-manager version
 ```
 
-Both print `dotfiles-manager version <value>` and exit.
-They do not require config.
-Release builds print semantic version; local non-release builds print `dev`.
+Release builds print release metadata; local non-release builds print `dev`
+metadata.
