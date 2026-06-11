@@ -16,8 +16,10 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2guidedsync "github.com/shpoont/dotfiles-manager/internal/v2/guidedsync"
+	v2initcmd "github.com/shpoont/dotfiles-manager/internal/v2/initcmd"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
+	v2listcmd "github.com/shpoont/dotfiles-manager/internal/v2/listcmd"
 	v2migration "github.com/shpoont/dotfiles-manager/internal/v2/migration"
 	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	v2resolution "github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -69,7 +71,9 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
 	rootCmd.AddCommand(newSyncCmd(opts))
+	rootCmd.AddCommand(newInitCmd(opts))
 	rootCmd.AddCommand(newAddCmd(opts))
+	rootCmd.AddCommand(newListCmd(opts))
 	rootCmd.AddCommand(newBackupCmd(opts))
 	rootCmd.AddCommand(newRestoreCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))
@@ -296,6 +300,42 @@ func newSyncCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
+func newInitCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var dryRun bool
+	var yes bool
+	var nonInteractive bool
+	var machineID string
+	var userID string
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize v2 repository scaffold and local identity state",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runInitCommand(cmd, opts, v2initcmd.Options{
+				RepoRoot:       initRepoRootFromConfig(opts.configPath),
+				MachineID:      machineID,
+				UserID:         userID,
+				DryRun:         dryRun,
+				Yes:            yes,
+				NonInteractive: nonInteractive,
+				JSONMode:       jsonOutput,
+				Input:          cmd.InOrStdin(),
+				PromptOutput:   cmd.OutOrStdout(),
+			}, jsonOutput)
+		},
+	}
+
+	cmd.Flags().StringVar(&machineID, "machine-id", "", "v2 machine identity to store when bootstrapping")
+	cmd.Flags().StringVar(&userID, "user-id", "", "v2 user identity to store when bootstrapping")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Plan initialization without writing files")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Accept safe generated identity candidates without prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if identity input is required")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
 func newAddCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var dryRun bool
@@ -332,6 +372,28 @@ func newAddCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Accept safe recipe defaults without prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail with missing-choice diagnostics when input is required")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newListCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	v2Flags := &selectedPreviewFlagOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List managed v2 settings in the active profile",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runListCommand(cmd, opts, v2listcmd.Options{
+				MachineID:   v2Flags.machineID,
+				UserID:      v2Flags.userID,
+				ExtraLayers: append([]string(nil), v2Flags.profiles...),
+			}, jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
 
@@ -846,6 +908,45 @@ func runGuidedSyncRootCommand(cmd *cobra.Command, opts *rootOptions, ref string,
 	return err
 }
 
+func runInitCommand(cmd *cobra.Command, opts *rootOptions, initOpts v2initcmd.Options, jsonOutput bool) error {
+	repoRoot := strings.TrimSpace(initOpts.RepoRoot)
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			report := v2initcmdErrorReport("init.repo.invalid", err.Error())
+			_ = emitInitReport(cmd.OutOrStdout(), report, jsonOutput)
+			return err
+		}
+		repoRoot = cwd
+	}
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" && !isExplicitV2Config(opts.configPath) {
+		report := v2initcmdErrorReport("init.config.invalid", fmt.Sprintf("--config for v2 init must point to %s", v2resolution.RootConfigFile))
+		_ = emitInitReport(cmd.OutOrStdout(), report, jsonOutput)
+		return &v2initcmd.Error{Code: "init.config.invalid", Message: report.Error.Message, Exit: 2}
+	}
+	initOpts.RepoRoot = repoRoot
+	report, err := v2initcmd.Run(initOpts)
+	if emitErr := emitInitReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func runListCommand(cmd *cobra.Command, opts *rootOptions, listOpts v2listcmd.Options, jsonOutput bool) error {
+	repoRoot, err := selectedPreviewRepoRootFor(opts, "list")
+	if err != nil {
+		report := v2listcmdErrorReport("list.root.notFound", err.Error())
+		_ = emitListReport(cmd.OutOrStdout(), report, jsonOutput)
+		return &v2listcmd.Error{Code: "list.root.notFound", Message: err.Error(), Exit: 2}
+	}
+	listOpts.RepoRoot = repoRoot
+	report, err := v2listcmd.Run(listOpts)
+	if emitErr := emitListReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
 func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, repoRoot string) error {
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
@@ -913,6 +1014,72 @@ func repoRootFromExplicitV2Config(configPath string) (string, error) {
 		return "", fmt.Errorf("v2 config path must be named %s", v2resolution.RootConfigFile)
 	}
 	return filepath.Dir(abs), nil
+}
+
+func initRepoRootFromConfig(configPath string) string {
+	trimmed := strings.TrimSpace(configPath)
+	if trimmed == "" || filepath.Base(trimmed) != v2resolution.RootConfigFile {
+		return ""
+	}
+	abs, err := filepath.Abs(trimmed)
+	if err != nil {
+		return filepath.Dir(trimmed)
+	}
+	return filepath.Dir(abs)
+}
+
+func emitInitReport(stdout io.Writer, report *v2initcmd.Report, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2initcmd.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2initcmd.Text(report))
+	return err
+}
+
+func emitListReport(stdout io.Writer, report *v2listcmd.Report, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2listcmd.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2listcmd.Text(report))
+	return err
+}
+
+func v2initcmdErrorReport(code string, message string) *v2initcmd.Report {
+	report := &v2initcmd.Report{
+		Schema:        v2initcmd.Schema,
+		SchemaVersion: 1,
+		Command:       v2initcmd.Command,
+		RunID:         v2initcmd.RunID,
+		Summary:       v2initcmd.Summary{Status: "error", Failed: 1},
+		Init:          v2initcmd.InitResult{ProfileStack: []string{}, RepoFiles: []v2initcmd.InitFile{}, IdentityFiles: []v2initcmd.IdentityFile{}, MissingChoices: []v2initcmd.MissingChoice{}},
+		Error:         &v2initcmd.ErrorObject{Code: code, Message: message},
+		Diagnostics:   []v2initcmd.Diagnostic{{Code: code, Severity: "error", Message: message}},
+	}
+	return report
+}
+
+func v2listcmdErrorReport(code string, message string) *v2listcmd.Report {
+	report := &v2listcmd.Report{
+		Schema:        v2listcmd.Schema,
+		SchemaVersion: 1,
+		Command:       v2listcmd.Command,
+		RunID:         v2listcmd.RunID,
+		Summary:       v2listcmd.Summary{Status: "error", Failed: 1},
+		List:          v2listcmd.ListResult{ProfileStack: []string{}, Settings: []v2listcmd.ManagedSetting{}},
+		Error:         &v2listcmd.ErrorObject{Code: code, Message: message},
+		Diagnostics:   []v2listcmd.Diagnostic{{Code: code, Severity: "error", Message: message}},
+	}
+	return report
 }
 
 func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Report, jsonOutput bool) error {

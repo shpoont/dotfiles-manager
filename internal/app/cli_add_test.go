@@ -19,7 +19,7 @@ func TestAddGitYesJSONWritesProfileSelections(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.NotContains(t, stdout, "@example.com")
-	require.Equal(t, "dotfiles-manager.v2.preview", payload["schema"])
+	require.Equal(t, "dotfiles-manager.v2.add", payload["schema"])
 	require.Equal(t, "add", payload["command"])
 	add := payload["add"].(map[string]any)
 	require.Equal(t, "global", add["destinationProfileLayer"])

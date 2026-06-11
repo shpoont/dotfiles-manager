@@ -21,6 +21,7 @@ import (
 const (
 	Command = "add"
 	RunID   = "add-target"
+	Schema  = "dotfiles-manager.v2.add"
 )
 
 const (
@@ -66,8 +67,8 @@ type Report struct {
 	DryRun        bool         `json:"dryRun"`
 	Summary       Summary      `json:"summary"`
 	Add           AddResult    `json:"add"`
-	Diagnostics   []Diagnostic `json:"diagnostics,omitempty"`
-	Error         *ErrorObject `json:"error,omitempty"`
+	Diagnostics   []Diagnostic `json:"diagnostics"`
+	Error         *ErrorObject `json:"error"`
 }
 
 type Summary struct {
@@ -86,7 +87,7 @@ type AddResult struct {
 	DestinationProfileLayer string          `json:"destinationProfileLayer,omitempty"`
 	Discovery               *AddDiscovery   `json:"discovery,omitempty"`
 	Settings                []SettingChoice `json:"settings"`
-	MissingChoices          []MissingChoice `json:"missingChoices,omitempty"`
+	MissingChoices          []MissingChoice `json:"missingChoices"`
 }
 
 type AddTarget struct {
@@ -103,15 +104,25 @@ type AddDiscovery struct {
 }
 
 type SettingChoice struct {
-	Ref          string `json:"ref"`
-	ID           string `json:"id"`
-	Label        string `json:"label"`
-	Scope        string `json:"scope"`
-	ScopeLabel   string `json:"scopeLabel"`
-	Artifact     string `json:"artifact,omitempty"`
-	ArtifactForm string `json:"artifactForm"`
-	Action       string `json:"action"`
-	SourceLayer  string `json:"sourceLayer,omitempty"`
+	Ref             string       `json:"ref"`
+	ID              string       `json:"id"`
+	Label           string       `json:"label"`
+	Scope           string       `json:"scope"`
+	ScopeLabel      string       `json:"scopeLabel"`
+	Artifact        string       `json:"artifact,omitempty"`
+	ArtifactForm    string       `json:"artifactForm"`
+	Action          string       `json:"action"`
+	SourceLayer     string       `json:"sourceLayer,omitempty"`
+	Resource        ResourceInfo `json:"resource"`
+	SelectorSummary string       `json:"selectorSummary,omitempty"`
+	NextActions     []string     `json:"nextActions"`
+}
+
+type ResourceInfo struct {
+	ID         string `json:"id,omitempty"`
+	DriverID   string `json:"driverId,omitempty"`
+	LocationID string `json:"locationId,omitempty"`
+	Path       string `json:"path,omitempty"`
 }
 
 type MissingChoice struct {
@@ -213,7 +224,7 @@ func Run(opts Options) (*Report, error) {
 		return failWithMissing(report, err, missing)
 	}
 
-	choices, missing, err := chooseScopesAndArtifacts(target.Ref, opts, selectedIDs, settingsByID, interactive)
+	choices, missing, err := chooseScopesAndArtifacts(target.Ref, opts, selectedIDs, settingsByID, resourcesByID(explain.RecipeExplain.Resources), interactive)
 	if err != nil {
 		return failWithMissing(report, err, missing)
 	}
@@ -299,6 +310,17 @@ func Text(report *Report) string {
 			line += " sourceLayer=" + setting.SourceLayer
 		}
 		lines = append(lines, line)
+		resourceLine := fmt.Sprintf("    resource=%s driver=%s", dash(setting.Resource.ID), dash(setting.Resource.DriverID))
+		if setting.Resource.LocationID != "" || setting.Resource.Path != "" {
+			resourceLine += fmt.Sprintf(" location=%s:%s", dash(setting.Resource.LocationID), dash(setting.Resource.Path))
+		}
+		if setting.SelectorSummary != "" {
+			resourceLine += " selector=" + setting.SelectorSummary
+		}
+		lines = append(lines, resourceLine)
+		if len(setting.NextActions) > 0 {
+			lines = append(lines, "    next: "+strings.Join(setting.NextActions, " | "))
+		}
 	}
 	for _, diagnostic := range report.Diagnostics {
 		lines = append(lines, fmt.Sprintf("%s[%s]: %s", diagnostic.Severity, diagnostic.Code, diagnostic.Message))
@@ -312,13 +334,14 @@ func Text(report *Report) string {
 
 func baseReport(dryRun bool) *Report {
 	return &Report{
-		Schema:        recipe.ExplainSchema,
+		Schema:        Schema,
 		SchemaVersion: 1,
 		Command:       Command,
 		RunID:         RunID,
 		DryRun:        dryRun,
 		Summary:       Summary{Status: "ok"},
-		Add:           AddResult{ProfileStack: []string{}, Settings: []SettingChoice{}},
+		Add:           AddResult{ProfileStack: []string{}, Settings: []SettingChoice{}, MissingChoices: []MissingChoice{}},
+		Diagnostics:   []Diagnostic{},
 	}
 }
 
@@ -765,7 +788,7 @@ func addSelectableCapability(capability string) bool {
 	return capability == "read-write" || capability == "export-only"
 }
 
-func chooseScopesAndArtifacts(target string, opts Options, selectedIDs []string, settingsByID map[string]recipe.ExplainSetting, interactive bool) ([]SettingChoice, []MissingChoice, error) {
+func chooseScopesAndArtifacts(target string, opts Options, selectedIDs []string, settingsByID map[string]recipe.ExplainSetting, resources map[string]recipe.ExplainResource, interactive bool) ([]SettingChoice, []MissingChoice, error) {
 	scopeOverride := strings.TrimSpace(opts.Scope)
 	if scopeOverride != "" && !knownScope(scopeOverride) {
 		return nil, nil, &Error{Code: CodeScopeInvalid, Message: fmt.Sprintf("invalid scope %q", scopeOverride), Exit: 2, Details: map[string]any{"scope": scopeOverride}}
@@ -791,19 +814,66 @@ func chooseScopesAndArtifacts(target string, opts Options, selectedIDs []string,
 		if !knownScope(scope) {
 			return nil, nil, &Error{Code: CodeScopeInvalid, Message: fmt.Sprintf("invalid scope %q", scope), Exit: 2}
 		}
+		resource := resources[setting.ResourceID]
 		choices = append(choices, SettingChoice{
-			Ref:          target + ":" + id,
-			ID:           id,
-			Label:        setting.Label,
-			Scope:        scope,
-			ScopeLabel:   ScopeLabel(scope),
-			Artifact:     canonicalArtifactForSetting(setting),
-			ArtifactForm: setting.ArtifactForm,
-			Action:       "add",
+			Ref:             target + ":" + id,
+			ID:              id,
+			Label:           setting.Label,
+			Scope:           scope,
+			ScopeLabel:      ScopeLabel(scope),
+			Artifact:        canonicalArtifactForSetting(setting),
+			ArtifactForm:    setting.ArtifactForm,
+			Action:          "add",
+			Resource:        resourceInfo(setting, resource),
+			SelectorSummary: selectorSummary(resource),
+			NextActions:     nextActions(target + ":" + id),
 		})
 	}
 	sort.Slice(choices, func(i, j int) bool { return choices[i].Ref < choices[j].Ref })
 	return choices, nil, nil
+}
+
+func resourcesByID(resources []recipe.ExplainResource) map[string]recipe.ExplainResource {
+	out := map[string]recipe.ExplainResource{}
+	for _, resource := range resources {
+		out[resource.ID] = resource
+	}
+	return out
+}
+
+func resourceInfo(setting recipe.ExplainSetting, resource recipe.ExplainResource) ResourceInfo {
+	info := ResourceInfo{
+		ID:         setting.ResourceID,
+		DriverID:   setting.Driver,
+		LocationID: resource.LocationID,
+		Path:       resource.Path,
+	}
+	if info.DriverID == "" {
+		info.DriverID = resource.DriverID
+	}
+	return info
+}
+
+func selectorSummary(resource recipe.ExplainResource) string {
+	if resource.Selector == nil {
+		return ""
+	}
+	return resource.Selector.Summary
+}
+
+func nextActions(ref string) []string {
+	return []string{
+		"dotfiles-manager status " + ref,
+		"dotfiles-manager save --dry-run " + ref,
+		"dotfiles-manager sync " + ref,
+	}
+}
+
+func dash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 func canonicalArtifactForSetting(setting recipe.ExplainSetting) string {

@@ -56,6 +56,94 @@ selections:
 	require.Equal(t, "desired://user/leon/targets/git/settings#user.name", resolvedByRef["git:user.name"].DesiredURI)
 }
 
+func TestAddHappyPathTextAndJSONSnapshots(t *testing.T) {
+	root := setupRepo(t, []string{"global"}, map[string]string{"global": emptyLayer()})
+
+	report, err := Run(Options{RepoRoot: root, Target: "git", Yes: true, DiscoverOptions: testDiscoverOptions(t)})
+	require.NoError(t, err)
+	require.Equal(t, `add git
+profile stack: default [global]
+profile layer: global
+discovery: installed binary=installed config=config-missing platform=unknown
+  git:user.email action=add scope=user (Me on all my machines)
+    resource=user-email driver=ini-file location=home:.gitconfig selector=[user] email
+    next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email | dotfiles-manager sync git:user.email
+  git:user.name action=add scope=user (Me on all my machines)
+    resource=user-name driver=ini-file location=home:.gitconfig selector=[user] name
+    next: dotfiles-manager status git:user.name | dotfiles-manager save --dry-run git:user.name | dotfiles-manager sync git:user.name
+summary status=changed planned=2 written=2 unchanged=0 blocked=0 failed=0`, Text(report))
+
+	payload, err := JSON(report)
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+  "schema": "dotfiles-manager.v2.add",
+  "schemaVersion": 1,
+  "command": "add",
+  "runId": "add-target",
+  "dryRun": false,
+  "summary": {"status": "changed", "planned": 2, "written": 2, "unchanged": 0, "blocked": 0, "failed": 0},
+  "add": {
+    "target": {"id": "git", "displayName": "Git", "recipeRef": "recipe://bundled/git"},
+    "activeProfileStack": "default",
+    "profileStack": ["global"],
+    "destinationProfileLayer": "global",
+    "discovery": {"state": "installed", "binaryState": "installed", "configState": "config-missing", "platformState": "unknown"},
+    "settings": [
+      {
+        "ref": "git:user.email",
+        "id": "user.email",
+        "label": "User email",
+        "scope": "user",
+        "scopeLabel": "Me on all my machines",
+        "artifactForm": "scalar",
+        "action": "add",
+        "resource": {"id": "user-email", "driverId": "ini-file", "locationId": "home", "path": ".gitconfig"},
+        "selectorSummary": "[user] email",
+        "nextActions": [
+          "dotfiles-manager status git:user.email",
+          "dotfiles-manager save --dry-run git:user.email",
+          "dotfiles-manager sync git:user.email"
+        ]
+      },
+      {
+        "ref": "git:user.name",
+        "id": "user.name",
+        "label": "User name",
+        "scope": "user",
+        "scopeLabel": "Me on all my machines",
+        "artifactForm": "scalar",
+        "action": "add",
+        "resource": {"id": "user-name", "driverId": "ini-file", "locationId": "home", "path": ".gitconfig"},
+        "selectorSummary": "[user] name",
+        "nextActions": [
+          "dotfiles-manager status git:user.name",
+          "dotfiles-manager save --dry-run git:user.name",
+          "dotfiles-manager sync git:user.name"
+        ]
+      }
+    ],
+    "missingChoices": []
+  },
+  "diagnostics": [],
+  "error": null
+}`, payload)
+}
+
+func TestAddProfileFlagIsDestinationLayerNotOverlay(t *testing.T) {
+	root := setupRepo(t, []string{"global", "work"}, map[string]string{"global": emptyLayer(), "work": emptyLayer()})
+
+	report, err := Run(Options{RepoRoot: root, Target: "git", Settings: []string{"user.email"}, ProfileLayer: "work", DiscoverOptions: testDiscoverOptions(t)})
+	require.NoError(t, err)
+	require.Equal(t, "work", report.Add.DestinationProfileLayer)
+	require.Equal(t, "git:user.email", report.Add.Settings[0].Ref)
+
+	global := readFile(t, filepath.Join(root, "profiles", "layers", "global.yaml"))
+	work := readFile(t, filepath.Join(root, "profiles", "layers", "work.yaml"))
+	require.NotContains(t, global, "git:")
+	require.Contains(t, work, "user.email:")
+	require.Contains(t, work, "scope: user")
+}
+
 func TestRunWritesExplicitArtifactsForFileSettingsAndDryRunDoesNotMutate(t *testing.T) {
 	t.Parallel()
 
@@ -293,11 +381,11 @@ func TestRenderersPromptsAndHelpers(t *testing.T) {
 	require.Equal(t, "artifacts/native-preferences", canonicalArtifactForSetting(recipe.ExplainSetting{ID: "native-preferences", ArtifactForm: "native"}))
 
 	settings := map[string]recipe.ExplainSetting{"manual": {ID: "manual", Ref: "tool:manual", Label: "Manual", Capability: "read-write", SupportLevel: "experimental", ArtifactForm: "scalar"}}
-	choices, missing, err := chooseScopesAndArtifacts("tool", Options{Input: strings.NewReader("machine-user\n"), PromptOutput: io.Discard}, []string{"manual"}, settings, true)
+	choices, missing, err := chooseScopesAndArtifacts("tool", Options{Input: strings.NewReader("machine-user\n"), PromptOutput: io.Discard}, []string{"manual"}, settings, nil, true)
 	require.NoError(t, err)
 	require.Empty(t, missing)
 	require.Equal(t, "machine-user", choices[0].Scope)
-	_, missing, err = chooseScopesAndArtifacts("tool", Options{}, []string{"manual"}, settings, false)
+	_, missing, err = chooseScopesAndArtifacts("tool", Options{}, []string{"manual"}, settings, nil, false)
 	require.Error(t, err)
 	require.Equal(t, "scope", missing[0].Kind)
 
