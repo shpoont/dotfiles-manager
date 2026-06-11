@@ -70,6 +70,8 @@ It includes:
 - selected targets/settings;
 - desired artifacts;
 - bundled or user-local recipes when intentionally committed;
+- local recipe authoring fixtures when intentionally committed and synthetic or
+  sanitized;
 - migration output when chosen by the user.
 
 Repository-owned data must not include:
@@ -79,6 +81,30 @@ Repository-owned data must not include:
 - local backups;
 - temporary rendered files;
 - secrets unless explicitly permitted by a recipe and redaction policy.
+
+User-local recipe authoring uses this repository layout:
+
+```text
+recipes/local/<target-id>/
+  recipe.yaml
+  README.md
+  fixtures/
+    README.md
+    roundtrip/
+      <fixture-name>/
+        manifest.yaml
+        input/
+          live/
+          desired/
+        expected/
+          desired/
+          live/
+```
+
+`<target-id>` follows the public lower-case target grammar from
+`00-vocabulary.md`. Fixture data is repository-owned only when it is deliberately
+synthetic or sanitized. Users must not commit copied live app data that contains
+personal, secret, account-bound, opaque, native-export, or machine-local payloads.
 
 ### Local state data
 
