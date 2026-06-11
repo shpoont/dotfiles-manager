@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppHelpOnlyRegistersCreateAndValidate(t *testing.T) {
+func TestAppHelpRegistersCreateValidateAndTest(t *testing.T) {
 	cmd := NewRootCmd()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -24,8 +24,8 @@ func TestAppHelpOnlyRegistersCreateAndValidate(t *testing.T) {
 	text := stdout.String()
 	require.Contains(t, text, "create")
 	require.Contains(t, text, "validate")
+	require.Contains(t, text, "test")
 	require.NotContains(t, text, "edit")
-	require.NotContains(t, text, "test")
 }
 
 func TestAppCreateAndValidateJSONThroughRootCLI(t *testing.T) {
@@ -61,6 +61,50 @@ func TestAppCreateAndValidateJSONThroughRootCLI(t *testing.T) {
 	require.Equal(t, true, trust["writeTrustRequired"])
 	require.NotEmpty(t, trust["writeSurfaceFingerprint"])
 	require.NotContains(t, stdout, repoRoot)
+}
+
+func TestAppTestRoundtripJSONThroughRootCLI(t *testing.T) {
+	repoRoot := setupAppCLIRepo(t)
+	setCWD(t, repoRoot)
+	targetID := "local-cli-roundtrip"
+
+	_, _, stderr, err := runRootJSONCLI(t, []string{
+		"app", "create", targetID,
+		"--template", "file",
+		"--from-path", ".config/demo/config.yaml",
+		"--setting", "config",
+		"--setting-label", "Config file",
+		"--scope-default", "user",
+		"--lifecycle", "allowed",
+		"--json",
+	}, "")
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+
+	fixtureRoot := filepath.Join(repoRoot, "recipes/local", targetID, "fixtures/roundtrip/basic")
+	writeCLIFile(t, filepath.Join(fixtureRoot, "manifest.yaml"), `schema: dotfiles-manager.v2.app.roundtrip-fixture
+schemaVersion: 1
+target: local-cli-roundtrip
+name: basic
+synthetic: true
+settings:
+  - config
+`)
+	writeCLIFile(t, filepath.Join(fixtureRoot, "input/live/locations/home/.config/demo/config.yaml"), "cli-source-value\n")
+	writeCLIFile(t, filepath.Join(fixtureRoot, "input/desired/user/fixture-user/targets/"+targetID+"/artifacts/config"), "cli-desired-value\n")
+	writeCLIFile(t, filepath.Join(fixtureRoot, "expected/desired/user/fixture-user/targets/"+targetID+"/artifacts/config"), "cli-source-value\n")
+	writeCLIFile(t, filepath.Join(fixtureRoot, "expected/live/locations/home/.config/demo/config.yaml"), "cli-desired-value\n")
+
+	payload, stdout, stderr, err := runRootJSONCLI(t, []string{"app", "test", targetID, "--roundtrip", "--fixture", "basic", "--json"}, "")
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.Equal(t, v2appauthor.TestRoundtripSchema, payload["schema"])
+	require.Equal(t, v2appauthor.TestRoundtripCommand, payload["command"])
+	require.Equal(t, "ok", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, float64(2), payload["summary"].(map[string]any)["cases"])
+	require.NotContains(t, stdout, repoRoot)
+	require.NotContains(t, stdout, "cli-source-value")
+	require.NotContains(t, stdout, "cli-desired-value")
 }
 
 func TestAppCreateDryRunAndCollisionJSON(t *testing.T) {

@@ -102,9 +102,14 @@ recipes/local/<target-id>/
 ```
 
 `<target-id>` follows the public lower-case target grammar from
-`00-vocabulary.md`. Fixture data is repository-owned only when it is deliberately
-synthetic or sanitized. Users must not commit copied live app data that contains
-personal, secret, account-bound, opaque, native-export, or machine-local payloads.
+`00-vocabulary.md`. Roundtrip fixtures use strict `manifest.yaml` files and the
+canonical fixture layout defined by `02-cli-contract.md`: simulated live files
+live under `input/live/locations/<location-id>/...`, and simulated desired data
+mirrors the canonical desired roots under `input/desired/` and
+`expected/desired/`. Fixture data is repository-owned only when it is
+deliberately synthetic or sanitized. Users must not commit copied live app data
+that contains personal, secret, account-bound, opaque, native-export, or
+machine-local payloads.
 
 ### Local state data
 

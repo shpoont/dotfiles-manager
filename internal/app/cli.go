@@ -384,6 +384,7 @@ func newAppCmd(opts *rootOptions) *cobra.Command {
 	}
 	cmd.AddCommand(newAppCreateCmd(opts))
 	cmd.AddCommand(newAppValidateCmd(opts))
+	cmd.AddCommand(newAppTestCmd(opts))
 	return cmd
 }
 
@@ -447,6 +448,26 @@ func newAppValidateCmd(opts *rootOptions) *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newAppTestCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var roundtrip bool
+	var fixture string
+
+	cmd := &cobra.Command{
+		Use:   "test <target-id>",
+		Short: "Run fixture-only tests for a custom local v2 app recipe",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppTestRoundtripCommand(cmd, opts, v2appauthor.TestRoundtripOptions{TargetID: args[0], Roundtrip: roundtrip, Fixture: fixture}, jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&roundtrip, "roundtrip", false, "Run synthetic fixture roundtrip tests")
+	cmd.Flags().StringVar(&fixture, "fixture", "", "Run one roundtrip fixture by name")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
@@ -1232,6 +1253,27 @@ func runAppValidateCommand(cmd *cobra.Command, opts *rootOptions, validateOpts v
 	return runErr
 }
 
+func runAppTestRoundtripCommand(cmd *cobra.Command, opts *rootOptions, testOpts v2appauthor.TestRoundtripOptions, jsonOutput bool) error {
+	repoRoot, err := selectedPreviewRepoRootFor(opts, "app test")
+	if err != nil {
+		report := v2appTestRoundtripErrorReport(v2appauthor.CodeRepoInvalid, err.Error())
+		_ = emitAppTestRoundtripReport(cmd.OutOrStdout(), report, jsonOutput)
+		if !jsonOutput {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		}
+		return &v2appauthor.Error{Code: v2appauthor.CodeRepoInvalid, Message: err.Error(), Exit: 2}
+	}
+	testOpts.RepoRoot = repoRoot
+	report, runErr := v2appauthor.RunTestRoundtrip(testOpts)
+	if emitErr := emitAppTestRoundtripReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	if runErr != nil && !jsonOutput {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), runErr.Error())
+	}
+	return runErr
+}
+
 func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
 	repoRoot, err := recipeExplainRepoRoot(opts)
 	if err != nil {
@@ -1361,6 +1403,19 @@ func emitAppValidateReport(stdout io.Writer, report *v2appauthor.ValidateReport,
 	return err
 }
 
+func emitAppTestRoundtripReport(stdout io.Writer, report *v2appauthor.TestRoundtripReport, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2appauthor.JSONTestRoundtrip(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2appauthor.TextTestRoundtrip(report))
+	return err
+}
+
 func v2appCreateErrorReport(dryRun bool, code string, message string) *v2appauthor.CreateReport {
 	report := &v2appauthor.CreateReport{
 		Schema:        v2appauthor.CreateSchema,
@@ -1386,6 +1441,20 @@ func v2appValidateErrorReport(code string, message string) *v2appauthor.Validate
 		AppValidate:   v2appauthor.ValidateResult{Fixtures: []v2appauthor.FixtureCheck{}, Trust: v2appauthor.TrustInfo{LocalTrustState: "not-checked"}},
 		Diagnostics:   []v2appauthor.Diagnostic{{Code: code, Severity: "error", Message: message}},
 		Error:         &v2appauthor.ErrorObject{Code: code, Message: message},
+	}
+	return report
+}
+
+func v2appTestRoundtripErrorReport(code string, message string) *v2appauthor.TestRoundtripReport {
+	report := &v2appauthor.TestRoundtripReport{
+		Schema:           v2appauthor.TestRoundtripSchema,
+		SchemaVersion:    1,
+		Command:          v2appauthor.TestRoundtripCommand,
+		RunID:            v2appauthor.TestRoundtripRunID,
+		Summary:          v2appauthor.TestRoundtripSummary{Status: "blocked", Blocked: 1, Failed: 1},
+		AppTestRoundtrip: v2appauthor.TestRoundtripResult{Fixtures: []v2appauthor.RoundtripFixture{}},
+		Diagnostics:      []v2appauthor.Diagnostic{{Code: code, Severity: "error", Message: message}},
+		Error:            &v2appauthor.ErrorObject{Code: code, Message: message},
 	}
 	return report
 }
