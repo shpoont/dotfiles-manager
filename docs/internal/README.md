@@ -30,7 +30,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 - `contracts/metadata-contract.md` — metadata guarantees
 - `contracts/validation-errors.md` — error catalog + validation order
 - `contracts/logging-contract.md` — logging behavior and coverage contract
-- `contracts/ci-artifacts-contract.md` — CI-produced artifact schemas for coverage/performance gates
+- `contracts/ci-artifacts-contract.md` — CI-produced artifact schemas for
+  coverage/performance gates
 
 ## 4) Engineering docs
 
@@ -38,15 +39,23 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 - `engineering/testing-strategy.md` — test strategy and suite structure
 - `engineering/acceptance-checklist.md` — implementation readiness checklist
 - `engineering/ci-cd.md` — CI/CD requirements and release policy
-- `engineering/v2-mvp-release-candidate.md` — scoped v2 MVP release-candidate evidence and limitations
+- `engineering/v2-mvp-release-candidate.md` — scoped v2 MVP
+  release-candidate evidence and limitations
 
-## 5) Process
+## 5) UX artifacts
+
+- `ux/README.md` — internal UX artifact index
+- `ux/v2-safe-quickstart-output-storyboard.md` — expected terminal UX for
+  the safe v2 Git quickstart before #165 implementation
+
+## 6) Process
 
 - `process/documentation-governance.md` — documentation ownership/change policy
 
 ## Canonicality
 
 If documents disagree, precedence is:
+
 1. `specs/decisions.md`
 2. `contracts/*`
 3. `specs/decision-matrix.md`
