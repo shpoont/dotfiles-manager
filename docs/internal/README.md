@@ -38,6 +38,7 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 - `engineering/testing-strategy.md` — test strategy and suite structure
 - `engineering/acceptance-checklist.md` — implementation readiness checklist
 - `engineering/ci-cd.md` — CI/CD requirements and release policy
+- `engineering/v2-mvp-release-candidate.md` — scoped v2 MVP release-candidate evidence and limitations
 
 ## 5) Process
 
@@ -52,8 +53,7 @@ If documents disagree, precedence is:
 4. `engineering/acceptance-checklist.md`
 5. other summaries/overviews
 
-The draft v2 package under `specs/v2/` is not part of this current
-implementation precedence until explicitly promoted. It is implementation-prep
-material for the future v2 engine. Current v1 behavior remains governed by the
-documents above until a separate v2 migration/promotion decision updates this
-canonicality section.
+The v2 package under `specs/v2/` is the implementation-prep and audit source for
+the scoped v2 local-settings-manager release candidate. Current v1 file-sync
+behavior remains governed by the v1 decisions/contracts above where the legacy
+commands are still supported.
