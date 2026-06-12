@@ -98,8 +98,8 @@ The scoped release candidate does not promise:
 | Merge validation for this audit | after squash merge, #124 closure must cite the merge commit and green CI run |
 
 The audited product baseline is `1849bdab9ae8ad41cbdc7cc2ef00224cba5c6824`;
-the #124 documentation/audit commit (`448edfd`) and final squash-merge commit must be
-recorded in PR #164 and the issue closure after CI passes.
+the #124 documentation/audit commit is recorded in PR #164, and the final
+squash-merge commit must be recorded in the issue closure after CI passes.
 
 ## Gate matrix
 
