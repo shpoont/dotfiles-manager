@@ -217,7 +217,7 @@ func TestTextAndVerboseTextSeparateDefaultFromTechnicalDetailsForBundledGit(t *t
 	require.Contains(t, defaultText, "$HOME/.gitconfig [user] email")
 	require.Contains(t, defaultText, "Value hidden for safety")
 	require.Contains(t, defaultText, "No files changed")
-	require.Contains(t, defaultText, "dotfiles-manager save --dry-run git:user.email")
+	require.Contains(t, defaultText, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email")
 	require.NotContains(t, defaultText, "current@example.com")
 	require.NotContains(t, defaultText, "store-secret-helper")
 	for _, internal := range []string{"resource=", "driver=", "selector=", "desired://", "state=", "action=", "no-baseline", "state://"} {
@@ -1908,6 +1908,7 @@ func TestSelectedPreviewTextHelperBranches(t *testing.T) {
 	require.Equal(t, "No visible diff.", diffText(Item{}))
 	require.Equal(t, "custom message", diffText(Item{Diff: &DiffInfo{Kind: "custom", Message: "custom message"}}))
 	require.Equal(t, "A local backup would be created before writing.", backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply}))
+	require.Equal(t, "A local backup of $HOME/.gitconfig would be created before writing.", backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply, Resource: ResourceInfo{LocationID: "home", RelPath: ".gitconfig"}}))
 	require.Equal(t, "No backup was needed for this item.", backupSummaryLine(baseReport(CommandApply, false, nil), Item{Mutation: &MutationInfo{RunID: "run"}}))
 
 	require.Equal(t, "Status", commandTitle(CommandStatus))

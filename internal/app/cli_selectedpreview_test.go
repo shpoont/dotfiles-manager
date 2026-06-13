@@ -187,7 +187,7 @@ func TestV2BundledGitSelectedSettingBlockedAndMissingDefaultText(t *testing.T) {
 		require.Contains(t, stdout, "Cannot apply Git user email yet")
 		require.Contains(t, stdout, "Blocked because no saved desired value exists yet")
 		require.Contains(t, stdout, "No files changed")
-		require.Contains(t, stdout, "dotfiles-manager save --dry-run git:user.email")
+		require.Contains(t, stdout, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email")
 		require.NotContains(t, stdout, "Would update live file")
 		require.NotContains(t, stdout, "current@example.com")
 		for _, token := range forbidden {
@@ -209,6 +209,75 @@ func TestV2BundledGitSelectedSettingBlockedAndMissingDefaultText(t *testing.T) {
 			require.NotContains(t, stdout, token)
 		}
 	})
+}
+
+func TestV2BundledGitSelectedSettingReadableTranscript(t *testing.T) {
+	fixture := setupCLIV2BundledGitFixture(t)
+	setCWD(t, fixture.repoRoot)
+	helperSecret := "credential-helper-secret"
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = current@example.com\n")
+
+	forbidden := []string{"state=", "action=", "resource=", "driver=", "selector=", "desired://", "state://", "no-baseline", "current@example.com", "changed@example.com", helperSecret}
+	requireReadableDefaultOutput := func(t *testing.T, stdout string) {
+		t.Helper()
+		for _, token := range forbidden {
+			require.NotContains(t, stdout, token)
+		}
+	}
+
+	statusOut, _, err := runSelectedPreviewTextCLI(t, []string{"status", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, statusOut, "Selected, but not saved to this repo yet.")
+	require.Contains(t, statusOut, "No files changed.")
+	require.Contains(t, statusOut, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email")
+	requireReadableDefaultOutput(t, statusOut)
+
+	saveDryRunOut, _, err := runSelectedPreviewTextCLI(t, []string{"save", "--dry-run", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, saveDryRunOut, "Dry run: would save Git user email.")
+	require.Contains(t, saveDryRunOut, "No files changed.")
+	require.Contains(t, saveDryRunOut, "dotfiles-manager --config dotfiles-manager.v2.yaml save --yes --user-id leon git:user.email")
+	requireReadableDefaultOutput(t, saveDryRunOut)
+
+	saveYesOut, _, err := runSelectedPreviewTextCLI(t, []string{"save", "--yes", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, saveYesOut, "Saved Git user email as desired state.")
+	require.Contains(t, saveYesOut, "No live Git config was changed.")
+	require.Contains(t, saveYesOut, "Repo files changed.")
+	require.Contains(t, saveYesOut, "dotfiles-manager --config dotfiles-manager.v2.yaml diff --user-id leon git:user.email")
+	requireReadableDefaultOutput(t, saveYesOut)
+
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = changed@example.com\n")
+
+	diffOut, _, err := runSelectedPreviewTextCLI(t, []string{"diff", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, diffOut, "Git user email differs from saved desired state.")
+	require.Contains(t, diffOut, "Reason:\n  Live value differs from saved desired state.")
+	require.NotContains(t, diffOut, "This setting has not previously been applied by this tool; review before confirming.")
+	require.Contains(t, diffOut, "Review note:\n  This setting has not previously been applied by this tool.\n  Review the paths before confirming an apply.")
+	require.Contains(t, diffOut, "No files changed.")
+	require.Contains(t, diffOut, "dotfiles-manager --config dotfiles-manager.v2.yaml apply --dry-run --user-id leon git:user.email")
+	requireReadableDefaultOutput(t, diffOut)
+
+	applyDryRunOut, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--dry-run", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, applyDryRunOut, "Dry run: would update Git user email.")
+	require.Contains(t, applyDryRunOut, "A local backup of $HOME/.gitconfig would be created before writing.")
+	require.Contains(t, applyDryRunOut, "No files changed.")
+	require.Contains(t, applyDryRunOut, "dotfiles-manager --config dotfiles-manager.v2.yaml apply --yes --user-id leon git:user.email")
+	requireReadableDefaultOutput(t, applyDryRunOut)
+
+	applyYesOut, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--yes", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, applyYesOut, "Updated Git user email.")
+	require.Contains(t, applyYesOut, "Live files changed after backup.")
+	require.Contains(t, applyYesOut, "This was the first apply recorded by this tool for this setting.")
+	require.Contains(t, applyYesOut, "A backup was created before writing.")
+	require.Contains(t, applyYesOut, "Local backup recorded for restore as backup run ")
+	require.Contains(t, applyYesOut, "dotfiles-manager --config dotfiles-manager.v2.yaml restore ")
+	require.Contains(t, applyYesOut, " --dry-run --user-id leon")
+	require.NotContains(t, applyYesOut, "Review the paths before confirming")
+	requireReadableDefaultOutput(t, applyYesOut)
 }
 
 func TestV2BundledGitSelectedSettingVerboseTextAndJSONContract(t *testing.T) {

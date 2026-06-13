@@ -56,6 +56,7 @@ const (
 
 type Options struct {
 	Command             string
+	ConfigPath          string
 	RepoRoot            string
 	StateRoot           string
 	Ref                 string
@@ -74,15 +75,16 @@ type Options struct {
 }
 
 type Report struct {
-	Schema        string    `json:"schema"`
-	SchemaVersion int       `json:"schemaVersion"`
-	Command       string    `json:"command"`
-	RunID         string    `json:"runId"`
-	DryRun        bool      `json:"dryRun"`
-	ProfileStack  []string  `json:"profileStack"`
-	Summary       Summary   `json:"summary"`
-	Items         []Item    `json:"items"`
-	Error         *ErrorObj `json:"error,omitempty"`
+	Schema        string            `json:"schema"`
+	SchemaVersion int               `json:"schemaVersion"`
+	Command       string            `json:"command"`
+	RunID         string            `json:"runId"`
+	DryRun        bool              `json:"dryRun"`
+	ProfileStack  []string          `json:"profileStack"`
+	Summary       Summary           `json:"summary"`
+	Items         []Item            `json:"items"`
+	Error         *ErrorObj         `json:"error,omitempty"`
+	Invocation    InvocationContext `json:"-"`
 }
 
 type Summary struct {
@@ -93,6 +95,13 @@ type Summary struct {
 	Saved   int    `json:"saved"`
 	Skipped int    `json:"skipped"`
 	Failed  int    `json:"failed"`
+}
+
+type InvocationContext struct {
+	ConfigPath  string
+	MachineID   string
+	UserID      string
+	ExtraLayers []string
 }
 
 type ErrorObj struct {
@@ -279,6 +288,7 @@ func Build(opts Options) (*Report, error) {
 	}
 
 	report := baseReport(command, commandDryRun(command, opts.DryRun), profile.Layers)
+	report.Invocation = invocationContextFromOptions(opts)
 	for _, setting := range settings {
 		report.Items = append(report.Items, buildItem(profile.RepoRoot, opts.StateRoot, command, report.DryRun, setting, opts))
 	}
@@ -432,8 +442,8 @@ func singleItemDefaultText(report *Report, item Item) []string {
 		}
 	}
 
-	if item.NoBaseline {
-		lines = append(lines, "Review note:", "  This setting has not previously been applied by this tool.", "  Review the paths before confirming.", "")
+	if review := noBaselineReviewLines(report, item); len(review) > 0 {
+		lines = append(lines, review...)
 	}
 	if diagnosticsHidden(item) {
 		lines = append(lines, "Diagnostics:", "  Run again with --verbose to see technical diagnostics.", "")
@@ -781,6 +791,9 @@ func diffText(item Item) string {
 func backupSummaryLine(report *Report, item Item) string {
 	if item.Mutation == nil {
 		if report != nil && report.DryRun && report.Command == CommandApply && item.PlannedAction == PlannedActionWouldApply {
+			if label := strings.TrimSpace(livePathLabel(item)); label != "" {
+				return "A local backup of " + label + " would be created before writing."
+			}
 			return "A local backup would be created before writing."
 		}
 		return ""
@@ -792,6 +805,26 @@ func backupSummaryLine(report *Report, item Item) string {
 		return "Local backup recorded for restore as backup run " + item.Mutation.RunID + "."
 	}
 	return "Local backup recorded for restore."
+}
+
+func noBaselineReviewLines(report *Report, item Item) []string {
+	if !item.NoBaseline {
+		return nil
+	}
+	lines := []string{"Review note:", "  This setting has not previously been applied by this tool."}
+	if report != nil && report.Command == CommandApply && item.Mutation != nil {
+		lines[1] = "  This was the first apply recorded by this tool for this setting."
+		if len(item.Mutation.BackupRefs) > 0 {
+			lines = append(lines, "  A backup was created before writing.")
+		}
+		return append(lines, "")
+	}
+	if report != nil && (report.Command == CommandDiff || report.Command == CommandApply) {
+		lines = append(lines, "  Review the paths before confirming an apply.")
+	} else {
+		lines = append(lines, "  Review the paths before confirming.")
+	}
+	return append(lines, "")
 }
 
 func liveUnchangedLine(item Item) string {
@@ -845,41 +878,127 @@ func nextCommandLines(report *Report) []string {
 		return []string{"Next:", "  Review the grouped settings above, then run the matching dry-run command before confirming."}
 	}
 	ref := fallback(item.SettingRef, "<target:setting>")
-	base := "dotfiles-manager"
 	if itemBlocked(item) {
 		if item.PlannedAction == PlannedActionBlockedMissingDesired || item.Desired.Status == desired.StatusMissing {
-			return []string{"Next:", "  Preview saving the current live value:", "  " + base + " save --dry-run " + ref}
+			return []string{"Next:", "  Preview saving the current live value:", "  " + selectedCommandLine(report, CommandSave, []string{"--dry-run"}, ref)}
 		}
-		return []string{"Next:", "  Run with --verbose for technical diagnostics:", "  " + base + " " + fallback(report.Command, CommandStatus) + " --verbose " + ref}
+		return []string{"Next:", "  Run with --verbose for technical diagnostics:", "  " + selectedCommandLine(report, fallback(report.Command, CommandStatus), []string{"--verbose"}, ref)}
 	}
 	switch report.Command {
 	case CommandStatus:
 		if item.Desired.Status == desired.StatusMissing {
-			return []string{"Next:", "  Preview saving the current live value:", "  " + base + " save --dry-run " + ref}
+			return []string{"Next:", "  Preview saving the current live value:", "  " + selectedCommandLine(report, CommandSave, []string{"--dry-run"}, ref)}
 		}
 		if !itemUnchanged(item) {
-			return []string{"Next:", "  Inspect the hidden-value diff:", "  " + base + " diff " + ref}
+			return []string{"Next:", "  Inspect the hidden-value diff:", "  " + selectedCommandLine(report, CommandDiff, nil, ref)}
 		}
 	case CommandSave:
 		if report.DryRun && IsSavePlannedAction(item.PlannedAction) {
-			return []string{"To confirm:", "  " + base + " save --yes " + ref}
+			return []string{"To confirm:", "  " + selectedCommandLine(report, CommandSave, []string{"--yes"}, ref)}
 		}
 		if item.Mutation != nil {
-			return []string{"Next:", "  Inspect drift later with:", "  " + base + " diff " + ref}
+			return []string{"Next:", "  Inspect drift later with:", "  " + selectedCommandLine(report, CommandDiff, nil, ref)}
 		}
 	case CommandDiff:
 		if !itemUnchanged(item) {
-			return []string{"Next:", "  Preview applying the saved desired value:", "  " + base + " apply --dry-run " + ref}
+			return []string{"Next:", "  Preview applying the saved desired value:", "  " + selectedCommandLine(report, CommandApply, []string{"--dry-run"}, ref)}
 		}
 	case CommandApply:
 		if report.DryRun && item.PlannedAction == PlannedActionWouldApply {
-			return []string{"To confirm:", "  " + base + " apply --yes " + ref}
+			return []string{"To confirm:", "  " + selectedCommandLine(report, CommandApply, []string{"--yes"}, ref)}
 		}
 		if item.Mutation != nil && item.Mutation.RunID != "" {
-			return []string{"Next:", "  Preview restore if needed:", "  " + base + " restore " + item.Mutation.RunID + " --dry-run"}
+			return []string{"Next:", "  Preview restore if needed:", "  " + restoreCommandLine(report, item.Mutation.RunID, []string{"--dry-run"})}
 		}
 	}
 	return nil
+}
+
+func selectedCommandLine(report *Report, command string, commandFlags []string, ref string) string {
+	args := commandPrefixArgs(report)
+	args = append(args, strings.TrimSpace(command))
+	args = append(args, nonEmptyArgs(commandFlags)...)
+	args = append(args, selectedContextArgs(report)...)
+	if strings.TrimSpace(ref) != "" {
+		args = append(args, ref)
+	}
+	return shellCommandLine(args)
+}
+
+func restoreCommandLine(report *Report, runID string, commandFlags []string) string {
+	args := commandPrefixArgs(report)
+	args = append(args, "restore", strings.TrimSpace(runID))
+	args = append(args, nonEmptyArgs(commandFlags)...)
+	args = append(args, selectedContextArgs(report)...)
+	return shellCommandLine(args)
+}
+
+func commandPrefixArgs(report *Report) []string {
+	args := []string{"dotfiles-manager"}
+	configPath := ""
+	if report != nil {
+		configPath = strings.TrimSpace(report.Invocation.ConfigPath)
+	}
+	if configPath == "" {
+		configPath = resolution.RootConfigFile
+	}
+	return append(args, "--config", configPath)
+}
+
+func selectedContextArgs(report *Report) []string {
+	if report == nil {
+		return nil
+	}
+	args := []string{}
+	if report.Invocation.MachineID != "" {
+		args = append(args, "--machine-id", report.Invocation.MachineID)
+	}
+	if report.Invocation.UserID != "" {
+		args = append(args, "--user-id", report.Invocation.UserID)
+	}
+	for _, layer := range report.Invocation.ExtraLayers {
+		layer = strings.TrimSpace(layer)
+		if layer == "" {
+			continue
+		}
+		args = append(args, "--profile", layer)
+	}
+	return args
+}
+
+func nonEmptyArgs(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func shellCommandLine(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			continue
+		}
+		quoted = append(quoted, shellQuoteArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuoteArg(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	if strings.IndexFunc(arg, func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || strings.ContainsRune("._:/=-", r))
+	}) == -1 {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
 }
 
 func itemDisplayName(item Item) string {
@@ -960,8 +1079,18 @@ func humanizeInternalText(text string) string {
 		return "This setting is selected, but this repo does not have a saved desired value yet."
 	case "Existing live selected value can be promoted into desired state with save --yes; raw value remains redacted in output.":
 		return "Existing live value can be saved to this repo with save --yes; raw value remains hidden."
+	case "Current differs from desired and there is no previous sync baseline; saving will replace the desired artifact.":
+		return "Live value differs from saved desired state. Saving would replace the saved desired value."
+	case "Desired differs from current and there is no previous sync baseline; applying will replace live state.":
+		return "Saved desired value differs from live value. Applying would replace the live value."
 	case "Changed, no previous sync baseline: review diff, then choose save or apply.":
-		return "Live value differs from saved desired state. This setting has not previously been applied by this tool; review before confirming."
+		return "Live value differs from saved desired state."
+	case "State cannot be determined safely from incomplete last-applied baseline data.":
+		return "State cannot be determined safely from incomplete previous apply data."
+	case "Current differs from desired; last-applied baseline matches desired.":
+		return "Live value differs from saved desired state. The last apply recorded by this tool matches the saved desired value."
+	case "Desired differs from current; last-applied baseline matches current.":
+		return "Saved desired value differs from live value. The last apply recorded by this tool matches the current live value."
 	}
 	out = strings.ReplaceAll(out, "selected-value", "selected value")
 	out = strings.ReplaceAll(out, "selected value", "value")
@@ -1034,9 +1163,19 @@ func errorReport(opts Options, code string, message string, details map[string]a
 		command = CommandStatus
 	}
 	report := baseReport(command, opts.DryRun, nil)
+	report.Invocation = invocationContextFromOptions(opts)
 	report.Summary.Status = SummaryError
 	report.Error = &ErrorObj{Code: code, Message: message, Details: details}
 	return report
+}
+
+func invocationContextFromOptions(opts Options) InvocationContext {
+	return InvocationContext{
+		ConfigPath:  strings.TrimSpace(opts.ConfigPath),
+		MachineID:   strings.TrimSpace(opts.MachineID),
+		UserID:      strings.TrimSpace(opts.UserID),
+		ExtraLayers: append([]string(nil), opts.ExtraLayers...),
+	}
 }
 
 type parsedRef struct {
