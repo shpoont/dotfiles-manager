@@ -7,3 +7,5 @@ tests, and command documentation.
 
 - `v2-safe-quickstart-output-storyboard.md` — visual terminal storyboard for the
   safe temp-HOME Git email quickstart before #165 implementation.
+- `v2-ux-coverage-map.md` — user-flow coverage map and storyboard
+  backlog for production-ready v2 UX after #165/#169.

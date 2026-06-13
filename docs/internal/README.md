@@ -47,6 +47,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 - `ux/README.md` — internal UX artifact index
 - `ux/v2-safe-quickstart-output-storyboard.md` — expected terminal UX for
   the safe v2 Git quickstart before #165 implementation
+- `ux/v2-ux-coverage-map.md` — coverage map and storyboard backlog for
+  production-ready v2 UX after #165/#169
 
 ## 6) Process
 
