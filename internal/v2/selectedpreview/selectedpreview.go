@@ -309,6 +309,173 @@ func Text(report *Report) string {
 	if report == nil {
 		return "selected-value preview\nsummary status=error changed=0 blocked=0"
 	}
+	return defaultText(report)
+}
+
+func VerboseText(report *Report) string {
+	if report == nil {
+		return "selected-value preview\nsummary status=error changed=0 blocked=0"
+	}
+	defaultOutput := strings.TrimSpace(defaultText(report))
+	technicalOutput := strings.TrimSpace(technicalText(report))
+	if technicalOutput == "" {
+		return defaultOutput
+	}
+	lines := []string{}
+	if defaultOutput != "" {
+		lines = append(lines, defaultOutput)
+	}
+	lines = append(lines, "", "Technical details:")
+	for _, line := range strings.Split(technicalOutput, "\n") {
+		lines = append(lines, "  "+line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func defaultText(report *Report) string {
+	lines := []string{}
+	if report.Error != nil && len(report.Items) == 0 {
+		lines = append(lines, commandTitle(report.Command), "", "Blocked:", "  "+fallback(report.Error.Message, "The command could not complete."), "", "No files changed.")
+		return strings.Join(lines, "\n")
+	}
+	if len(report.Items) == 0 {
+		lines = append(lines, commandTitle(report.Command), "", "No selected settings matched this command.", "items: none", "", "No files changed.")
+		return strings.Join(lines, "\n")
+	}
+
+	if len(report.Items) == 1 {
+		lines = append(lines, singleItemDefaultText(report, report.Items[0])...)
+	} else {
+		lines = append(lines, multiItemDefaultText(report)...)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, fileChangeLine(report))
+	if report.Error != nil {
+		lines = append(lines, "", "Command result:", "  "+fallback(report.Error.Message, "The command did not complete cleanly."))
+	}
+	if next := nextCommandLines(report); len(next) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, next...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func singleItemDefaultText(report *Report, item Item) []string {
+	label := itemDisplayName(item)
+	lines := []string{singleItemHeadline(report, item, label), ""}
+
+	if status := itemStatusText(report, item); status != "" {
+		lines = append(lines, "Status:", "  "+status, "")
+	}
+	if reason := itemReasonText(item); reason != "" && item.Mutation == nil {
+		lines = append(lines, "Reason:", "  "+reason, "")
+	}
+
+	switch report.Command {
+	case CommandSave:
+		if report.DryRun {
+			lines = append(lines, "From live file:")
+		} else if item.Mutation != nil {
+			lines = append(lines, "Read from:")
+		} else {
+			lines = append(lines, "Live value:")
+		}
+		lines = append(lines, liveValueLines(item)...)
+		lines = append(lines, "")
+		if report.DryRun {
+			lines = append(lines, "Would write repo file:")
+		} else if item.Mutation != nil {
+			lines = append(lines, "Wrote repo file:")
+		} else {
+			lines = append(lines, "Repo file:")
+		}
+		lines = append(lines, "  "+desiredPathLabel(item), "")
+		if item.Mutation != nil {
+			lines = append(lines, liveUnchangedLine(item), "")
+		}
+	case CommandApply:
+		if itemBlocked(item) {
+			lines = append(lines, "Saved desired value:")
+		} else if report.DryRun {
+			lines = append(lines, "Would read desired value from:")
+		} else if item.Mutation != nil {
+			lines = append(lines, "Read desired value from:")
+		} else {
+			lines = append(lines, "Saved desired value:")
+		}
+		lines = append(lines, desiredValueLines(item)...)
+		lines = append(lines, "")
+		if itemBlocked(item) {
+			lines = append(lines, "Live value:")
+		} else if report.DryRun {
+			lines = append(lines, "Would update live file:")
+		} else if item.Mutation != nil {
+			lines = append(lines, "Updated live file:")
+		} else {
+			lines = append(lines, "Live value:")
+		}
+		lines = append(lines, livePathLines(item)...)
+		lines = append(lines, "")
+		if backup := backupSummaryLine(report, item); backup != "" {
+			lines = append(lines, "Backup:", "  "+backup, "")
+		}
+	default:
+		lines = append(lines, "Live value:")
+		lines = append(lines, liveValueLines(item)...)
+		lines = append(lines, "")
+		lines = append(lines, "Saved desired value:")
+		lines = append(lines, desiredValueLines(item)...)
+		lines = append(lines, "")
+		if report.Command == CommandDiff && item.Diff != nil {
+			lines = append(lines, "Diff:", "  "+diffText(item), "")
+		}
+	}
+
+	if item.NoBaseline {
+		lines = append(lines, "Review note:", "  This setting has not previously been applied by this tool.", "  Review the paths before confirming.", "")
+	}
+	if diagnosticsHidden(item) {
+		lines = append(lines, "Diagnostics:", "  Run again with --verbose to see technical diagnostics.", "")
+	}
+	return trimTrailingBlank(lines)
+}
+
+func multiItemDefaultText(report *Report) []string {
+	counts := defaultCounts(report)
+	lines := []string{fmt.Sprintf("Checked %d selected settings.", len(report.Items)), ""}
+	lines = append(lines, fmt.Sprintf("Summary: %d changed, %d unchanged, %d blocked.", counts.changed, counts.unchanged, counts.blocked), "")
+	if report.DryRun {
+		lines = append(lines, "Dry run: no files were changed.", "")
+	}
+	groups := groupItemsByTarget(report.Items)
+	targets := make([]string, 0, len(groups))
+	for target := range groups {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	for _, target := range targets {
+		items := groups[target]
+		lines = append(lines, targetDisplayName(target))
+		for _, item := range items {
+			line := "  - " + itemDisplayName(item) + ": " + itemStatusText(report, item)
+			lines = append(lines, line)
+			if reason := itemReasonText(item); reason != "" && itemBlocked(item) {
+				lines = append(lines, "    Reason: "+reason)
+			}
+			if item.NoBaseline {
+				lines = append(lines, "    Review: not previously applied by this tool; review before confirming.")
+			}
+		}
+		lines = append(lines, "")
+	}
+	return trimTrailingBlank(lines)
+}
+
+func technicalText(report *Report) string {
+	if report == nil {
+		return "selected-value preview\nsummary status=error changed=0 blocked=0"
+	}
 	lines := []string{fmt.Sprintf("selected-value %s", report.Command)}
 	if len(report.ProfileStack) > 0 {
 		lines = append(lines, "profile: "+strings.Join(report.ProfileStack, " -> "))
@@ -330,6 +497,9 @@ func Text(report *Report) string {
 		lines = append(lines, line)
 		if item.Resource.DriverID != "" {
 			lines = append(lines, fmt.Sprintf("    resource=%s driver=%s selector=%s", item.Resource.ID, item.Resource.DriverID, item.Selector.Summary))
+		}
+		if item.DesiredURI != "" || item.DesiredRelPath != "" {
+			lines = append(lines, fmt.Sprintf("    desiredArtifact=%s desiredPath=%s", item.DesiredURI, item.DesiredRelPath))
 		}
 		if item.Preview != nil && item.Preview.ReadOnly {
 			lines = append(lines, "    mode=read-only (save/apply unsupported)")
@@ -365,6 +535,455 @@ func Text(report *Report) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s changed=%d blocked=%d saved=%d applied=%d", report.Summary.Status, report.Summary.Changed, report.Summary.Blocked, report.Summary.Saved, report.Summary.Applied))
 	return strings.Join(lines, "\n")
+}
+
+type textCounts struct {
+	changed   int
+	unchanged int
+	blocked   int
+}
+
+func defaultCounts(report *Report) textCounts {
+	counts := textCounts{}
+	if report == nil {
+		return counts
+	}
+	for _, item := range report.Items {
+		switch {
+		case itemBlocked(item):
+			counts.blocked++
+		case itemUnchanged(item):
+			counts.unchanged++
+		default:
+			counts.changed++
+		}
+	}
+	return counts
+}
+
+func commandTitle(command string) string {
+	switch command {
+	case CommandStatus:
+		return "Status"
+	case CommandDiff:
+		return "Diff"
+	case CommandSave:
+		return "Save"
+	case CommandApply:
+		return "Apply"
+	default:
+		return "Selected settings"
+	}
+}
+
+func singleItemHeadline(report *Report, item Item, label string) string {
+	if report == nil {
+		return label
+	}
+	if itemBlocked(item) {
+		if report != nil {
+			switch report.Command {
+			case CommandApply:
+				return "Cannot apply " + label + " yet."
+			case CommandSave:
+				return "Cannot save " + label + " yet."
+			}
+		}
+		return label + " is blocked."
+	}
+	if item.Mutation != nil {
+		switch report.Command {
+		case CommandSave:
+			if item.Mutated || report.Summary.Saved > 0 {
+				return "Saved " + label + " as desired state."
+			}
+			return label + " was already saved."
+		case CommandApply:
+			if item.Mutated || report.Summary.Applied > 0 {
+				return "Updated " + label + "."
+			}
+			return label + " was already up to date."
+		}
+	}
+	if report.DryRun {
+		switch report.Command {
+		case CommandSave:
+			if IsSavePlannedAction(item.PlannedAction) {
+				return "Dry run: would save " + label + "."
+			}
+		case CommandApply:
+			if item.PlannedAction == PlannedActionWouldApply {
+				return "Dry run: would update " + label + "."
+			}
+		}
+	}
+	if report.Command == CommandDiff && !itemUnchanged(item) {
+		return label + " differs from saved desired state."
+	}
+	return label
+}
+
+func itemStatusText(report *Report, item Item) string {
+	if report != nil && item.Mutation != nil {
+		switch report.Command {
+		case CommandSave:
+			return "Saved desired value now exists in this repo."
+		case CommandApply:
+			return "Applied the saved desired value to the live file."
+		}
+	}
+	if itemBlocked(item) {
+		if item.PlannedAction == PlannedActionBlockedMissingDesired || item.State == v2status.StateMissingDesired || item.Desired.Status == desired.StatusMissing {
+			return "Blocked because no saved desired value exists yet."
+		}
+		return "Blocked; no files will be changed."
+	}
+	if item.Preview != nil && item.Preview.ReadOnly {
+		return "read-only; save/apply is not supported for this setting."
+	}
+	if item.Desired.Status == desired.StatusUnmanaged || item.Desired.Unmanaged {
+		return "Intentionally unmanaged."
+	}
+	if item.Desired.Status == desired.StatusMissing {
+		if item.Current.Exists {
+			return "Selected, but not saved to this repo yet."
+		}
+		return "Selected, but neither a live value nor a saved desired value exists yet."
+	}
+	if itemUnchanged(item) {
+		return "Up to date with saved desired state."
+	}
+	if report != nil {
+		switch report.Command {
+		case CommandSave:
+			if IsSavePlannedAction(item.PlannedAction) {
+				if item.Current.Exists {
+					return "Current live value can be saved to this repo."
+				}
+				return "Live value is missing; saving would record that desired state."
+			}
+		case CommandApply:
+			if item.PlannedAction == PlannedActionWouldApply {
+				return "Saved desired value can be applied to the live file."
+			}
+		case CommandDiff:
+			if item.Diff != nil {
+				return "Live value differs from saved desired state."
+			}
+		}
+	}
+	if item.Current.Exists && item.Desired.Snapshot.Exists {
+		return "Live value differs from saved desired state."
+	}
+	if item.Current.Exists {
+		return "Live value exists."
+	}
+	return "Live value is missing."
+}
+
+func itemReasonText(item Item) string {
+	if item.Message != "" {
+		return humanizeInternalText(item.Message)
+	}
+	if itemBlocked(item) {
+		return "Safety policy blocked this item. Run with --verbose for technical diagnostics."
+	}
+	return ""
+}
+
+func liveValueLines(item Item) []string {
+	lines := livePathLines(item)
+	if item.Current.Exists {
+		lines = append(lines, "  Value hidden for safety.")
+	} else {
+		lines = append(lines, "  No live value found.")
+	}
+	return lines
+}
+
+func desiredValueLines(item Item) []string {
+	path := desiredPathLabel(item)
+	if item.Desired.Status == desired.StatusMissing || path == "not created yet" {
+		return []string{"  Not created yet."}
+	}
+	lines := []string{"  " + path}
+	if desiredExists(item) {
+		lines = append(lines, "  Value hidden for safety.")
+	}
+	return lines
+}
+
+func livePathLines(item Item) []string {
+	label := livePathLabel(item)
+	if selector := strings.TrimSpace(item.Selector.Summary); selector != "" && selector != label && !strings.Contains(label, selector) {
+		label += " " + selector
+	}
+	return []string{"  " + label}
+}
+
+func livePathLabel(item Item) string {
+	if item.Resource.LocationID == "home" && strings.TrimSpace(item.Resource.RelPath) != "" {
+		return "$HOME/" + strings.TrimPrefix(filepath.ToSlash(item.Resource.RelPath), "/")
+	}
+	if strings.TrimSpace(item.Resource.Path) != "" {
+		return item.Resource.Path
+	}
+	if strings.TrimSpace(item.Resource.RelPath) != "" {
+		if item.Resource.LocationID != "" {
+			return item.Resource.LocationID + ":" + filepath.ToSlash(item.Resource.RelPath)
+		}
+		return filepath.ToSlash(item.Resource.RelPath)
+	}
+	if strings.TrimSpace(item.Resource.ID) != "" {
+		return item.Resource.ID
+	}
+	return item.SettingRef
+}
+
+func desiredPathLabel(item Item) string {
+	if strings.TrimSpace(item.DesiredRelPath) != "" {
+		return filepath.ToSlash(item.DesiredRelPath)
+	}
+	if strings.TrimSpace(item.DesiredURI) == "" {
+		return "not created yet"
+	}
+	return desiredURIToPath(item.DesiredURI)
+}
+
+func desiredURIToPath(uri string) string {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(uri), "desired://")
+	if trimmed == "" {
+		return "not created yet"
+	}
+	if before, _, ok := strings.Cut(trimmed, "#"); ok {
+		if strings.HasSuffix(before, "/settings") {
+			return "desired/" + before + ".yaml"
+		}
+		return "desired/" + before
+	}
+	return "desired/" + trimmed
+}
+
+func desiredExists(item Item) bool {
+	return item.Desired.Status == desired.StatusPresent || item.Desired.Snapshot.Exists
+}
+
+func diffText(item Item) string {
+	if item.Diff == nil {
+		return "No visible diff."
+	}
+	if item.Diff.Mode == "metadata-only" {
+		return "Values are hidden; only metadata is compared."
+	}
+	return humanizeInternalText(fallback(item.Diff.Message, item.Diff.Kind))
+}
+
+func backupSummaryLine(report *Report, item Item) string {
+	if item.Mutation == nil {
+		if report != nil && report.DryRun && report.Command == CommandApply && item.PlannedAction == PlannedActionWouldApply {
+			return "A local backup would be created before writing."
+		}
+		return ""
+	}
+	if len(item.Mutation.BackupRefs) == 0 {
+		return "No backup was needed for this item."
+	}
+	if strings.TrimSpace(item.Mutation.RunID) != "" {
+		return "Local backup recorded for restore as backup run " + item.Mutation.RunID + "."
+	}
+	return "Local backup recorded for restore."
+}
+
+func liveUnchangedLine(item Item) string {
+	return fmt.Sprintf("No live %s config was changed.", targetDisplayName(item.TargetRef))
+}
+
+func fileChangeLine(report *Report) string {
+	if report == nil {
+		return "No files changed."
+	}
+	if report.DryRun || report.Command == CommandStatus || report.Command == CommandDiff || report.Summary.Status == SummaryBlocked || report.Summary.Status == SummaryError {
+		return "No files changed."
+	}
+	switch report.Command {
+	case CommandSave:
+		if report.Summary.Saved > 0 || report.Summary.Changed > 0 {
+			return "Repo files changed."
+		}
+	case CommandApply:
+		if report.Summary.Applied > 0 || report.Summary.Changed > 0 {
+			if reportHasBackupRefs(report) {
+				return "Live files changed after backup."
+			}
+			return "Live files changed."
+		}
+	}
+	return "No files changed."
+}
+
+func reportHasBackupRefs(report *Report) bool {
+	if report == nil {
+		return false
+	}
+	for _, item := range report.Items {
+		if item.Mutation != nil && len(item.Mutation.BackupRefs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func nextCommandLines(report *Report) []string {
+	if report == nil || len(report.Items) == 0 {
+		return nil
+	}
+	item := report.Items[0]
+	if len(report.Items) > 1 {
+		if defaultCounts(report).blocked > 0 {
+			return []string{"Next:", "  Run with --verbose to see technical diagnostics for blocked items."}
+		}
+		return []string{"Next:", "  Review the grouped settings above, then run the matching dry-run command before confirming."}
+	}
+	ref := fallback(item.SettingRef, "<target:setting>")
+	base := "dotfiles-manager"
+	if itemBlocked(item) {
+		if item.PlannedAction == PlannedActionBlockedMissingDesired || item.Desired.Status == desired.StatusMissing {
+			return []string{"Next:", "  Preview saving the current live value:", "  " + base + " save --dry-run " + ref}
+		}
+		return []string{"Next:", "  Run with --verbose for technical diagnostics:", "  " + base + " " + fallback(report.Command, CommandStatus) + " --verbose " + ref}
+	}
+	switch report.Command {
+	case CommandStatus:
+		if item.Desired.Status == desired.StatusMissing {
+			return []string{"Next:", "  Preview saving the current live value:", "  " + base + " save --dry-run " + ref}
+		}
+		if !itemUnchanged(item) {
+			return []string{"Next:", "  Inspect the hidden-value diff:", "  " + base + " diff " + ref}
+		}
+	case CommandSave:
+		if report.DryRun && IsSavePlannedAction(item.PlannedAction) {
+			return []string{"To confirm:", "  " + base + " save --yes " + ref}
+		}
+		if item.Mutation != nil {
+			return []string{"Next:", "  Inspect drift later with:", "  " + base + " diff " + ref}
+		}
+	case CommandDiff:
+		if !itemUnchanged(item) {
+			return []string{"Next:", "  Preview applying the saved desired value:", "  " + base + " apply --dry-run " + ref}
+		}
+	case CommandApply:
+		if report.DryRun && item.PlannedAction == PlannedActionWouldApply {
+			return []string{"To confirm:", "  " + base + " apply --yes " + ref}
+		}
+		if item.Mutation != nil && item.Mutation.RunID != "" {
+			return []string{"Next:", "  Preview restore if needed:", "  " + base + " restore " + item.Mutation.RunID + " --dry-run"}
+		}
+	}
+	return nil
+}
+
+func itemDisplayName(item Item) string {
+	settingID := item.SettingRef
+	if _, rest, ok := strings.Cut(settingID, ":"); ok {
+		settingID = rest
+	}
+	return strings.TrimSpace(targetDisplayName(item.TargetRef) + " " + wordsFromID(settingID))
+}
+
+func targetDisplayName(target string) string {
+	switch strings.TrimSpace(target) {
+	case "git":
+		return "Git"
+	case "zsh":
+		return "Zsh"
+	case "tmux":
+		return "tmux"
+	case "nvim":
+		return "Neovim"
+	case "ssh":
+		return "SSH"
+	case "starship":
+		return "Starship"
+	case "":
+		return "Selected setting"
+	default:
+		return titleWords(strings.ReplaceAll(target, ".", " "))
+	}
+}
+
+func titleWords(value string) string {
+	parts := strings.Fields(value)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, " ")
+}
+
+func wordsFromID(id string) string {
+	parts := strings.Fields(strings.NewReplacer(".", " ", "-", " ", "_", " ").Replace(id))
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToLower(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+func itemBlocked(item Item) bool {
+	if strings.HasPrefix(item.PlannedAction, "blocked-") {
+		return true
+	}
+	switch item.State {
+	case v2status.StateBlockedSafety, v2status.StateBlockedLifecycle, v2status.StateUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+func itemUnchanged(item Item) bool {
+	return item.State == v2status.StateUnchanged || item.PlannedAction == PlannedActionNone
+}
+
+func diagnosticsHidden(item Item) bool {
+	return len(item.Diagnostics) > 0 && !itemBlocked(item)
+}
+
+func humanizeInternalText(text string) string {
+	out := strings.TrimSpace(text)
+	switch out {
+	case "Setting is selected but no desired artifact exists.":
+		return "This setting is selected, but this repo does not have a saved desired value yet."
+	case "Existing live selected value can be promoted into desired state with save --yes; raw value remains redacted in output.":
+		return "Existing live value can be saved to this repo with save --yes; raw value remains hidden."
+	case "Changed, no previous sync baseline: review diff, then choose save or apply.":
+		return "Live value differs from saved desired state. This setting has not previously been applied by this tool; review before confirming."
+	}
+	out = strings.ReplaceAll(out, "selected-value", "selected value")
+	out = strings.ReplaceAll(out, "selected value", "value")
+	out = strings.ReplaceAll(out, "desired artifact", "saved desired value")
+	out = strings.ReplaceAll(out, "Desired value artifact", "Saved desired value")
+	out = strings.ReplaceAll(out, "no desired artifact", "no saved desired value")
+	return out
+}
+
+func groupItemsByTarget(items []Item) map[string][]Item {
+	groups := map[string][]Item{}
+	for _, item := range items {
+		groups[item.TargetRef] = append(groups[item.TargetRef], item)
+	}
+	return groups
+}
+
+func trimTrailingBlank(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func normalizeCommand(command string) (string, error) {

@@ -200,6 +200,43 @@ func TestBuildUsesBundledGitRuntimeForSelectedIdentitySettings(t *testing.T) {
 	}
 }
 
+func TestTextAndVerboseTextSeparateDefaultFromTechnicalDetailsForBundledGit(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureForTarget(t, recipe.GitTarget, "user.email")
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".gitconfig"), "[credential]\n\thelper = store-secret-helper\n[user]\n\temail = current@example.com\n")
+	roots := map[string]map[string]string{recipe.GitTarget: {"home": home}}
+
+	report, err := Build(Options{Command: CommandStatus, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "git:user.email", UserID: "leon", LocationRoots: roots})
+	require.NoError(t, err)
+
+	defaultText := Text(report)
+	require.Contains(t, defaultText, "Git user email")
+	require.Contains(t, defaultText, "Selected, but not saved to this repo yet")
+	require.Contains(t, defaultText, "$HOME/.gitconfig [user] email")
+	require.Contains(t, defaultText, "Value hidden for safety")
+	require.Contains(t, defaultText, "No files changed")
+	require.Contains(t, defaultText, "dotfiles-manager save --dry-run git:user.email")
+	require.NotContains(t, defaultText, "current@example.com")
+	require.NotContains(t, defaultText, "store-secret-helper")
+	for _, internal := range []string{"resource=", "driver=", "selector=", "desired://", "state=", "action=", "no-baseline", "state://"} {
+		require.NotContains(t, defaultText, internal)
+	}
+
+	verboseText := VerboseText(report)
+	require.Contains(t, verboseText, "Selected, but not saved to this repo yet")
+	require.Contains(t, verboseText, "Technical details:")
+	require.Contains(t, verboseText, "selected-value status")
+	require.Contains(t, verboseText, "resource=user-email")
+	require.Contains(t, verboseText, "driver=ini-file")
+	require.Contains(t, verboseText, "selector=[user] email")
+	require.Contains(t, verboseText, "desired://user/leon/targets/git/settings#user.email")
+	require.Contains(t, verboseText, "state=missing-desired")
+	require.NotContains(t, verboseText, "current@example.com")
+	require.NotContains(t, verboseText, "store-secret-helper")
+}
+
 func TestBuildUsesBundledZshFileResourceRuntime(t *testing.T) {
 	t.Parallel()
 
@@ -1825,6 +1862,134 @@ func writeFileTreeResourceDesired(t *testing.T, fixture fixture, target string, 
 	return root
 }
 
+func TestSelectedPreviewTextHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	errorText := Text(ErrorReport(CommandApply, false, "safe.code", "safe message", nil))
+	require.Contains(t, errorText, "Blocked:")
+	require.Contains(t, errorText, "safe message")
+	noItemsText := Text(baseReport(CommandDiff, false, nil))
+	require.Contains(t, noItemsText, "No selected settings matched this command")
+	require.Contains(t, noItemsText, "items: none")
+
+	multi := baseReport(CommandStatus, true, []string{"global"})
+	multi.Items = []Item{
+		{TargetRef: "git", SettingRef: "git:user.email", Desired: DesiredInfo{Status: desired.StatusMissing}, Current: Snapshot{Exists: true}, Resource: ResourceInfo{LocationID: "home", RelPath: ".gitconfig"}, Selector: SelectorInfo{Summary: "[user] email"}, Message: "Setting is selected but no desired artifact exists."},
+		{TargetRef: "starship", SettingRef: "starship:add_newline", State: v2status.StateUnchanged, Desired: DesiredInfo{Status: desired.StatusPresent, Snapshot: Snapshot{Exists: true}}, Current: Snapshot{Exists: true}},
+		{TargetRef: "unknown.app", SettingRef: "unknown.app:foo_bar", State: v2status.StateBlockedSafety, Message: "blocked message", NoBaseline: true},
+	}
+	multiText := Text(multi)
+	require.Contains(t, multiText, "Checked 3 selected settings")
+	require.Contains(t, multiText, "Summary: 1 changed, 1 unchanged, 1 blocked")
+	require.Contains(t, multiText, "Git")
+	require.Contains(t, multiText, "Starship")
+	require.Contains(t, multiText, "Unknown App")
+	require.Contains(t, multiText, "blocked message")
+	require.Contains(t, multiText, "not previously applied by this tool")
+	require.Contains(t, multiText, "No files changed")
+
+	applyNoBackup := baseReport(CommandApply, false, nil)
+	applyNoBackup.Summary = Summary{Status: SummaryChanged, Changed: 1, Applied: 1}
+	applyNoBackup.Items = []Item{{TargetRef: "file.app", SettingRef: "file.app:identity.email", Mutation: &MutationInfo{RunID: "run-no-backup"}}}
+	require.Equal(t, "Live files changed.", fileChangeLine(applyNoBackup))
+	require.False(t, reportHasBackupRefs(applyNoBackup))
+
+	applyWithBackup := baseReport(CommandApply, false, nil)
+	applyWithBackup.Summary = Summary{Status: SummaryChanged, Changed: 1, Applied: 1}
+	applyWithBackup.Items = []Item{{TargetRef: "file.app", SettingRef: "file.app:identity.email", Mutation: &MutationInfo{RunID: "run-backup", BackupRefs: []string{"state://backups/run-backup/item"}}}}
+	require.Equal(t, "Live files changed after backup.", fileChangeLine(applyWithBackup))
+	require.True(t, reportHasBackupRefs(applyWithBackup))
+	require.Contains(t, backupSummaryLine(applyWithBackup, applyWithBackup.Items[0]), "backup run run-backup")
+
+	saveChanged := baseReport(CommandSave, false, nil)
+	saveChanged.Summary = Summary{Status: SummaryChanged, Changed: 1, Saved: 1}
+	require.Equal(t, "Repo files changed.", fileChangeLine(saveChanged))
+	require.Equal(t, "No files changed.", fileChangeLine(nil))
+	require.Equal(t, "No visible diff.", diffText(Item{}))
+	require.Equal(t, "custom message", diffText(Item{Diff: &DiffInfo{Kind: "custom", Message: "custom message"}}))
+	require.Equal(t, "A local backup would be created before writing.", backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply}))
+	require.Equal(t, "No backup was needed for this item.", backupSummaryLine(baseReport(CommandApply, false, nil), Item{Mutation: &MutationInfo{RunID: "run"}}))
+
+	require.Equal(t, "Status", commandTitle(CommandStatus))
+	require.Equal(t, "Save", commandTitle(CommandSave))
+	require.Equal(t, "Apply", commandTitle(CommandApply))
+	require.Equal(t, "Selected settings", commandTitle("other"))
+	require.Equal(t, "fallback", defaultString("  ", "fallback"))
+	require.Equal(t, "value", defaultString("value", "fallback"))
+	require.Equal(t, "No live Git config was changed.", liveUnchangedLine(Item{TargetRef: "git"}))
+	require.Equal(t, "desired/user/leon/targets/git/settings.yaml", desiredURIToPath("desired://user/leon/targets/git/settings#user.email"))
+	require.Equal(t, "desired/shared/targets/app/artifacts/config", desiredURIToPath("desired://shared/targets/app/artifacts/config"))
+	require.Equal(t, "not created yet", desiredURIToPath(""))
+	require.Equal(t, "config:file.yaml", livePathLabel(Item{Resource: ResourceInfo{LocationID: "config", RelPath: "file.yaml"}}))
+	require.Equal(t, "resource-id", livePathLabel(Item{Resource: ResourceInfo{ID: "resource-id"}}))
+	require.Equal(t, "desired/user/leon/targets/app/settings.yaml", desiredPathLabel(Item{DesiredURI: "desired://user/leon/targets/app/settings#value"}))
+	require.Equal(t, "not created yet", desiredPathLabel(Item{}))
+	require.Equal(t, "Fancy App", targetDisplayName("fancy.app"))
+	require.Equal(t, "Fancy App", titleWords("fancy APP"))
+	require.Equal(t, "foo bar baz", wordsFromID("foo-bar_baz"))
+
+	require.Equal(t, "selected-value preview\nsummary status=error changed=0 blocked=0", technicalText(nil))
+	require.Equal(t, "unknown", nativeExportDiffInfo("").Kind)
+	require.Equal(t, "update", nativeExportDiffInfo("update").Kind)
+}
+
+func TestSelectedPreviewDefaultNarrativeBranchMatrix(t *testing.T) {
+	t.Parallel()
+
+	label := "Git user email"
+	baseItem := Item{TargetRef: "git", SettingRef: "git:user.email", Current: Snapshot{Exists: true}, Desired: DesiredInfo{Status: desired.StatusPresent, Snapshot: Snapshot{Exists: true}}, Diff: diffInfo("update")}
+
+	require.Equal(t, label, singleItemHeadline(nil, baseItem, label))
+	require.Equal(t, "Cannot apply "+label+" yet.", singleItemHeadline(baseReport(CommandApply, false, nil), Item{State: v2status.StateBlockedSafety}, label))
+	require.Equal(t, "Cannot save "+label+" yet.", singleItemHeadline(baseReport(CommandSave, false, nil), Item{State: v2status.StateBlockedSafety}, label))
+	require.Equal(t, label+" is blocked.", singleItemHeadline(baseReport(CommandStatus, false, nil), Item{State: v2status.StateBlockedSafety}, label))
+	require.Equal(t, "Saved "+label+" as desired state.", singleItemHeadline(&Report{Command: CommandSave, Summary: Summary{Saved: 1}}, Item{Mutation: &MutationInfo{}}, label))
+	require.Equal(t, label+" was already saved.", singleItemHeadline(baseReport(CommandSave, false, nil), Item{Mutation: &MutationInfo{}}, label))
+	require.Equal(t, "Updated "+label+".", singleItemHeadline(&Report{Command: CommandApply, Summary: Summary{Applied: 1}}, Item{Mutation: &MutationInfo{}}, label))
+	require.Equal(t, label+" was already up to date.", singleItemHeadline(baseReport(CommandApply, false, nil), Item{Mutation: &MutationInfo{}}, label))
+	require.Equal(t, "Dry run: would save "+label+".", singleItemHeadline(baseReport(CommandSave, true, nil), Item{PlannedAction: PlannedActionWouldSave}, label))
+	require.Equal(t, "Dry run: would update "+label+".", singleItemHeadline(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply}, label))
+	require.Equal(t, label+" differs from saved desired state.", singleItemHeadline(baseReport(CommandDiff, false, nil), baseItem, label))
+
+	require.Equal(t, "Saved desired value now exists in this repo.", itemStatusText(baseReport(CommandSave, false, nil), Item{Mutation: &MutationInfo{}}))
+	require.Equal(t, "Applied the saved desired value to the live file.", itemStatusText(baseReport(CommandApply, false, nil), Item{Mutation: &MutationInfo{}}))
+	require.Equal(t, "Blocked because no saved desired value exists yet.", itemStatusText(baseReport(CommandApply, false, nil), Item{PlannedAction: PlannedActionBlockedMissingDesired}))
+	require.Equal(t, "Blocked; no files will be changed.", itemStatusText(baseReport(CommandStatus, false, nil), Item{State: v2status.StateBlockedSafety}))
+	require.Equal(t, "read-only; save/apply is not supported for this setting.", itemStatusText(baseReport(CommandStatus, false, nil), Item{Preview: &PreviewInfo{ReadOnly: true}}))
+	require.Equal(t, "Intentionally unmanaged.", itemStatusText(baseReport(CommandStatus, false, nil), Item{Desired: DesiredInfo{Status: desired.StatusUnmanaged}}))
+	require.Equal(t, "Selected, but neither a live value nor a saved desired value exists yet.", itemStatusText(baseReport(CommandStatus, false, nil), Item{Desired: DesiredInfo{Status: desired.StatusMissing}}))
+	require.Equal(t, "Up to date with saved desired state.", itemStatusText(baseReport(CommandStatus, false, nil), Item{State: v2status.StateUnchanged}))
+	require.Equal(t, "Current live value can be saved to this repo.", itemStatusText(baseReport(CommandSave, true, nil), Item{Current: Snapshot{Exists: true}, PlannedAction: PlannedActionWouldSave}))
+	require.Equal(t, "Live value is missing; saving would record that desired state.", itemStatusText(baseReport(CommandSave, true, nil), Item{PlannedAction: PlannedActionWouldSave}))
+	require.Equal(t, "Saved desired value can be applied to the live file.", itemStatusText(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply}))
+	require.Equal(t, "Live value differs from saved desired state.", itemStatusText(baseReport(CommandDiff, false, nil), Item{Diff: diffInfo("update")}))
+	require.Equal(t, "Live value differs from saved desired state.", itemStatusText(nil, Item{Current: Snapshot{Exists: true}, Desired: DesiredInfo{Snapshot: Snapshot{Exists: true}}}))
+	require.Equal(t, "Live value exists.", itemStatusText(nil, Item{Current: Snapshot{Exists: true}}))
+	require.Equal(t, "Live value is missing.", itemStatusText(nil, Item{}))
+	require.Equal(t, "This setting is selected, but this repo does not have a saved desired value yet.", itemReasonText(Item{Message: "Setting is selected but no desired artifact exists."}))
+	require.Contains(t, itemReasonText(Item{State: v2status.StateBlockedSafety}), "Safety policy blocked")
+	require.Empty(t, itemReasonText(Item{}))
+
+	blockedMulti := baseReport(CommandStatus, false, nil)
+	blockedMulti.Items = []Item{{State: v2status.StateBlockedSafety}, {State: v2status.StateUnchanged}}
+	require.Contains(t, strings.Join(nextCommandLines(blockedMulti), "\n"), "technical diagnostics")
+	okMulti := baseReport(CommandStatus, false, nil)
+	okMulti.Items = []Item{{State: v2status.StateChangedCurrent}, {State: v2status.StateUnchanged}}
+	require.Contains(t, strings.Join(nextCommandLines(okMulti), "\n"), "Review the grouped settings")
+	require.Nil(t, nextCommandLines(nil))
+
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandApply, Items: []Item{{SettingRef: "git:user.email", PlannedAction: PlannedActionBlockedMissingDesired, Desired: DesiredInfo{Status: desired.StatusMissing}}}}), "\n"), "save --dry-run git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandStatus, Items: []Item{{SettingRef: "git:user.email", State: v2status.StateBlockedSafety}}}), "\n"), "status --verbose git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandStatus, Items: []Item{{SettingRef: "git:user.email", Desired: DesiredInfo{Status: desired.StatusMissing}}}}), "\n"), "save --dry-run git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandStatus, Items: []Item{{SettingRef: "git:user.email", Current: Snapshot{Exists: true}, Desired: DesiredInfo{Snapshot: Snapshot{Exists: true}}}}}), "\n"), "diff git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandSave, DryRun: true, Items: []Item{{SettingRef: "git:user.email", PlannedAction: PlannedActionWouldSave}}}), "\n"), "save --yes git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandSave, Items: []Item{{SettingRef: "git:user.email", Mutation: &MutationInfo{}}}}), "\n"), "diff git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandDiff, Items: []Item{{SettingRef: "git:user.email", Current: Snapshot{Exists: true}, Desired: DesiredInfo{Snapshot: Snapshot{Exists: true}}}}}), "\n"), "apply --dry-run git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandApply, DryRun: true, Items: []Item{{SettingRef: "git:user.email", PlannedAction: PlannedActionWouldApply}}}), "\n"), "apply --yes git:user.email")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandApply, Items: []Item{{Mutation: &MutationInfo{RunID: "run-restore"}}}}), "\n"), "restore run-restore --dry-run")
+	require.Nil(t, nextCommandLines(&Report{Command: CommandStatus, Items: []Item{{State: v2status.StateUnchanged}}}))
+}
+
 func TestRemainingHelperBranches(t *testing.T) {
 	t.Parallel()
 
@@ -1919,7 +2084,14 @@ func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
 		},
 		Diagnostics: []Diagnostic{{Severity: SeverityWarning, Code: "safe.warning", Message: "safe diagnostic"}},
 	}}
-	richText := Text(richReport)
+	defaultRichText := Text(richReport)
+	require.Contains(t, defaultRichText, "Applied the saved desired value to the live file")
+	require.NotContains(t, defaultRichText, "MODE: DRY RUN")
+	require.NotContains(t, defaultRichText, "state://backups")
+
+	richText := VerboseText(richReport)
+	require.Contains(t, richText, "Applied the saved desired value to the live file")
+	require.Contains(t, richText, "Technical details:")
 	require.Contains(t, richText, "MODE: DRY RUN")
 	require.Contains(t, richText, "profile: global -> user/leon")
 	require.Contains(t, richText, "backups=state://backups/run-rich/items/config-email")
