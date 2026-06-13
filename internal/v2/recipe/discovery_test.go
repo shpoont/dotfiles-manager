@@ -100,6 +100,100 @@ func TestDiscoverClassifiesBundledTargetStatesWithFixtures(t *testing.T) {
 	})
 }
 
+func TestFriendlyDiscoveryHelpersCoverFallbackBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, friendlyDiscoverErrorText(&DiscoverReport{Error: &ExplainErrorObject{Message: "boom"}}), "boom")
+	require.Contains(t, friendlyDiscoverErrorText(nil), "The command could not complete.")
+
+	require.Equal(t, "Raycast", friendlyDiscoverTargetName(DiscoveredTarget{DisplayName: "Raycast"}))
+	require.Equal(t, "Custom App", friendlyDiscoverTargetName(DiscoveredTarget{ID: "custom.app"}))
+	require.Equal(t, "App", friendlyDiscoverTargetName(DiscoveredTarget{}))
+
+	stateCases := map[string]string{
+		DiscoverStateConfigPresent:       "installed or configured; a known config file is present",
+		DiscoverStateInstalled:           "installed; no known config file found yet",
+		DiscoverStateConfigMissing:       "supported, but no known config file found",
+		DiscoverStateUnsupportedPlatform: "not supported on this platform",
+		DiscoverStateAmbiguous:           "needs review because detection was ambiguous",
+		DiscoverStateNotApplicable:       "detection is not applicable",
+		"":                               "not checked",
+		"custom-state":                   "custom state",
+	}
+	for state, want := range stateCases {
+		t.Run("state "+state, func(t *testing.T) {
+			require.Equal(t, want, friendlyDiscoverState(DiscoveredTarget{State: state}))
+		})
+	}
+
+	probeCases := map[string]string{
+		"installed":        "installed",
+		"present":          "present",
+		"config-present":   "present",
+		"missing":          "missing",
+		"config-missing":   "missing",
+		"ambiguous":        "needs review",
+		"config-ambiguous": "needs review",
+		"not-applicable":   "not applicable",
+		"":                 "not checked",
+		"custom-state":     "custom state",
+	}
+	for state, want := range probeCases {
+		t.Run("probe "+state, func(t *testing.T) {
+			require.Equal(t, want, friendlyProbeState(state))
+		})
+	}
+
+	require.Equal(t, "", pluralWord(1))
+	require.Equal(t, "s", pluralWord(2))
+}
+
+func TestDiscoverFriendlyTextCoversResultBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, DiscoverText(nil), "The command could not complete.")
+	require.Contains(t, DiscoverText(&DiscoverReport{Error: &ExplainErrorObject{Message: "boom"}}), "boom")
+	require.Contains(t, DiscoverText(&DiscoverReport{}), "No supported apps were found")
+
+	report := &DiscoverReport{Discovery: DiscoveryResult{
+		Targets: []DiscoveredTarget{
+			{
+				ID:          GitTarget,
+				DisplayName: "Git",
+				State:       DiscoverStateConfigPresent,
+				CommandProbes: []DiscoveryCommandProbe{{
+					Command: "git",
+					State:   "installed",
+				}},
+				ConfigProbes: []DiscoveryConfigProbe{{
+					LocationID: "home",
+					Path:       ".gitconfig",
+					State:      "config-present",
+				}},
+				Diagnostics: []ExplainDiagnostic{{Severity: ExplainSeverityError, Message: "config blocked"}},
+			},
+			{
+				ID:    "custom.app",
+				State: "custom-state",
+			},
+		},
+		Diagnostics: []ExplainDiagnostic{{Message: "global discovery issue"}},
+	}}
+	text := DiscoverText(report)
+	require.Contains(t, text, "Git")
+	require.Contains(t, text, "Detected: installed or configured")
+	require.Contains(t, text, "Commands:")
+	require.Contains(t, text, "git — installed")
+	require.Contains(t, text, "$HOME/.gitconfig — present")
+	require.Contains(t, text, "Supported settings:")
+	require.Contains(t, text, "Not managed:")
+	require.Contains(t, text, "Problem: config blocked")
+	require.Contains(t, text, "Next:")
+	require.Contains(t, text, "Custom App")
+	require.Contains(t, text, "global discovery issue")
+	require.Contains(t, text, "Summary: 2 apps checked.")
+}
+
 func TestDiscoverAmbiguousConfigStatesAreStableAndNonTraversing(t *testing.T) {
 	t.Parallel()
 
@@ -191,9 +285,14 @@ func TestDiscoverJSONTextAndUnknownTargetAreStable(t *testing.T) {
 	require.Contains(t, jsonPayload, `"state": "config-present"`)
 	require.NotContains(t, jsonPayload, home)
 	textPayload := DiscoverText(report)
-	require.Contains(t, textPayload, "recipe discover")
-	require.Contains(t, textPayload, "git state=config-present")
+	require.Contains(t, textPayload, "Discover supported app settings")
+	require.Contains(t, textPayload, "Git")
+	require.Contains(t, textPayload, "$HOME/.gitconfig — present")
+	require.NotContains(t, textPayload, "state=config-present")
 	require.NotContains(t, textPayload, home)
+	verboseText := DiscoverVerboseText(report)
+	require.Contains(t, verboseText, "recipe discover")
+	require.Contains(t, verboseText, "git state=config-present")
 
 	errorReport, err := Discover(DiscoverOptions{Target: "missing"})
 	require.Error(t, err)
@@ -212,7 +311,8 @@ func TestDiscoverJSONTextAndUnknownTargetAreStable(t *testing.T) {
 	nilJSON, err := DiscoverJSON(nil)
 	require.NoError(t, err)
 	require.Contains(t, nilJSON, `"status": "error"`)
-	require.Equal(t, "recipe discover\nsummary status=error targets=0", DiscoverText(nil))
+	require.Contains(t, DiscoverText(nil), "The command could not complete")
+	require.Equal(t, "recipe discover\nsummary status=error targets=0", DiscoverVerboseText(nil))
 }
 
 func TestDiscoverInternalHelpers(t *testing.T) {

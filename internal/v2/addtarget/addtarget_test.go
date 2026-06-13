@@ -61,6 +61,10 @@ func TestAddHappyPathTextAndJSONSnapshots(t *testing.T) {
 
 	report, err := Run(Options{RepoRoot: root, Target: "git", Yes: true, DiscoverOptions: testDiscoverOptions(t)})
 	require.NoError(t, err)
+	require.Contains(t, Text(report), "Selected Git settings.")
+	require.Contains(t, Text(report), "No live app config was changed.")
+	require.NotContains(t, Text(report), "resource=")
+	require.NotContains(t, Text(report), "driver=")
 	require.Equal(t, `add git
 profile stack: default [global]
 profile layer: global
@@ -71,7 +75,7 @@ discovery: installed binary=installed config=config-missing platform=unknown
   git:user.name action=add scope=user (Me on all my machines)
     resource=user-name driver=ini-file location=home:.gitconfig selector=[user] name
     next: dotfiles-manager status git:user.name | dotfiles-manager save --dry-run git:user.name | dotfiles-manager sync git:user.name
-summary status=changed planned=2 written=2 unchanged=0 blocked=0 failed=0`, Text(report))
+summary status=changed planned=2 written=2 unchanged=0 blocked=0 failed=0`, VerboseText(report))
 
 	payload, err := JSON(report)
 	require.NoError(t, err)
@@ -267,6 +271,111 @@ func TestRunRejectsSymlinkedProfileLayerParents(t *testing.T) {
 	})
 }
 
+func TestFriendlyAddRendererHelpersCoverFallbackBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "Custom App", addTargetDisplayName(AddTarget{ID: "custom.app"}))
+	require.Equal(t, "app", addTargetDisplayName(AddTarget{}))
+	require.Equal(t, "Git", addTargetDisplayName(AddTarget{ID: "git", DisplayName: "Git"}))
+
+	require.Equal(t, "user email", addSettingLabel(SettingChoice{ID: "user.email"}))
+	require.Equal(t, "chosen label", addSettingLabel(SettingChoice{ID: "user.email", Label: "chosen label"}))
+	require.Equal(t, "git:user.email", addSettingLabel(SettingChoice{Ref: "git:user.email"}))
+
+	dryRun := &Report{DryRun: true}
+	confirmed := &Report{}
+	require.Equal(t, "Would select", friendlyAddSettingAction(dryRun, "add"))
+	require.Equal(t, "Selected", friendlyAddSettingAction(confirmed, "add"))
+	require.Equal(t, "Already selected", friendlyAddSettingAction(confirmed, "unchanged"))
+	require.Equal(t, "Selected", friendlyAddSettingAction(confirmed, ""))
+	require.Equal(t, "Needs Review", friendlyAddSettingAction(confirmed, "needs review"))
+
+	report := &Report{
+		Add: AddResult{
+			Target:                  AddTarget{ID: "git"},
+			DestinationProfileLayer: "work",
+			Settings: []SettingChoice{
+				{ID: "user.email", Ref: "git:user.email", Scope: "user"},
+				{ID: "credential-helper", Ref: "git:credential-helper"},
+			},
+		},
+	}
+	require.Equal(t, "dotfiles-manager --config dotfiles-manager.v2.yaml add git --setting user.email --setting credential-helper --scope user --profile work --yes", addConfirmCommandLine(report))
+	require.Empty(t, addConfirmCommandLine(nil))
+	require.Empty(t, addConfirmCommandLine(&Report{}))
+	require.Equal(t, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run git:user.email", addNextSaveCommandLine("git:user.email"))
+
+	require.Equal(t, "user email", wordsFromID("user.email"))
+	require.Equal(t, "ssh private key", wordsFromID("ssh-private_key"))
+	require.Equal(t, "Custom App", titleWords("custom app"))
+	require.Equal(t, []string{"line"}, trimBlank([]string{"line", "", "  "}))
+}
+
+func TestAddFriendlyTextCoversResultBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, Text(nil), "The command could not complete.")
+
+	errorReport := &Report{
+		Error: &ErrorObject{Message: "choose settings"},
+		Add: AddResult{MissingChoices: []MissingChoice{{
+			Message:     "Choose a setting.",
+			Recommended: []string{"user.email"},
+			Allowed:     []string{"user.email", "user.name"},
+		}}},
+	}
+	errorText := Text(errorReport)
+	require.Contains(t, errorText, "choose settings")
+	require.Contains(t, errorText, "Recommended: user.email")
+	require.Contains(t, errorText, "Allowed: user.email, user.name")
+
+	noSettings := &Report{Add: AddResult{Target: AddTarget{ID: "git", DisplayName: "Git"}}}
+	require.Contains(t, Text(noSettings), "Git settings are already selected.")
+	require.Contains(t, Text(noSettings), "No settings were selected.")
+
+	dryRun := &Report{
+		DryRun: true,
+		Add: AddResult{
+			Target:                  AddTarget{ID: "git", DisplayName: "Git"},
+			DestinationProfileLayer: "work",
+			Settings: []SettingChoice{{
+				Ref:        "git:user.email",
+				ID:         "user.email",
+				Label:      "User email",
+				Scope:      "user",
+				ScopeLabel: "Me on all my machines",
+				Action:     "add",
+			}},
+			MissingChoices: []MissingChoice{{Message: "Choose a scope.", Allowed: []string{"user", "machine"}}},
+		},
+		Diagnostics: []Diagnostic{{Severity: SeverityError, Message: "Scope conflict"}},
+	}
+	dryText := Text(dryRun)
+	require.Contains(t, dryText, "Preview: select Git settings.")
+	require.Contains(t, dryText, "No profile files will be changed in this preview.")
+	require.Contains(t, dryText, "git:user.email — User email")
+	require.Contains(t, dryText, "Profile layer: work")
+	require.Contains(t, dryText, "To confirm:")
+	require.Contains(t, dryText, "Problem:")
+	require.Contains(t, dryText, "Summary: 1 selected setting for git.")
+
+	written := &Report{
+		Summary: Summary{Written: 1},
+		Add: AddResult{Target: AddTarget{ID: "git", DisplayName: "Git"}, Settings: []SettingChoice{{
+			Ref:        "git:user.name",
+			ID:         "user.name",
+			Scope:      "user",
+			ScopeLabel: "Me on all my machines",
+			Action:     "unchanged",
+		}}},
+	}
+	writtenText := Text(written)
+	require.Contains(t, writtenText, "Selected Git settings.")
+	require.Contains(t, writtenText, "Already selected: git:user.name — user name")
+	require.Contains(t, writtenText, "Preview saving the current live value as desired state:")
+	require.Contains(t, writtenText, "Summary: 1 selected setting for git.")
+}
+
 func TestRunInteractivePromptsAndValidationBranches(t *testing.T) {
 	t.Parallel()
 
@@ -347,7 +456,8 @@ func TestRenderersPromptsAndHelpers(t *testing.T) {
 	require.Contains(t, nilJSON, `"status": "error"`)
 	_, err = JSON(&Report{Error: &ErrorObject{Details: map[string]any{"bad": func() {}}}})
 	require.Error(t, err)
-	require.Contains(t, Text(nil), "summary status=error")
+	require.Contains(t, Text(nil), "The command could not complete")
+	require.Contains(t, VerboseText(nil), "summary status=error")
 	require.Equal(t, "", (*Error)(nil).Error())
 	require.Equal(t, 1, (*Error)(nil).ExitCode())
 	require.Equal(t, 1, (&Error{}).ExitCode())
@@ -365,11 +475,14 @@ func TestRenderersPromptsAndHelpers(t *testing.T) {
 	report.Error = &ErrorObject{Code: "sample", Message: "sample error"}
 	finish(report)
 	text := Text(report)
-	require.Contains(t, text, "MODE: DRY RUN")
-	require.Contains(t, text, "discovery: installed")
-	require.Contains(t, text, "missing choice: settings")
-	require.Contains(t, text, "git:user.email")
-	require.Contains(t, text, "error[sample]")
+	require.Contains(t, text, "Command result")
+	require.Contains(t, text, "sample error")
+	verboseText := VerboseText(report)
+	require.Contains(t, verboseText, "MODE: DRY RUN")
+	require.Contains(t, verboseText, "discovery: installed")
+	require.Contains(t, verboseText, "missing choice: settings")
+	require.Contains(t, verboseText, "git:user.email")
+	require.Contains(t, verboseText, "error[sample]")
 	payload, err := JSON(report)
 	require.NoError(t, err)
 	require.Contains(t, payload, `"command": "add"`)
@@ -664,11 +777,13 @@ func TestRemainingBranchEdges(t *testing.T) {
 		report.Add.Target = AddTarget{ID: "ssh"}
 		report.Add.Settings = []SettingChoice{{Ref: "ssh:config", ID: "config", Scope: "user", ScopeLabel: ScopeLabel("user"), Artifact: "artifacts/config", Action: "add"}}
 		finish(report)
-		require.Contains(t, Text(report), "artifact=artifacts/config")
+		require.NotContains(t, Text(report), "artifact=artifacts/config")
+		require.Contains(t, VerboseText(report), "artifact=artifacts/config")
 
 		empty := baseReport(false)
 		empty.Add.Target = AddTarget{ID: "empty"}
-		require.Contains(t, Text(empty), "settings: none")
+		require.Contains(t, Text(empty), "No settings were selected")
+		require.Contains(t, VerboseText(empty), "settings: none")
 		blocked := baseReport(false)
 		blocked.Summary.Blocked = 1
 		finish(blocked)

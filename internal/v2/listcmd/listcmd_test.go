@@ -42,9 +42,14 @@ selections:
 	require.Contains(t, strings.Join(item.NextActions, "\n"), "dotfiles-manager sync git:user.email")
 
 	text := Text(report)
-	require.Contains(t, text, "location=home:.gitconfig")
-	require.Contains(t, text, "desired=desired://user/leon/targets/git/settings#user.email")
-	require.NotContains(t, text, "resource group")
+	require.Contains(t, text, "Selected settings")
+	require.Contains(t, text, "git:user.email — User email")
+	require.Contains(t, text, "Desired state: not saved yet")
+	require.NotContains(t, text, "desired://")
+	require.NotContains(t, text, "resource=")
+	verbose := VerboseText(report)
+	require.Contains(t, verbose, "location=home:.gitconfig")
+	require.Contains(t, verbose, "desired=desired://user/leon/targets/git/settings#user.email")
 
 	payload, err := JSON(report)
 	require.NoError(t, err)
@@ -65,6 +70,8 @@ selections:
 
 	report, err := Run(Options{RepoRoot: repoRoot, StateRoot: filepath.Join(t.TempDir(), "state"), UserID: "leon"})
 	require.NoError(t, err)
+	require.Contains(t, Text(report), "Selected settings")
+	require.Contains(t, Text(report), "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email")
 	require.Equal(t, `list
 profile stack: default [global]
 managed settings:
@@ -73,7 +80,7 @@ managed settings:
     resource=user-email driver=ini-file location=home:.gitconfig selector=[user] email
     desired=desired://user/leon/targets/git/settings#user.email
     next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email | dotfiles-manager sync git:user.email
-summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, Text(report))
+summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, VerboseText(report))
 
 	payload, err := JSON(report)
 	require.NoError(t, err)
@@ -346,7 +353,8 @@ func TestRenderAndHelperBranches(t *testing.T) {
 	require.NoError(t, realErr)
 	require.Equal(t, realTempWD, root)
 
-	require.Contains(t, Text(nil), "summary status=error")
+	require.Contains(t, Text(nil), "The command could not complete")
+	require.Contains(t, VerboseText(nil), "summary status=error")
 	nilJSON, err := JSON(nil)
 	require.NoError(t, err)
 	require.Contains(t, nilJSON, `"status": "error"`)
@@ -369,10 +377,12 @@ func TestRenderAndHelperBranches(t *testing.T) {
 	report.Error = &ErrorObject{Code: "e", Message: "error"}
 	finish(report)
 	text := Text(report)
-	require.Contains(t, text, "missing identity: machine-id,user-id")
-	require.Contains(t, text, "artifact=artifacts/config")
-	require.Contains(t, text, "warning[d]")
-	require.Contains(t, text, "error[e]")
+	require.Contains(t, text, "Command result")
+	verboseText := VerboseText(report)
+	require.Contains(t, verboseText, "missing identity: machine-id,user-id")
+	require.Contains(t, verboseText, "artifact=artifacts/config")
+	require.Contains(t, verboseText, "warning[d]")
+	require.Contains(t, verboseText, "error[e]")
 	_, err = JSON(&Report{Error: &ErrorObject{Details: map[string]any{"bad": func() {}}}})
 	require.Error(t, err)
 	require.Equal(t, "", (*Error)(nil).Error())
@@ -407,6 +417,55 @@ func TestRenderAndHelperBranches(t *testing.T) {
 	require.Error(t, err)
 	_, _, err = desiredBinding("user", "leon", "git", "user.email", "manifest.yaml#bad")
 	require.Error(t, err)
+}
+
+func TestFriendlyListHelpersCoverFallbackBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "Git", targetDisplayName("git"))
+	require.Equal(t, "Starship", targetDisplayName("starship"))
+	require.Equal(t, "Zsh", targetDisplayName("zsh"))
+	require.Equal(t, "tmux", targetDisplayName("tmux"))
+	require.Equal(t, "Neovim", targetDisplayName("nvim"))
+	require.Equal(t, "SSH", targetDisplayName("ssh"))
+	require.Equal(t, "Selected target", targetDisplayName(""))
+	require.Equal(t, "Custom App", targetDisplayName("custom.app"))
+
+	require.Equal(t, "user email", wordsFromID("user.email"))
+	require.Equal(t, "ssh private key", wordsFromID("ssh-private_key"))
+	require.Equal(t, "Custom App", titleWords("custom app"))
+	require.Equal(t, "", plural(1))
+	require.Equal(t, "s", plural(2))
+	require.Equal(t, []string{"line"}, trimBlank([]string{"line", "", "  "}))
+
+	require.Equal(t, "Saved label", settingLabel(ManagedSetting{Setting: SettingInfo{ID: "user.email", Label: "Saved label"}, Ref: "git:user.email"}))
+	require.Equal(t, "user email", settingLabel(ManagedSetting{Setting: SettingInfo{ID: "user.email"}, Ref: "git:user.email"}))
+	require.Equal(t, "git:user.email", settingLabel(ManagedSetting{Ref: "git:user.email"}))
+	require.Equal(t, "saved", friendlyDesiredSaved(ManagedSetting{DesiredSaved: true}))
+	require.Equal(t, "not saved yet", friendlyDesiredSaved(ManagedSetting{}))
+
+	unresolved := ManagedSetting{Ref: "git:user.name", Subject: SubjectInfo{Resolved: false}}
+	resolved := ManagedSetting{Ref: "git:user.email", Subject: SubjectInfo{Resolved: true}}
+	got := firstActionableListSetting([]ManagedSetting{unresolved, resolved})
+	require.NotNil(t, got)
+	require.Equal(t, "git:user.email", got.Ref)
+	got = firstActionableListSetting([]ManagedSetting{unresolved})
+	require.NotNil(t, got)
+	require.Equal(t, "git:user.name", got.Ref)
+	require.Nil(t, firstActionableListSetting(nil))
+
+	require.Equal(t, "dotfiles-manager --config dotfiles-manager.v2.yaml status --user-id leon git:user.email", listCommandLine("status", "git:user.email", "leon"))
+	require.Equal(t, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run git:user.email", listCommandLine("save", "git:user.email", "-"))
+
+	root := t.TempDir()
+	rel := filepath.ToSlash(filepath.Join("desired", "user", "leon", "targets", "git", "settings.yaml"))
+	writeListFile(t, filepath.Join(root, rel), "user.email: leon@example.com\n")
+	require.True(t, desiredArtifactExists(root, rel))
+	require.False(t, desiredArtifactExists(root, ""))
+	require.False(t, desiredArtifactExists(root, "missing.yaml"))
+	dirRel := filepath.ToSlash(filepath.Join("desired", "dir"))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, dirRel), 0o755))
+	require.False(t, desiredArtifactExists(root, dirRel))
 }
 
 func setupListRepo(t *testing.T, stack []string, layers map[string]string) string {

@@ -28,6 +28,42 @@ func TestAppHelpRegistersCreateValidateAndTest(t *testing.T) {
 	require.NotContains(t, text, "edit")
 }
 
+func TestAppAuthorErrorReportsAndEmittersCoverBlockedBranches(t *testing.T) {
+	t.Parallel()
+
+	create := v2appCreateErrorReport(true, v2appauthor.CodeRepoInvalid, "repo missing")
+	require.True(t, create.DryRun)
+	require.Equal(t, "blocked", create.Summary.Status)
+	require.Equal(t, "repo missing", create.Error.Message)
+	require.Empty(t, create.AppCreate.Files)
+	var stdout bytes.Buffer
+	require.NoError(t, emitAppCreateReport(&stdout, create, false))
+	require.Contains(t, stdout.String(), "repo missing")
+	stdout.Reset()
+	require.NoError(t, emitAppCreateReport(&stdout, create, true))
+	require.Contains(t, stdout.String(), `"repo missing"`)
+
+	validate := v2appValidateErrorReport(v2appauthor.CodeRepoInvalid, "validate missing")
+	require.Equal(t, "blocked", validate.Summary.Status)
+	require.Equal(t, "not-checked", validate.AppValidate.Trust.LocalTrustState)
+	stdout.Reset()
+	require.NoError(t, emitAppValidateReport(&stdout, validate, false))
+	require.Contains(t, stdout.String(), "validate missing")
+	stdout.Reset()
+	require.NoError(t, emitAppValidateReport(&stdout, validate, true))
+	require.Contains(t, stdout.String(), `"validate missing"`)
+
+	roundtrip := v2appTestRoundtripErrorReport(v2appauthor.CodeRepoInvalid, "roundtrip missing")
+	require.Equal(t, "blocked", roundtrip.Summary.Status)
+	require.Empty(t, roundtrip.AppTestRoundtrip.Fixtures)
+	stdout.Reset()
+	require.NoError(t, emitAppTestRoundtripReport(&stdout, roundtrip, false))
+	require.Contains(t, stdout.String(), "roundtrip missing")
+	stdout.Reset()
+	require.NoError(t, emitAppTestRoundtripReport(&stdout, roundtrip, true))
+	require.Contains(t, stdout.String(), `"roundtrip missing"`)
+}
+
 func TestAppCreateAndValidateJSONThroughRootCLI(t *testing.T) {
 	repoRoot := setupAppCLIRepo(t)
 	setCWD(t, repoRoot)

@@ -168,6 +168,73 @@ func DiscoverJSON(report *DiscoverReport) (string, error) {
 
 func DiscoverText(report *DiscoverReport) string {
 	if report == nil {
+		return "Discover supported app settings\n\nCommand result:\n  The command could not complete.\n"
+	}
+	if report.Error != nil {
+		return friendlyDiscoverErrorText(report)
+	}
+	lines := []string{"Discover supported app settings", ""}
+	if len(report.Discovery.Targets) == 0 {
+		lines = append(lines, "No supported apps were found in the selected recipe set.")
+	} else {
+		for _, target := range report.Discovery.Targets {
+			lines = append(lines, friendlyDiscoverTargetName(target))
+			lines = append(lines, "  Detected: "+friendlyDiscoverState(target))
+			if len(target.CommandProbes) > 0 {
+				lines = append(lines, "  Commands:")
+				for _, probe := range target.CommandProbes {
+					lines = append(lines, fmt.Sprintf("    %s — %s", probe.Command, friendlyProbeState(probe.State)))
+				}
+			}
+			if len(target.ConfigProbes) > 0 {
+				lines = append(lines, "  Config files:")
+				for _, probe := range target.ConfigProbes {
+					lines = append(lines, fmt.Sprintf("    %s — %s", friendlyProbeLocation(probe.LocationID, probe.Path), friendlyProbeState(probe.State)))
+				}
+			}
+			if explain, ok := bundledExplain(target.ID); ok {
+				if len(explain.Settings) > 0 {
+					lines = append(lines, "  Supported settings:")
+					for _, setting := range explain.Settings {
+						lines = append(lines, fmt.Sprintf("    %s — %s", setting.Ref, friendlySettingLabel(setting)))
+					}
+				}
+				if len(explain.Safety.DoNotManage) > 0 {
+					lines = append(lines, "  Not managed:")
+					for _, item := range explain.Safety.DoNotManage {
+						lines = append(lines, "    - "+item)
+					}
+				}
+			}
+			for _, diagnostic := range target.Diagnostics {
+				if diagnostic.Severity == ExplainSeverityError {
+					lines = append(lines, "  Problem: "+diagnostic.Message)
+				}
+			}
+			if first := friendlyFirstDiscoverSetting(target.ID); first != nil {
+				lines = append(lines, "  Next:", "    "+friendlyRecipeAddCommand(target.ID, first.ID, first.DefaultScope))
+			}
+			lines = append(lines, "")
+		}
+	}
+	if len(report.Discovery.Diagnostics) > 0 {
+		lines = append(lines, "Problems:")
+		for _, diagnostic := range report.Discovery.Diagnostics {
+			lines = append(lines, "  "+diagnostic.Message)
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, fmt.Sprintf("Summary: %d app%s checked.", len(report.Discovery.Targets), pluralWord(len(report.Discovery.Targets))))
+	lines = append(lines, "Use --verbose for detection probe details.")
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func DiscoverVerboseText(report *DiscoverReport) string {
+	return discoverTechnicalText(report)
+}
+
+func discoverTechnicalText(report *DiscoverReport) string {
+	if report == nil {
 		return "recipe discover\nsummary status=error targets=0"
 	}
 	var lines []string
@@ -203,6 +270,86 @@ func DiscoverText(report *DiscoverReport) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s targets=%d", report.Summary.Status, len(report.Discovery.Targets)))
 	return strings.Join(lines, "\n")
+}
+
+func friendlyDiscoverErrorText(report *DiscoverReport) string {
+	lines := []string{"Discover supported app settings", "", "Command result:"}
+	if report != nil && report.Error != nil {
+		lines = append(lines, "  "+report.Error.Message)
+	} else {
+		lines = append(lines, "  The command could not complete.")
+	}
+	lines = append(lines, "", "No files changed.", "", "Run with --verbose for technical details.")
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func friendlyDiscoverTargetName(target DiscoveredTarget) string {
+	if strings.TrimSpace(target.DisplayName) != "" {
+		return target.DisplayName
+	}
+	if strings.TrimSpace(target.ID) != "" {
+		return titleWords(strings.ReplaceAll(target.ID, ".", " "))
+	}
+	return "App"
+}
+
+func friendlyDiscoverState(target DiscoveredTarget) string {
+	switch target.State {
+	case DiscoverStateConfigPresent:
+		return "installed or configured; a known config file is present"
+	case DiscoverStateInstalled:
+		return "installed; no known config file found yet"
+	case DiscoverStateConfigMissing:
+		return "supported, but no known config file found"
+	case DiscoverStateUnsupportedPlatform:
+		return "not supported on this platform"
+	case DiscoverStateAmbiguous:
+		return "needs review because detection was ambiguous"
+	case DiscoverStateNotApplicable:
+		return "detection is not applicable"
+	case "":
+		return "not checked"
+	default:
+		return strings.ReplaceAll(target.State, "-", " ")
+	}
+}
+
+func friendlyProbeState(state string) string {
+	switch state {
+	case "installed":
+		return "installed"
+	case "present", "config-present":
+		return "present"
+	case "missing", "config-missing":
+		return "missing"
+	case "ambiguous", "config-ambiguous":
+		return "needs review"
+	case "not-applicable":
+		return "not applicable"
+	case "":
+		return "not checked"
+	default:
+		return strings.ReplaceAll(state, "-", " ")
+	}
+}
+
+func friendlyProbeLocation(locationID string, path string) string {
+	return friendlyResourceLocation(ExplainResource{LocationID: locationID, Path: path})
+}
+
+func friendlyFirstDiscoverSetting(targetID string) *ExplainSetting {
+	explain, ok := bundledExplain(targetID)
+	if !ok {
+		return nil
+	}
+	return firstManageableSetting(explain.Settings)
+}
+
+func pluralWord(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func baseDiscoverReport() *DiscoverReport {

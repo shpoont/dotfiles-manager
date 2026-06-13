@@ -274,6 +274,85 @@ func JSON(report *Report) (string, error) {
 
 func Text(report *Report) string {
 	if report == nil {
+		return "Select app settings\n\nCommand result:\n  The command could not complete.\n"
+	}
+	if report.Error != nil {
+		return friendlyAddErrorText(report)
+	}
+	targetName := addTargetDisplayName(report.Add.Target)
+	targetID := strings.TrimSpace(report.Add.Target.ID)
+	lines := []string{}
+	if report.DryRun {
+		lines = append(lines, fmt.Sprintf("Preview: select %s settings.", targetName))
+	} else if report.Summary.Written > 0 {
+		lines = append(lines, fmt.Sprintf("Selected %s settings.", targetName))
+	} else {
+		lines = append(lines, fmt.Sprintf("%s settings are already selected.", targetName))
+	}
+	lines = append(lines, "")
+	if report.DryRun {
+		lines = append(lines, "No profile files will be changed in this preview.", "")
+	}
+	if len(report.Add.Settings) == 0 {
+		lines = append(lines, "No settings were selected.")
+	} else {
+		if report.DryRun {
+			lines = append(lines, "Would select:")
+		} else {
+			lines = append(lines, "Selection:")
+		}
+		for _, setting := range report.Add.Settings {
+			action := friendlyAddSettingAction(report, setting.Action)
+			if report.DryRun && action == "Would select" {
+				lines = append(lines, fmt.Sprintf("  %s — %s", setting.Ref, addSettingLabel(setting)))
+			} else {
+				lines = append(lines, fmt.Sprintf("  %s: %s — %s", action, setting.Ref, addSettingLabel(setting)))
+			}
+			lines = append(lines, fmt.Sprintf("    Scope: %s — %s", setting.Scope, setting.ScopeLabel))
+			if report.Add.DestinationProfileLayer != "" {
+				lines = append(lines, "    Profile layer: "+report.Add.DestinationProfileLayer)
+			}
+		}
+	}
+	if len(report.Add.MissingChoices) > 0 {
+		lines = append(lines, "", "Needs input:")
+		for _, choice := range report.Add.MissingChoices {
+			lines = append(lines, "  "+choice.Message)
+			if len(choice.Recommended) > 0 {
+				lines = append(lines, "    Recommended: "+strings.Join(choice.Recommended, ", "))
+			}
+			if len(choice.Allowed) > 0 {
+				lines = append(lines, "    Allowed: "+strings.Join(choice.Allowed, ", "))
+			}
+		}
+	}
+	lines = append(lines, "", "No live app config was changed.")
+	if report.DryRun {
+		if cmd := addConfirmCommandLine(report); cmd != "" {
+			lines = append(lines, "", "To confirm:", "  "+cmd)
+		}
+	} else if first := firstAddSetting(report.Add.Settings); first != nil {
+		lines = append(lines, "", "Next:", "  Preview saving the current live value as desired state:", "  "+addNextSaveCommandLine(first.Ref))
+	}
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Severity == SeverityError {
+			lines = append(lines, "", "Problem:", "  "+diagnostic.Message)
+		}
+	}
+	if targetID != "" && targetID != targetName {
+		lines = append(lines, "", fmt.Sprintf("Summary: %d selected setting%s for %s.", len(report.Add.Settings), addPlural(len(report.Add.Settings)), targetID))
+	} else {
+		lines = append(lines, "", fmt.Sprintf("Summary: %d selected setting%s.", len(report.Add.Settings), addPlural(len(report.Add.Settings))))
+	}
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func VerboseText(report *Report) string {
+	return technicalText(report)
+}
+
+func technicalText(report *Report) string {
+	if report == nil {
 		return "add\nsummary status=error planned=0 written=0 unchanged=0"
 	}
 	lines := []string{"add " + report.Add.Target.ID}
@@ -330,6 +409,133 @@ func Text(report *Report) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s planned=%d written=%d unchanged=%d blocked=%d failed=%d", report.Summary.Status, report.Summary.Planned, report.Summary.Written, report.Summary.Unchanged, report.Summary.Blocked, report.Summary.Failed))
 	return strings.Join(lines, "\n")
+}
+
+func friendlyAddErrorText(report *Report) string {
+	lines := []string{"Select app settings", "", "Command result:"}
+	if report != nil && report.Error != nil {
+		lines = append(lines, "  "+report.Error.Message)
+	} else {
+		lines = append(lines, "  The command could not complete.")
+	}
+	if report != nil && len(report.Add.MissingChoices) > 0 {
+		lines = append(lines, "", "Needs input:")
+		for _, choice := range report.Add.MissingChoices {
+			lines = append(lines, "  "+choice.Message)
+			if len(choice.Recommended) > 0 {
+				lines = append(lines, "    Recommended: "+strings.Join(choice.Recommended, ", "))
+			}
+			if len(choice.Allowed) > 0 {
+				lines = append(lines, "    Allowed: "+strings.Join(choice.Allowed, ", "))
+			}
+		}
+	}
+	lines = append(lines, "", "No profile files changed.", "No live app config changed.", "", "Run with --verbose for technical details.")
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func addTargetDisplayName(target AddTarget) string {
+	if strings.TrimSpace(target.DisplayName) != "" {
+		return target.DisplayName
+	}
+	if strings.TrimSpace(target.ID) != "" {
+		return titleWords(strings.ReplaceAll(target.ID, ".", " "))
+	}
+	return "app"
+}
+
+func addSettingLabel(setting SettingChoice) string {
+	if strings.TrimSpace(setting.Label) != "" {
+		return setting.Label
+	}
+	if strings.TrimSpace(setting.ID) != "" {
+		return wordsFromID(setting.ID)
+	}
+	return setting.Ref
+}
+
+func friendlyAddSettingAction(report *Report, action string) string {
+	switch action {
+	case "add":
+		if report != nil && report.DryRun {
+			return "Would select"
+		}
+		return "Selected"
+	case "unchanged":
+		return "Already selected"
+	default:
+		if action == "" {
+			return "Selected"
+		}
+		return titleWords(action)
+	}
+}
+
+func addConfirmCommandLine(report *Report) string {
+	if report == nil || strings.TrimSpace(report.Add.Target.ID) == "" {
+		return ""
+	}
+	args := []string{"dotfiles-manager", "--config", resolution.RootConfigFile, "add", report.Add.Target.ID}
+	for _, setting := range report.Add.Settings {
+		if strings.TrimSpace(setting.ID) != "" {
+			args = append(args, "--setting", setting.ID)
+		}
+	}
+	if first := firstAddSetting(report.Add.Settings); first != nil && strings.TrimSpace(first.Scope) != "" {
+		args = append(args, "--scope", first.Scope)
+	}
+	if strings.TrimSpace(report.Add.DestinationProfileLayer) != "" {
+		args = append(args, "--profile", report.Add.DestinationProfileLayer)
+	}
+	args = append(args, "--yes")
+	return strings.Join(args, " ")
+}
+
+func addNextSaveCommandLine(ref string) string {
+	return strings.Join([]string{"dotfiles-manager", "--config", resolution.RootConfigFile, "save", "--dry-run", ref}, " ")
+}
+
+func firstAddSetting(settings []SettingChoice) *SettingChoice {
+	if len(settings) == 0 {
+		return nil
+	}
+	return &settings[0]
+}
+
+func wordsFromID(id string) string {
+	parts := strings.Fields(strings.NewReplacer(".", " ", "-", " ", "_", " ").Replace(id))
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToLower(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+func titleWords(value string) string {
+	parts := strings.Fields(value)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, " ")
+}
+
+func addPlural(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func trimBlank(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func baseReport(dryRun bool) *Report {

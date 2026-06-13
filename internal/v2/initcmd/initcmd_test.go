@@ -46,6 +46,9 @@ func TestInitHappyPathTextAndJSONSnapshots(t *testing.T) {
 
 	report, err := Run(Options{RepoRoot: repoRoot, StateRoot: stateRoot, Yes: true, Hostname: "snapshot-machine", LocalAccountName: "snapshot-user"})
 	require.NoError(t, err)
+	require.Contains(t, Text(report), "Initialized dotfiles-manager v2 workspace.")
+	require.Contains(t, Text(report), "Machine: snapshot-machine")
+	require.NotContains(t, Text(report), "state://identity")
 	require.Equal(t, `init
 profile stack: default [global]
 repo files:
@@ -55,7 +58,7 @@ repo files:
 identity files:
   machine action=create source=generated path=state://identity/machine.yaml id=snapshot-machine
   user action=create source=generated path=state://identity/users/snapshot-user.yaml id=snapshot-user localAccountKey=snapshot-user
-summary status=changed planned=5 written=5 unchanged=0 blocked=0 failed=0`, Text(report))
+summary status=changed planned=5 written=5 unchanged=0 blocked=0 failed=0`, VerboseText(report))
 
 	payload, err := JSON(report)
 	require.NoError(t, err)
@@ -223,10 +226,13 @@ func TestRunExistingScaffoldAndIdentitiesAreUnchangedAndTextIsUseful(t *testing.
 	require.Equal(t, "ok", report.Summary.Status)
 	require.Equal(t, 5, report.Summary.Unchanged)
 	text := Text(report)
-	require.Contains(t, text, "repo files:")
-	require.Contains(t, text, "identity files:")
-	require.Contains(t, text, "machine action=unchanged")
-	require.Contains(t, text, "summary status=ok")
+	require.Contains(t, text, "Repo files:")
+	require.Contains(t, text, "Local identity:")
+	require.Contains(t, text, "Already exists dotfiles-manager.v2.yaml")
+	require.Contains(t, text, "workspace is already initialized")
+	verbose := VerboseText(report)
+	require.Contains(t, verbose, "machine action=unchanged")
+	require.Contains(t, verbose, "summary status=ok")
 }
 
 func TestRunCreatesExplicitUserAndRejectsUserConflict(t *testing.T) {
@@ -242,7 +248,8 @@ func TestRunCreatesExplicitUserAndRejectsUserConflict(t *testing.T) {
 	report, err = Run(Options{RepoRoot: repoRoot, StateRoot: stateRoot, MachineID: "mbp", UserID: "other", LocalAccountName: "local"})
 	require.Error(t, err)
 	require.Equal(t, CodeIdentityConflict, report.Error.Code)
-	require.Contains(t, Text(report), "error[init.identity.conflict]")
+	require.Contains(t, VerboseText(report), "error[init.identity.conflict]")
+	require.Contains(t, Text(report), "existing user identity conflicts")
 }
 
 func TestRunValidationFailuresDoNotUseWorkarounds(t *testing.T) {
@@ -333,8 +340,9 @@ func TestHelpersAndRenderErrorBranches(t *testing.T) {
 	require.NotEmpty(t, localAccountKey(""))
 	require.NotEmpty(t, hostname())
 	require.Equal(t, "machine", firstNonEmpty("", "machine"))
-	require.Equal(t, "init\nsummary status=error planned=0 written=0 unchanged=0 blocked=0 failed=1", Text(nil))
-	require.Contains(t, Text(&Report{Diagnostics: []Diagnostic{{Code: "d", Severity: SeverityWarning, Message: "warning"}}, Error: &ErrorObject{Code: "e", Message: "error"}}), "warning[d]")
+	require.Contains(t, Text(nil), "The command could not complete")
+	require.Equal(t, "init\nsummary status=error planned=0 written=0 unchanged=0 blocked=0 failed=1", VerboseText(nil))
+	require.Contains(t, VerboseText(&Report{Diagnostics: []Diagnostic{{Code: "d", Severity: SeverityWarning, Message: "warning"}}, Error: &ErrorObject{Code: "e", Message: "error"}}), "warning[d]")
 	renderReport := baseReport(true)
 	renderReport.Init.ActiveProfileStack = "default"
 	renderReport.Init.ProfileStack = []string{"global"}
@@ -344,9 +352,12 @@ func TestHelpersAndRenderErrorBranches(t *testing.T) {
 	renderReport.Summary.Planned = 2
 	finish(renderReport)
 	rendered := Text(renderReport)
-	require.Contains(t, rendered, "MODE: DRY RUN")
-	require.Contains(t, rendered, "missing choice: machine-id recommended=mbp")
-	require.Contains(t, rendered, "localAccountKey=leon")
+	require.Contains(t, rendered, "Preview: initialize")
+	require.Contains(t, rendered, "No files changed")
+	verboseRendered := VerboseText(renderReport)
+	require.Contains(t, verboseRendered, "MODE: DRY RUN")
+	require.Contains(t, verboseRendered, "missing choice: machine-id recommended=mbp")
+	require.Contains(t, verboseRendered, "localAccountKey=leon")
 	_, err = JSON(&Report{Error: &ErrorObject{Details: map[string]any{"bad": func() {}}}})
 	require.Error(t, err)
 	require.Equal(t, "", (*Error)(nil).Error())
@@ -417,6 +428,39 @@ func TestHelpersAndRenderErrorBranches(t *testing.T) {
 	require.Error(t, writePlannedRepoFiles(fileRoot, []InitFile{{Kind: "root-config", Path: "child.yaml", Action: "create"}}))
 	require.NoError(t, writePlannedIdentityFiles(t.TempDir(), []IdentityFile{{Kind: "machine", Action: "unchanged", Path: "state://identity/machine.yaml", ID: "mbp"}}))
 	require.Error(t, writePlannedIdentityFiles(fileRoot, []IdentityFile{{Kind: "machine", Action: "create", Path: "state://identity/machine.yaml", ID: "mbp"}}))
+}
+
+func TestFriendlyInitHelpersCoverFallbackBranches(t *testing.T) {
+	t.Parallel()
+
+	report := &Report{
+		Error: &ErrorObject{Message: "profile choice required"},
+		Init:  InitResult{MissingChoices: []MissingChoice{{Message: "Choose a profile layer."}}},
+	}
+	errorText := friendlyInitErrorText(report)
+	require.Contains(t, errorText, "profile choice required")
+	require.Contains(t, errorText, "Choose a profile layer.")
+
+	dryRun := &Report{DryRun: true}
+	confirmed := &Report{}
+	require.Equal(t, "Would create", friendlyInitAction(dryRun, "create"))
+	require.Equal(t, "Created", friendlyInitAction(confirmed, "create"))
+	require.Equal(t, "Already exists", friendlyInitAction(confirmed, "unchanged"))
+	require.Equal(t, "Checked", friendlyInitAction(confirmed, ""))
+	require.Equal(t, "Skipped", friendlyInitAction(confirmed, "skipped"))
+
+	require.Equal(t, "checked", friendlyInitRepoPluralAction(confirmed, nil))
+	require.Equal(t, "would be created", friendlyInitRepoPluralAction(dryRun, []InitFile{{Action: "create"}}))
+	require.Equal(t, "created", friendlyInitRepoPluralAction(confirmed, []InitFile{{Action: "create"}}))
+	require.Equal(t, "already existed", friendlyInitRepoPluralAction(confirmed, []InitFile{{Action: "unchanged"}}))
+	require.Equal(t, "created", friendlyInitRepoPluralAction(confirmed, []InitFile{{Action: "create"}, {Action: "unchanged"}}))
+	require.Equal(t, "checked", friendlyInitRepoPluralAction(confirmed, []InitFile{{Action: "skipped"}}))
+	require.Equal(t, "checked", friendlyInitIdentityPluralAction(confirmed, nil))
+	require.Equal(t, "created", friendlyInitIdentityPluralAction(confirmed, []IdentityFile{{Action: "create"}}))
+
+	require.Equal(t, "Custom", titleWord("custom"))
+	require.Equal(t, "", titleWord("  "))
+	require.Equal(t, []string{"line"}, trimBlank([]string{"line", "", "  "}))
 }
 
 func writeFile(t *testing.T, path string, body string) {

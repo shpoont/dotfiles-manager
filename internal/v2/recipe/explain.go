@@ -269,6 +269,79 @@ func ExplainJSON(report *ExplainReport) (string, error) {
 
 func ExplainText(report *ExplainReport) string {
 	if report == nil {
+		return "Recipe details\n\nCommand result:\n  The command could not complete.\n"
+	}
+	if report.Error != nil {
+		return friendlyExplainErrorText(report)
+	}
+	explain := report.RecipeExplain
+	targetName := friendlyTargetName(explain.Target)
+	lines := []string{targetName + " recipe", ""}
+	if explain.Target.Ref != "" {
+		lines = append(lines, "Target: "+explain.Target.Ref)
+	}
+	if explain.Target.SupportLevel != "" || explain.Target.Capability != "" {
+		lines = append(lines, "Status: "+friendlySupportSummary(explain.Target.SupportLevel, explain.Target.Capability, explain.Target.PlatformSupport))
+	}
+	if len(explain.Settings) > 0 {
+		lines = append(lines, "", "What it can manage:")
+		for _, setting := range explain.Settings {
+			lines = append(lines, fmt.Sprintf("  %s — %s", setting.Ref, friendlySettingLabel(setting)))
+			if setting.DefaultScope != "" && setting.DefaultScope != "unknown" {
+				lines = append(lines, "    Default scope: "+setting.DefaultScope)
+			}
+			if location := friendlySettingLocation(setting, explain.Resources); location != "" {
+				lines = append(lines, "    Location: "+location)
+			}
+			if setting.ArtifactForm != "" && setting.ArtifactForm != "unknown" {
+				lines = append(lines, "    Stored as: "+friendlyArtifactForm(setting.ArtifactForm))
+			}
+		}
+	}
+	if explain.Safety.RedactionSummary != "" || explain.Safety.LifecycleSummary != "" || explain.Safety.TrustSummary != "" || len(explain.Safety.DoNotManage) > 0 {
+		lines = append(lines, "", "Safety:")
+		if explain.Safety.RedactionSummary != "" {
+			lines = append(lines, "  "+explain.Safety.RedactionSummary)
+		}
+		if explain.Safety.LifecycleSummary != "" {
+			lines = append(lines, "  "+explain.Safety.LifecycleSummary)
+		}
+		if explain.Safety.TrustSummary != "" {
+			lines = append(lines, "  "+explain.Safety.TrustSummary)
+		}
+		if len(explain.Safety.DoNotManage) > 0 {
+			lines = append(lines, "  Not managed:")
+			for _, item := range explain.Safety.DoNotManage {
+				lines = append(lines, "    - "+item)
+			}
+		}
+	}
+	if limitations := friendlyExplainLimitations(explain.Settings); len(limitations) > 0 {
+		lines = append(lines, "", "Important limitations:")
+		for _, limitation := range limitations {
+			lines = append(lines, "  - "+limitation)
+		}
+	}
+	if first := firstManageableSetting(explain.Settings); first != nil && explain.Target.Ref != "" {
+		lines = append(lines, "", "Next:", "  Preview selecting a setting:", "  "+friendlyRecipeAddCommand(explain.Target.Ref, first.ID, first.DefaultScope))
+	}
+	if len(explain.Diagnostics) > 0 {
+		for _, diagnostic := range explain.Diagnostics {
+			if diagnostic.Severity == ExplainSeverityError {
+				lines = append(lines, "", "Problem:", "  "+diagnostic.Message)
+			}
+		}
+	}
+	lines = append(lines, "", "Use --verbose for technical recipe details.")
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func ExplainVerboseText(report *ExplainReport) string {
+	return explainTechnicalText(report)
+}
+
+func explainTechnicalText(report *ExplainReport) string {
+	if report == nil {
 		return "recipe explain\nsummary status=error"
 	}
 	var lines []string
@@ -351,6 +424,164 @@ func ExplainText(report *ExplainReport) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s changed=%d blocked=%d", report.Summary.Status, report.Summary.Changed, report.Summary.Blocked))
 	return strings.Join(lines, "\n")
+}
+
+func friendlyExplainErrorText(report *ExplainReport) string {
+	lines := []string{"Recipe details", "", "Command result:"}
+	if report != nil && report.Error != nil {
+		lines = append(lines, "  "+report.Error.Message)
+	} else {
+		lines = append(lines, "  The command could not complete.")
+	}
+	lines = append(lines, "", "No files changed.", "", "Run with --verbose for technical details.")
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func friendlyTargetName(target ExplainTarget) string {
+	if strings.TrimSpace(target.DisplayName) != "" {
+		return target.DisplayName
+	}
+	if strings.TrimSpace(target.Ref) != "" {
+		return titleWords(strings.ReplaceAll(target.Ref, ".", " "))
+	}
+	return "App"
+}
+
+func friendlySupportSummary(level string, capability string, platform string) string {
+	parts := []string{}
+	if strings.TrimSpace(level) != "" {
+		parts = append(parts, level)
+	}
+	if strings.TrimSpace(capability) != "" {
+		parts = append(parts, strings.ReplaceAll(capability, "-", " "))
+	}
+	if strings.TrimSpace(platform) != "" && platform != "unknown" {
+		parts = append(parts, "platforms: "+platform)
+	}
+	if len(parts) == 0 {
+		return "available"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func friendlySettingLabel(setting ExplainSetting) string {
+	if strings.TrimSpace(setting.Label) != "" {
+		return setting.Label
+	}
+	return fallbackLabel(setting.ID)
+}
+
+func friendlySettingLocation(setting ExplainSetting, resources []ExplainResource) string {
+	for _, resource := range resources {
+		if resource.ID != setting.ResourceID {
+			continue
+		}
+		return friendlyResourceLocation(resource)
+	}
+	return ""
+}
+
+func friendlyResourceLocation(resource ExplainResource) string {
+	location := ""
+	switch resource.LocationID {
+	case "home":
+		location = "$HOME/" + strings.TrimPrefix(resource.Path, "/")
+	case "config":
+		location = "$XDG_CONFIG_HOME/" + strings.TrimPrefix(resource.Path, "/")
+	case "recipe-defined":
+		location = "chosen by the custom recipe"
+	case "":
+		location = strings.TrimSpace(resource.Path)
+	default:
+		if strings.TrimSpace(resource.Path) != "" {
+			location = resource.LocationID + "/" + strings.TrimPrefix(resource.Path, "/")
+		} else {
+			location = resource.LocationID
+		}
+	}
+	if resource.Selector != nil && strings.TrimSpace(resource.Selector.Summary) != "" {
+		if location == "" {
+			return resource.Selector.Summary
+		}
+		return location + " (" + resource.Selector.Summary + ")"
+	}
+	return location
+}
+
+func friendlyArtifactForm(form string) string {
+	switch form {
+	case "scalar":
+		return "single value"
+	case "file":
+		return "file"
+	case "file-tree":
+		return "folder tree"
+	case "native", "native-export":
+		return "native export"
+	default:
+		return strings.ReplaceAll(form, "-", " ")
+	}
+}
+
+func friendlyExplainLimitations(settings []ExplainSetting) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, setting := range settings {
+		for _, limitation := range append(append([]string{}, setting.DiffLimitations...), setting.ApplyLimitations...) {
+			trimmed := strings.TrimSpace(limitation)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			out = append(out, trimmed)
+			if len(out) == 5 {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func firstManageableSetting(settings []ExplainSetting) *ExplainSetting {
+	for i := range settings {
+		if settings[i].Capability == "read-write" || settings[i].Capability == "export-only" {
+			return &settings[i]
+		}
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return &settings[0]
+}
+
+func friendlyRecipeAddCommand(target string, setting string, scope string) string {
+	args := []string{"dotfiles-manager", "--config", "dotfiles-manager.v2.yaml", "add", target}
+	if setting != "" {
+		args = append(args, "--setting", setting)
+	}
+	if scope != "" && scope != "unknown" {
+		args = append(args, "--scope", scope)
+	}
+	args = append(args, "--dry-run")
+	return strings.Join(args, " ")
+}
+
+func titleWords(value string) string {
+	parts := strings.Fields(value)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, " ")
+}
+
+func trimBlank(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func baseExplainReport() *ExplainReport {
