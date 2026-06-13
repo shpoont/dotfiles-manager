@@ -932,7 +932,7 @@ func maybeRunSelectedPreviewCommand(cmd *cobra.Command, opts *rootOptions, comma
 			if err != nil {
 				return true, emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.config.invalid", err.Error(), nil)
 			}
-			return true, runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+			return true, runSelectedPreviewCommand(cmd, opts, commandOpts, repoRoot)
 		}
 		return false, nil
 	}
@@ -948,7 +948,7 @@ func maybeRunSelectedPreviewCommand(cmd *cobra.Command, opts *rootOptions, comma
 	if err != nil {
 		return false, nil
 	}
-	return true, runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+	return true, runSelectedPreviewCommand(cmd, opts, commandOpts, repoRoot)
 }
 
 func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
@@ -961,7 +961,7 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.root.notFound", err.Error(), nil)
 	}
 	if commandOpts.DryRun {
-		return runSelectedPreviewCommand(cmd, commandOpts, repoRoot)
+		return runSelectedPreviewCommand(cmd, opts, commandOpts, repoRoot)
 	}
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
@@ -969,6 +969,7 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 	}
 	result, err := v2selectedlive.Run(v2selectedlive.Options{
 		Command:           commandOpts.Name,
+		ConfigPath:        selectedPreviewCommandConfigPath(opts),
 		RepoRoot:          repoRoot,
 		StateRoot:         stateRoot,
 		Ref:               commandOpts.PathArg,
@@ -1068,13 +1069,14 @@ func runListCommand(cmd *cobra.Command, opts *rootOptions, listOpts v2listcmd.Op
 	return err
 }
 
-func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, repoRoot string) error {
+func runSelectedPreviewCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions, repoRoot string) error {
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
 		return emitSelectedPreviewError(cmd, commandOpts, "selectedpreview.stateRoot.default", err.Error(), nil)
 	}
 	report, err := v2selectedpreview.Build(v2selectedpreview.Options{
 		Command:     commandOpts.Name,
+		ConfigPath:  selectedPreviewCommandConfigPath(opts),
 		RepoRoot:    repoRoot,
 		StateRoot:   stateRoot,
 		Ref:         commandOpts.PathArg,
@@ -1088,6 +1090,13 @@ func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, r
 		return emitErr
 	}
 	return err
+}
+
+func selectedPreviewCommandConfigPath(opts *rootOptions) string {
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		return strings.TrimSpace(opts.configPath)
+	}
+	return v2resolution.RootConfigFile
 }
 
 func selectedLivePrompter(cmd *cobra.Command, commandOpts commandOptions) v2lifecycle.Prompter {

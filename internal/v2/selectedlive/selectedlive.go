@@ -35,6 +35,7 @@ const (
 
 type Options struct {
 	Command             string
+	ConfigPath          string
 	RepoRoot            string
 	StateRoot           string
 	Ref                 string
@@ -72,6 +73,7 @@ func Run(opts Options) (*Result, error) {
 	}
 	report, err := selectedpreview.Build(selectedpreview.Options{
 		Command:             command,
+		ConfigPath:          opts.ConfigPath,
 		RepoRoot:            opts.RepoRoot,
 		StateRoot:           opts.StateRoot,
 		Ref:                 opts.Ref,
