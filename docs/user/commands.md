@@ -13,10 +13,10 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe discover [target] 
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe explain <target> [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <id>] [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup list [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup show <run-id> [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] restore <run-id> [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
@@ -65,6 +65,19 @@ Log level:
 stderr diagnostics:
 - warnings and errors are emitted as human-readable text on stderr
 - stdout remains command output (including `--json`)
+
+Selected-setting output tiers:
+- default text for `status`, `diff`, `save`, and `apply` is human-first: it
+  names the selected setting, says whether anything changed, shows user-level
+  live/repo paths, hides raw values, and gives a safe next command.
+- `--verbose` is currently implemented for v2 selected-setting `status`,
+  `diff`, `save`, and `apply` only. It keeps the same default explanation and
+  appends technical details such as profile stack, refs, resource/driver/selector,
+  planner state/action, desired/state URIs, run ids, and backup refs. It still
+  redacts managed values and secret-bearing payload bytes.
+- `--json` is the stable scripting output. `--json --verbose` still writes only
+  the existing JSON document to stdout; verbose prose is suppressed, not moved
+  to stderr.
 
 ## `version` and `--version`
 
@@ -453,9 +466,9 @@ dotfiles-manager apply --yes --user-id leon git:user.email
 ```
 
 When no desired artifact exists and the selected live Git value exists,
-`save --dry-run` reports `action=would-promote`. That means the value can be
-promoted into managed desired state with `save --yes`; normal CLI output still
-omits the raw value.
+`save --dry-run` explains in plain language that the current live value can be
+saved to this repo. `--verbose` shows the underlying `action=would-promote`
+planner detail for debugging. Both output tiers omit the raw value.
 
 `save --yes` copies the selected live value from `~/.gitconfig` into the desired
 settings artifact for that profile subject. For user-scoped Git settings the

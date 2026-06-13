@@ -174,6 +174,142 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	require.NotContains(t, stdout, "changed-live@example.com")
 }
 
+func TestV2BundledGitSelectedSettingBlockedAndMissingDefaultText(t *testing.T) {
+	forbidden := []string{"state=", "action=", "missing-desired", "missing-current", "would-promote", "resource=", "driver=", "selector=", "desired://", "state://"}
+
+	t.Run("apply missing desired is plain-language blocked", func(t *testing.T) {
+		fixture := setupCLIV2BundledGitFixture(t)
+		setCWD(t, fixture.repoRoot)
+		writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[user]\n\temail = current@example.com\n")
+
+		stdout, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--dry-run", "--user-id", "leon", "git:user.email"})
+		require.NoError(t, err)
+		require.Contains(t, stdout, "Cannot apply Git user email yet")
+		require.Contains(t, stdout, "Blocked because no saved desired value exists yet")
+		require.Contains(t, stdout, "No files changed")
+		require.Contains(t, stdout, "dotfiles-manager save --dry-run git:user.email")
+		require.NotContains(t, stdout, "Would update live file")
+		require.NotContains(t, stdout, "current@example.com")
+		for _, token := range forbidden {
+			require.NotContains(t, stdout, token)
+		}
+	})
+
+	t.Run("save missing live value stays readable and non-technical", func(t *testing.T) {
+		fixture := setupCLIV2BundledGitFixture(t)
+		setCWD(t, fixture.repoRoot)
+
+		stdout, _, err := runSelectedPreviewTextCLI(t, []string{"save", "--dry-run", "--user-id", "leon", "git:user.email"})
+		require.NoError(t, err)
+		require.Contains(t, stdout, "Dry run: would save Git user email")
+		require.Contains(t, stdout, "No live value found")
+		require.Contains(t, stdout, "desired/user/leon/targets/git/settings.yaml")
+		require.Contains(t, stdout, "No files changed")
+		for _, token := range forbidden {
+			require.NotContains(t, stdout, token)
+		}
+	})
+}
+
+func TestV2BundledGitSelectedSettingVerboseTextAndJSONContract(t *testing.T) {
+	fixture := setupCLIV2BundledGitFixture(t)
+	setCWD(t, fixture.repoRoot)
+	helperSecret := "credential-helper-secret"
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = current@example.com\n")
+
+	statusDefault, _, err := runSelectedPreviewTextCLI(t, []string{"status", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, statusDefault, "Git user email")
+	require.Contains(t, statusDefault, "Selected, but not saved to this repo yet")
+	require.Contains(t, statusDefault, "$HOME/.gitconfig [user] email")
+	require.Contains(t, statusDefault, "Value hidden for safety")
+	require.Contains(t, statusDefault, "No files changed")
+	require.NotContains(t, statusDefault, "resource=")
+	require.NotContains(t, statusDefault, "desired://")
+	require.NotContains(t, statusDefault, "state=")
+	require.NotContains(t, statusDefault, "action=")
+	require.NotContains(t, statusDefault, "no-baseline")
+	require.NotContains(t, statusDefault, "current@example.com")
+	require.NotContains(t, statusDefault, helperSecret)
+
+	statusVerbose, _, err := runSelectedPreviewTextCLI(t, []string{"status", "--verbose", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Contains(t, statusVerbose, "Selected, but not saved to this repo yet")
+	require.Contains(t, statusVerbose, "Technical details:")
+	require.Contains(t, statusVerbose, "resource=user-email")
+	require.Contains(t, statusVerbose, "driver=ini-file")
+	require.Contains(t, statusVerbose, "selector=[user] email")
+	require.Contains(t, statusVerbose, "desired://user/leon/targets/git/settings#user.email")
+	require.Contains(t, statusVerbose, "state=missing-desired")
+	require.NotContains(t, statusVerbose, "current@example.com")
+	require.NotContains(t, statusVerbose, helperSecret)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "save dry-run", args: []string{"save", "--dry-run", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Dry run: would save Git user email"},
+		{name: "save yes", args: []string{"save", "--yes", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Saved Git user email as desired state"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, _, err := runSelectedPreviewTextCLI(t, tc.args)
+			require.NoError(t, err)
+			require.Contains(t, stdout, tc.want)
+			require.Contains(t, stdout, "Technical details:")
+			require.NotContains(t, stdout, "current@example.com")
+			require.NotContains(t, stdout, helperSecret)
+		})
+	}
+
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = changed@example.com\n")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "diff", args: []string{"diff", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Git user email differs from saved desired state"},
+		{name: "apply dry-run", args: []string{"apply", "--dry-run", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Dry run: would update Git user email"},
+		{name: "apply yes", args: []string{"apply", "--yes", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Updated Git user email"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, _, err := runSelectedPreviewTextCLI(t, tc.args)
+			require.NoError(t, err)
+			require.Contains(t, stdout, tc.want)
+			require.Contains(t, stdout, "Technical details:")
+			require.NotContains(t, stdout, "changed@example.com")
+			require.NotContains(t, stdout, "current@example.com")
+			require.NotContains(t, stdout, helperSecret)
+		})
+		if tc.name == "apply yes" {
+			writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[credential]\n\thelper = "+helperSecret+"\n[user]\n\temail = changed-again@example.com\n")
+		}
+	}
+}
+
+func TestV2SelectedPreviewJSONVerboseDoesNotChangeJSONContract(t *testing.T) {
+	fixture := setupCLIV2BundledGitFixture(t)
+	setCWD(t, fixture.repoRoot)
+	writeCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"), "[user]\n\temail = current@example.com\n")
+
+	statusPayload, _, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	statusVerbosePayload, statusVerboseStdout, err := runSelectedPreviewCLI(t, []string{"status", "--json", "--verbose", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, statusPayload, statusVerbosePayload)
+	require.NotContains(t, statusVerboseStdout, "Technical details")
+	require.NotContains(t, statusVerboseStdout, "Selected, but not saved")
+
+	savePayload, _, err := runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	saveVerbosePayload, saveVerboseStdout, err := runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--verbose", "--user-id", "leon", "git:user.email"})
+	require.NoError(t, err)
+	require.Equal(t, savePayload, saveVerbosePayload)
+	require.NotContains(t, saveVerboseStdout, "Technical details")
+	require.NotContains(t, saveVerboseStdout, "Dry run: would save")
+}
+
 func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	fixture := setupCLIV2BundledGitFixture(t)
 	setCWD(t, fixture.repoRoot)
@@ -1012,6 +1148,18 @@ resources:
       duplicatePolicy: reject
       deleteKey: allow
 `
+}
+
+func runSelectedPreviewTextCLI(t *testing.T, args []string) (string, string, error) {
+	t.Helper()
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return stdout.String(), stderr.String(), err
 }
 
 func runSelectedPreviewCLI(t *testing.T, args []string) (map[string]any, string, error) {

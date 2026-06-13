@@ -1076,7 +1076,7 @@ exit code `4` in normal operation. Exit code `6` is not expected for the single-
 | `--json` | Emit stable machine-readable result data. |
 | `--non-interactive` | Never prompt. Fail if input is required. |
 | `--yes` | Accept safe default prompts, never safety blockers. |
-| `--verbose` | Include profile stack, artifact URIs, drivers, and ledger refs. |
+| `--verbose` | Text-mode technical detail flag. In the current #165 implementation this is wired for selected-preview `status`, `diff`, `save`, and `apply`; later issues may extend it to other v2 commands. |
 
 `--dry-run` may read current state, run a declared read-only native export for
 `diff`/`save` on a selected trusted `native-export` resource, and write
@@ -1099,6 +1099,61 @@ Read-only and dry-run commands may use these flags only transiently and must not
 persist identity records. `init` and other commands that are explicitly allowed
 to bootstrap local manager state may persist them after validation and the
 prompt/non-interactive rules in `03-profile-and-scope-resolution.md`.
+
+
+### v2 output tiers for selected-preview commands
+
+Issue #165 defines the common selected-preview output-tier contract for
+`status`, `diff`, `save`, and `apply`. It does not finalize every command's
+copy, and it does not claim `--verbose` support for `init`, `add`, `list`,
+`recipe`, `backup`, `restore`, `sync`, app-authoring commands, or legacy v1
+commands until those command renderers are explicitly wired and tested.
+
+Default text output is the human-first contract. It must answer, without
+requiring internal schema vocabulary:
+
+- which selected setting(s) were checked;
+- whether the command is a dry run or a confirmed write;
+- whether anything changed, and whether writes would affect repo desired state,
+  live app/config state, or only manager-owned local state;
+- the user-level live path or source, such as `$HOME/.gitconfig [user] email`;
+- the user-level repo path for desired state, such as
+  `desired/user/<user>/targets/git/settings.yaml`;
+- whether current/desired values exist while keeping raw values hidden;
+- first-run review uncertainty such as no previous baseline in plain language;
+- the blocked reason and one safe next command when an item cannot proceed.
+
+Default text must keep internal details out of the main path unless they are the
+user-facing ref needed to run the next command. In particular, default text must
+not require understanding `resource=`, `driver=`, `selector=`, `desired://`,
+`state://`, raw planner states such as `missing-desired`, raw actions such as
+`would-promote`, or the raw `no-baseline` flag.
+
+For selected-preview blockers, #165 establishes the baseline plain-language
+blocked-output behavior: state why the command cannot proceed, confirm that no
+files changed, and provide a safe next command or diagnostic path. #166/#167 may
+refine exact command wording later, but they must preserve that baseline.
+
+Verbose text output is default text plus a separated technical-details section.
+It is not a behavior toggle and must not change planning, write safety, backup,
+restore, lifecycle, trust, or redaction behavior. Verbose text may include
+profile stack/layer details, setting refs, desired/state URIs, resource IDs,
+driver IDs, location IDs, selectors, raw planner states/actions, run/ledger refs,
+backup refs, lifecycle records, and diagnostic codes/messages. Verbose text must
+preserve default redaction behavior: it may show technical identifiers, but must
+not print raw managed values or secret-bearing payload bytes.
+
+JSON output is the stable machine contract. `--json --verbose` must preserve the
+existing JSON schema and stdout shape: JSON mode writes only the existing JSON
+document to stdout, and verbose prose/diagnostics are suppressed rather than
+appended or moved to stderr. JSON field names, enum values, refs, and redaction
+policy are unchanged by #165.
+
+For aggregate selected-preview runs, default text may be less polished until the
+#171 coverage map and #166/#167 copy work are complete, but it must still show
+changed/unchanged/blocked counts, per-item human summaries, dry-run/write status,
+blocked reasons, and a safe next action without leaking raw planner labels into
+the main path.
 
 ### Ref operands
 

@@ -98,6 +98,7 @@ func newVersionCmd() *cobra.Command {
 
 func newStatusCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
@@ -110,6 +111,7 @@ func newStatusCmd(opts *rootOptions) *cobra.Command {
 				Name:       "status",
 				PathArg:    firstArg(args),
 				JSONOutput: jsonOutput,
+				Verbose:    verbose,
 				DryRun:     dryRun,
 				V2:         selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
@@ -117,6 +119,7 @@ func newStatusCmd(opts *rootOptions) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for status (validation error)")
 	_ = cmd.Flags().MarkHidden("dry-run")
 	addSelectedPreviewFlags(cmd, v2Flags)
@@ -173,6 +176,7 @@ func newImportCmd(opts *rootOptions) *cobra.Command {
 
 func newDiffCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	var direction string
 	var contextLines int
@@ -188,6 +192,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 				Name:         "diff",
 				PathArg:      firstArg(args),
 				JSONOutput:   jsonOutput,
+				Verbose:      verbose,
 				DryRun:       dryRun,
 				Direction:    direction,
 				ContextLines: contextLines,
@@ -198,6 +203,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	cmd.Flags().StringVar(&direction, "direction", diffDirectionBoth, "Diff direction: both|deploy|import")
 	cmd.Flags().IntVar(&contextLines, "context", diffDefaultContextLines, "Unified diff context lines (>= 0)")
 	cmd.Flags().BoolVar(&includePatch, "patch", false, "Include patch body in JSON output")
@@ -210,6 +216,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 
 func newSaveCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	var yes bool
 	var nonInteractive bool
@@ -224,6 +231,7 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 				Name:           "save",
 				PathArg:        firstArg(args),
 				JSONOutput:     jsonOutput,
+				Verbose:        verbose,
 				DryRun:         dryRun,
 				Yes:            yes,
 				NonInteractive: nonInteractive,
@@ -236,12 +244,14 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live save without interactive prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if selected-value save needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
 
 func newApplyCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	var yes bool
 	var nonInteractive bool
@@ -256,6 +266,7 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 				Name:           "apply",
 				PathArg:        firstArg(args),
 				JSONOutput:     jsonOutput,
+				Verbose:        verbose,
 				DryRun:         dryRun,
 				Yes:            yes,
 				NonInteractive: nonInteractive,
@@ -268,6 +279,7 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live apply without interactive prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if selected-value apply needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
@@ -615,6 +627,7 @@ type commandOptions struct {
 	Name           string
 	PathArg        string
 	JSONOutput     bool
+	Verbose        bool
 	DryRun         bool
 	Yes            bool
 	NonInteractive bool
@@ -745,6 +758,17 @@ func runCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOption
 			}, err)
 			return err
 		}
+	}
+	if commandOpts.Verbose {
+		err := dfmerr.New(dfmerr.CodeFlagUnsupported, "--verbose is only implemented for v2 selected-setting status/diff/save/apply output", map[string]any{"flags": []string{"--verbose"}})
+		emitError(cmd.OutOrStdout(), cmd.ErrOrStderr(), commandOpts.JSONOutput, jsonContext{
+			Command:        commandOpts.Name,
+			DryRun:         commandOpts.DryRun,
+			ConfigPath:     configPathForErrors,
+			PathInput:      pathInput,
+			PathNormalized: pathNormalized,
+		}, err)
+		return err
 	}
 	if commandOpts.V2.FlagsUsed {
 		err := dfmerr.New(dfmerr.CodeFlagUnsupported, "v2 selected-value flags require v2 mode", map[string]any{"flags": commandOpts.V2.UsedFlagNames})
@@ -956,7 +980,7 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 		JSONMode:          commandOpts.JSONOutput,
 		LifecyclePrompter: selectedLivePrompter(cmd, commandOpts),
 	})
-	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), result.Report, commandOpts.JSONOutput); emitErr != nil {
+	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), result.Report, commandOpts.JSONOutput, commandOpts.Verbose); emitErr != nil {
 		return emitErr
 	}
 	return err
@@ -1060,7 +1084,7 @@ func runSelectedPreviewCommand(cmd *cobra.Command, commandOpts commandOptions, r
 		DryRun:      commandOpts.DryRun,
 		Confirmed:   commandOpts.Yes,
 	})
-	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput); emitErr != nil {
+	if emitErr := emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput, commandOpts.Verbose); emitErr != nil {
 		return emitErr
 	}
 	return err
@@ -1179,13 +1203,17 @@ func v2listcmdErrorReport(code string, message string) *v2listcmd.Report {
 	return report
 }
 
-func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Report, jsonOutput bool) error {
+func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Report, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		payload, err := v2selectedpreview.JSON(report)
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2selectedpreview.VerboseText(report))
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2selectedpreview.Text(report))
@@ -1207,7 +1235,7 @@ func emitGuidedSyncReport(stdout io.Writer, report *v2guidedsync.Report, jsonOut
 
 func emitSelectedPreviewError(cmd *cobra.Command, commandOpts commandOptions, code string, message string, details map[string]any) error {
 	report := v2selectedpreview.ErrorReport(commandOpts.Name, commandOpts.DryRun, code, message, details)
-	_ = emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+	_ = emitSelectedPreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput, commandOpts.Verbose)
 	return &v2selectedpreview.Error{Code: code, Message: message, Exit: 2, Details: details}
 }
 
