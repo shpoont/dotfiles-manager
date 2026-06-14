@@ -148,6 +148,7 @@ Good Harbor candidates:
 | Safety/trust planning | Evaluate whether a proposed driver/recipe plan excludes credentials by default, respects trust boundaries, and avoids unsafe writes. |
 | Documentation/process handoff | Evaluate whether docs updates preserve canonicality, avoid user-facing internal tooling leakage, and give reviewers enough acceptance criteria. |
 | Native export/import review | Evaluate whether opaque/native export support is described with proper opt-in, size/category limits, passphrase handling, and diffability expectations. |
+| UX transcript review | Evaluate whether v2 default, verbose, and JSON CLI transcripts satisfy the persona questions in `../../ux/v2-transcript-review-gate.md`; completed reviews live under `../../ux/reviews/`. |
 
 Do not use Harbor as the sole test for deterministic behavior:
 
@@ -160,6 +161,10 @@ Do not use Harbor as the sole test for deterministic behavior:
 | Ledger, backup, restore, partial failure recording | Integration and contract fixtures. |
 | Redaction/secret leakage in output, JSON, logs, artifacts, ledgers, or backups | Deterministic safety regression tests. |
 | Performance thresholds | Normal performance regression tests. |
+
+UX transcript reviews are required evidence for v2 command-output changes, but
+they remain judgment evidence. They must cite the deterministic tests or
+snapshots that prove command behavior, JSON parseability, and redaction.
 
 Every Harbor case must identify:
 
