@@ -11,5 +11,9 @@ tests, and command documentation.
   backlog for production-ready v2 UX after #165/#169.
 - `v2-transcript-review-gate.md` — reusable persona transcript review gate for
   v2 CLI output changes.
+- `v2-aggregate-status-diff-storyboard.md` — high-fidelity terminal storyboard
+  for aggregate selected `status` and `diff` output across multiple apps and
+  mixed states.
 - `reviews/` — checked-in completed transcript reviews, starting with the safe
-  Git email quickstart review required by #168.
+  Git email quickstart review required by #168 and the aggregate status/diff
+  review required by #177.

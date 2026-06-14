@@ -51,6 +51,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
   production-ready v2 UX after #165/#169
 - `ux/v2-transcript-review-gate.md` — persona transcript review gate for v2
   CLI output changes and checked-in UX review evidence
+- `ux/v2-aggregate-status-diff-storyboard.md` — aggregate selected
+  `status`/`diff` terminal UX storyboard for multi-app output
 
 ## 6) Process
 
