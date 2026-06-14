@@ -1,7 +1,7 @@
 # v2 UX coverage map and storyboard backlog
 
 Status: issue #171 planning artifact.
-Last updated: 2026-06-13.
+Last updated: 2026-06-14.
 Scope: UX planning only; no command behavior, renderer, JSON schema, or v1 output changes.
 Related issues: #165, #166, #167, #168, #169, #171.
 Pro pre-validation: <https://chatgpt.com/c/6a281d17-56ec-83ed-88d8-fc0d345b3b9f?dfm_storyboard=1781306002>.
@@ -118,7 +118,7 @@ the happy path should not require them to learn internal nouns first.
 | Native export/import | Use app-native export/import commands generically. | future `save/apply` through native operation | `future/blocked` | P1 | blocked | #113, then future UX storyboard | cautious, power | Blocked until a verified native target exists. Must exclude account/session/secrets and document limitations. | no |
 | Secret/sensitive content blocked | Avoid saving or applying known sensitive content accidentally. | save/apply where recipe or policy detections block | `rule-only` | P0 | current supported | #166/#167 | cautious, power | Must say what category was blocked without printing the secret. Must not imply arbitrary/general secret scanning. | no |
 | App recipe trust review | User runs local recipe for first time or after recipe changes. | `recipe explain`, `app validate`, `save/apply` with local recipe | `rule-only` | P1 | current internal/advanced | #167 or future trust UX issue | power, cautious | Must explain trust record and changed local recipe evidence without dumping unsafe payloads. | no |
-| Agent-eval transcript gate | Reuse persona questions across UX PRs. | Harbor/Codex transcript review tasks | `transcript-review` | P0 | current internal/advanced | #168 | first-time, cautious, power | Must run on before/after transcripts, not only code inspection. | no |
+| Agent-eval transcript gate | Reuse persona questions across UX PRs. | Harbor/Codex transcript review tasks | `transcript-review` | P0 | current internal/advanced | #168, `v2-transcript-review-gate.md` | first-time, cautious, power | Must run on before/after transcripts, not only code inspection. Completed reviews must be checked into `reviews/`; issue/PR comments may link to the checked-in review. | no |
 
 ## Edge-case UX rule catalog
 
@@ -239,7 +239,7 @@ power users and debugging while preserving the same redaction policy.
 | #165 | Already complete. It may proceed from #169 and the aggregate baseline in the CLI contract. This map does not block it. |
 | #166 | Must consume the selected-setting rows, aggregate selected status/diff/save/apply rows, multi-app output shape, no-baseline rule, and blocked-state rule. |
 | #167 | Must consume setup/init, discover/explain, add/list, backup/restore, custom app authoring, unsupported app, and trust-review rows. |
-| #168 | Must turn the persona mapping and transcript questions into a repeatable review gate for both single-setting and multi-app transcripts. |
+| #168 | Adds `v2-transcript-review-gate.md` and the first checked-in review. Future single-setting and multi-app transcript work must use that gate when command text or output-tier expectations change. |
 | #113 | Remains blocked until a verified native target exists. This map only preserves future UX requirements and must not create native export/import mockups that look available. |
 
 ## Follow-up storyboard and implementation issue backlog

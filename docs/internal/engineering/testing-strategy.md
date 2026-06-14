@@ -33,7 +33,15 @@ This document defines the test structure that validates the specification.
   - full checklist execution (`acceptance-checklist.md`)
   - matrix scenario coverage (`../specs/decision-matrix.md`)
 
-5. **Performance regression tests**
+5. **UX transcript review gates**
+  - persona review of before/after CLI transcripts for v2 user-facing output
+    changes (`../ux/v2-transcript-review-gate.md`)
+  - checked-in completed reviews under `../ux/reviews/` when the issue or PR
+    depends on UX clarity
+  - complements deterministic tests; never replaces JSON contract, snapshot,
+    redaction, fixture, or integration coverage
+
+6. **Performance regression tests**
   - dotfiles-sized fixture (~1,000 files)
   - enforce baseline timing thresholds from `technical-requirements.md`
   - fixed hard-threshold pass/fail (no variance window)

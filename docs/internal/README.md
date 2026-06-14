@@ -49,6 +49,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
   the safe v2 Git quickstart before #165 implementation
 - `ux/v2-ux-coverage-map.md` — coverage map and storyboard backlog for
   production-ready v2 UX after #165/#169
+- `ux/v2-transcript-review-gate.md` — persona transcript review gate for v2
+  CLI output changes and checked-in UX review evidence
 
 ## 6) Process
 
