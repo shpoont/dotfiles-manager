@@ -3,7 +3,7 @@
 Status: issue #171 planning artifact.
 Last updated: 2026-06-14.
 Scope: UX planning only; no command behavior, renderer, JSON schema, or v1 output changes.
-Related issues: #165, #166, #167, #168, #169, #171, #177.
+Related issues: #165, #166, #167, #168, #169, #171, #177, #179.
 Pro pre-validation: <https://chatgpt.com/c/6a281d17-56ec-83ed-88d8-fc0d345b3b9f?dfm_storyboard=1781306002>.
 
 ## Purpose
@@ -99,8 +99,8 @@ the happy path should not require them to learn internal nouns first.
 | Safe Git single-setting quickstart | Try the product safely and understand one managed value. | `init`, `add git`, `status git:user.email`, `save --dry-run`, `save --yes`, `diff`, `apply --dry-run`, `apply --yes`, `restore --dry-run` | `must-storyboard` | P0 | current supported | #169, consumed by #165/#166 | first-time, cautious, power | Temporary HOME examples only; no raw values. | no, complete |
 | Selected-setting status/save/diff/apply copy | Make the implemented selected-preview loop readable by default. | `status`, `diff`, `save`, `apply` with setting or target refs | `must-storyboard` | P0 | current supported | #166 | first-time, cautious, power | Must preserve #165 tier contract and redaction. | no |
 | Multi-app selected status/diff | Check all selected settings and see grouped drift. | `status`, `diff`, `status git starship zsh` only if supported by selector grammar | `must-storyboard` | P0 | current supported | #177, `v2-aggregate-status-diff-storyboard.md` | first-time, cautious, power | Must show counts, per-app sections, blocked reasons, unsupported/failed states, and safe next command. Do not invent unsupported subset selectors or fake subset commands. | no, storyboard complete |
-| Multi-app save all selected settings | Save current live state for several supported settings. | `save --dry-run`, `save --yes`, target/ref narrowed saves | `must-storyboard` | P0 | current supported | #166 or new issue: `v2 UX: storyboard aggregate save/apply confirmations` | first-time, cautious, power | Must distinguish repo desired-state writes from live writes. Must show which items are safe to confirm. | no |
-| Multi-app apply all selected settings | Apply saved desired state across supported apps. | `apply --dry-run`, `apply --yes`, narrowed applies | `must-storyboard` | P0 | current supported | #166 or new issue: `v2 UX: storyboard aggregate save/apply confirmations` | first-time, cautious, power | Must show live-write risk, backups, blocked items, and partial success semantics. | no |
+| Multi-app save all selected settings | Save current live state for several supported settings. | `save --dry-run`, `save --yes`, target/ref narrowed saves | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must distinguish repo desired-state writes from live writes. Must show which items are safe to confirm. | no, storyboard/docs coverage complete |
+| Multi-app apply all selected settings | Apply saved desired state across supported apps. | `apply --dry-run`, `apply --yes`, narrowed applies | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must show live-write risk, backups, blocked items, and partial success semantics. | no, storyboard/docs coverage complete |
 | Partial success / partial blocked aggregate run | Understand that some items changed while others were skipped. | aggregate `save --yes` or `apply --yes` with mixed states | `must-storyboard` | P0 | current supported | new issue: `v2 UX: storyboard partial aggregate outcomes` | cautious, power | Must never imply blocked items changed. Exit code and next steps must be clear. | no |
 | First setup / init | Create a v2 repo and local identity without touching real app configs. | `init --yes --machine-id ... --user-id ...`, `init --json` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious | Must distinguish repo files from local manager identity state and live app configs. | no |
 | Explain/discover supported apps | Find what can be managed and what is excluded. | `list`, `recipe discover`, `recipe explain git`, `recipe explain ssh` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious, power | Must not overclaim unsupported, excluded, or native lanes. | no |
@@ -247,7 +247,8 @@ power users and debugging while preserving the same redaction policy.
 Create or reuse issues for these artifacts if they do not already exist:
 
 1. `v2 UX: storyboard aggregate selected status and diff` — P0, #177 complete.
-2. `v2 UX: storyboard aggregate save/apply confirmations` — P0, consumes #166.
+2. `v2 UX docs: storyboard aggregate save/apply confirmations` — P0, #179
+   docs/storyboard coverage complete.
 3. `v2 UX: storyboard partial aggregate outcomes` — P0, may follow the aggregate save/apply storyboard.
 4. `v2 UX: storyboard adding multiple supported apps` — P0/P1, consumes #167.
 5. `v2 UX: storyboard profiles and scopes` — P1, covers global/user/machine/machine-user storage choices.
