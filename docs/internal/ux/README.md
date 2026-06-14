@@ -14,6 +14,10 @@ tests, and command documentation.
 - `v2-aggregate-status-diff-storyboard.md` — high-fidelity terminal storyboard
   for aggregate selected `status` and `diff` output across multiple apps and
   mixed states.
+- `v2-aggregate-save-apply-storyboard.md` — high-fidelity terminal storyboard
+  for aggregate selected `save`/`apply` dry-run and confirmed-write
+  confirmations across multiple apps and mixed states.
 - `reviews/` — checked-in completed transcript reviews, starting with the safe
   Git email quickstart review required by #168 and the aggregate status/diff
-  review required by #177.
+  review required by #177 plus the aggregate save/apply review required by
+  #179.
