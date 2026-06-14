@@ -99,9 +99,11 @@ selections:
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
 	text := stdout.String()
-	require.Contains(t, text, "managed settings:")
-	require.Contains(t, text, "location=home:.gitconfig")
-	require.Contains(t, text, "next: dotfiles-manager status git:user.email")
+	require.Contains(t, text, "Selected settings")
+	require.Contains(t, text, "git:user.email — User email")
+	require.Contains(t, text, "Desired state: not saved yet")
+	require.NotContains(t, text, "desired://")
+	require.NotContains(t, text, "resource=")
 	require.NotContains(t, strings.ToLower(text), "resource group")
 }
 

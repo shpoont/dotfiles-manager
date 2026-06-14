@@ -62,7 +62,7 @@ func TestAddInteractivePromptsForProfileAndSettings(t *testing.T) {
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Choose profile layer")
 	require.Contains(t, stdout, "Choose settings to manage")
-	require.Contains(t, stdout, "profile layer: local")
+	require.Contains(t, stdout, "Profile layer: local")
 
 	global := readCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"))
 	local := readCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "local.yaml"))

@@ -46,11 +46,17 @@ resources:
 	requireDiagnosticCodeInRecipe(t, report, ExplainCodeSelectionUnresolved)
 
 	text := ExplainText(report)
-	require.Contains(t, text, "target: git")
+	require.Contains(t, text, "Target: git")
 	require.Contains(t, text, "git:user.email")
-	require.Contains(t, text, "selector=[user] email")
-	require.Contains(t, text, "do not manage: [credential] sections")
-	require.Contains(t, text, "do not manage: credential.helper")
+	require.Contains(t, text, "Location: $HOME/.gitconfig ([user] email)")
+	require.Contains(t, text, "- [credential] sections")
+	require.Contains(t, text, "- credential.helper")
+	require.NotContains(t, text, "recipe://")
+	require.NotContains(t, text, "selector=")
+	verboseText := ExplainVerboseText(report)
+	require.Contains(t, verboseText, "target: git")
+	require.Contains(t, verboseText, "selector=[user] email")
+	require.Contains(t, verboseText, "do not manage: credential.helper")
 	require.NotContains(t, text, "Local Git Collision")
 
 	payload, err := ExplainJSON(report)
@@ -84,10 +90,13 @@ resources:
 		require.Equal(t, "allow", starship.RecipeExplain.Resources[idx].Selector.DeleteKey)
 	}
 	starshipText := ExplainText(starship)
-	require.Contains(t, starshipText, "target: starship")
+	require.Contains(t, starshipText, "Target: starship")
 	require.Contains(t, starshipText, "starship:add_newline")
-	require.Contains(t, starshipText, "selector=add_newline")
-	require.Contains(t, starshipText, "do not manage: STARSHIP_CONFIG non-default locations")
+	require.Contains(t, starshipText, "Location: $XDG_CONFIG_HOME/starship.toml (add_newline)")
+	require.Contains(t, starshipText, "- STARSHIP_CONFIG non-default locations")
+	starshipVerbose := ExplainVerboseText(starship)
+	require.Contains(t, starshipVerbose, "selector=add_newline")
+	require.Contains(t, starshipVerbose, "do not manage: STARSHIP_CONFIG non-default locations")
 	require.NotContains(t, starshipText, "secret@example.com")
 
 	nvim, err := Explain(ExplainOptions{Target: NvimTarget, RepoRoot: root})
@@ -108,7 +117,7 @@ resources:
 	require.Equal(t, "nvim", nvim.RecipeExplain.Resources[0].Path)
 	require.Contains(t, nvim.RecipeExplain.Resources[0].Exclude, "shada/**")
 	require.NotContains(t, nvim.RecipeExplain.Resources[0].Exclude, "**/*secret*")
-	nvimText := ExplainText(nvim)
+	nvimText := ExplainVerboseText(nvim)
 	require.Contains(t, nvimText, "target: nvim")
 	require.Contains(t, nvimText, "nvim:config")
 	require.Contains(t, nvimText, "resource=config driver=file-tree")
@@ -137,7 +146,7 @@ resources:
 		require.Empty(t, tmux.RecipeExplain.Resources[idx].Include)
 		require.Empty(t, tmux.RecipeExplain.Resources[idx].Exclude)
 	}
-	tmuxText := ExplainText(tmux)
+	tmuxText := ExplainVerboseText(tmux)
 	require.Contains(t, tmuxText, "target: tmux")
 	require.Contains(t, tmuxText, "tmux:home.conf")
 	require.Contains(t, tmuxText, "tmux:xdg.conf")
@@ -166,7 +175,7 @@ resources:
 	require.Equal(t, "home", ssh.RecipeExplain.Resources[0].LocationID)
 	require.Equal(t, ".ssh/config", ssh.RecipeExplain.Resources[0].Path)
 	require.Contains(t, ssh.RecipeExplain.Resources[0].BackupRestore, "content safety scanning passes")
-	sshText := ExplainText(ssh)
+	sshText := ExplainVerboseText(ssh)
 	require.Contains(t, sshText, "target: ssh")
 	require.Contains(t, sshText, "ssh:config")
 	require.Contains(t, sshText, "resource=config driver=file")
@@ -197,7 +206,7 @@ resources:
 		require.Nil(t, zsh.RecipeExplain.Resources[idx].Selector)
 		require.Contains(t, zsh.RecipeExplain.Resources[idx].BackupRestore, "pre-apply backup")
 	}
-	zshText := ExplainText(zsh)
+	zshText := ExplainVerboseText(zsh)
 	require.Contains(t, zshText, "target: zsh")
 	require.Contains(t, zshText, "zsh:zshrc")
 	require.Contains(t, zshText, "resource=zshrc driver=file")
@@ -315,7 +324,9 @@ func TestExplainLocalSelectedPathRecipeMetadata(t *testing.T) {
 			require.Equal(t, tc.driver, report.RecipeExplain.Drivers[0].ID)
 			require.Contains(t, report.RecipeExplain.Drivers[0].Summary, tc.driverTx)
 			require.Equal(t, "scalar", report.RecipeExplain.Settings[0].ArtifactForm)
-			require.Contains(t, ExplainText(report), "selector=user.email")
+			require.Contains(t, ExplainText(report), "Location:")
+			require.NotContains(t, ExplainText(report), "selector=")
+			require.Contains(t, ExplainVerboseText(report), "selector=user.email")
 		})
 	}
 }
@@ -391,7 +402,8 @@ func TestExplainErrorsAndExitCodes(t *testing.T) {
 	require.Equal(t, ExplainCodeUnknownTarget, report.Error.Code)
 	require.Equal(t, 2, err.(*ExplainError).ExitCode())
 	require.Equal(t, []string{CustomFilesTarget, GitTarget, NvimTarget, SSHTarget, StarshipTarget, TmuxTarget, ZshTarget}, report.Error.Details["knownTargets"])
-	require.Contains(t, ExplainText(report), "error[unknown-target]")
+	require.Contains(t, ExplainText(report), "unknown recipe target")
+	require.Contains(t, ExplainVerboseText(report), "error[unknown-target]")
 
 	report, err = Explain(ExplainOptions{Target: "git:user.email", RepoRoot: root})
 	require.Error(t, err)
@@ -448,7 +460,8 @@ func TestExplainRenderingAndHelperBranches(t *testing.T) {
 	jsonPayload, err := ExplainJSON(nil)
 	require.NoError(t, err)
 	require.Contains(t, jsonPayload, `"status": "error"`)
-	require.Contains(t, ExplainText(nil), "summary status=error")
+	require.Contains(t, ExplainText(nil), "The command could not complete")
+	require.Contains(t, ExplainVerboseText(nil), "summary status=error")
 
 	resource := explainResource("tree", Resource{Driver: FileTreeDriverID, Location: "config", Path: "profiles", Include: []string{"**/*.json"}, Exclude: []string{"cache/**"}})
 	require.Equal(t, "file-tree", resource.DiffMode)
@@ -476,6 +489,50 @@ func TestExplainRenderingAndHelperBranches(t *testing.T) {
 	file := filepath.Join(root, "exists.yaml")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
 	require.True(t, fileExists(file))
+}
+
+func TestFriendlyExplainHelpersCoverFallbackBranches(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, friendlyExplainErrorText(&ExplainReport{Error: &ExplainErrorObject{Message: "boom"}}), "boom")
+	require.Contains(t, friendlyExplainErrorText(nil), "The command could not complete.")
+
+	require.Equal(t, "Git", friendlyTargetName(ExplainTarget{DisplayName: "Git"}))
+	require.Equal(t, "Custom App", friendlyTargetName(ExplainTarget{Ref: "custom.app"}))
+	require.Equal(t, "App", friendlyTargetName(ExplainTarget{}))
+
+	require.Equal(t, "User email", friendlySettingLabel(ExplainSetting{ID: "user.email", Label: "User email"}))
+	require.Equal(t, "user email", friendlySettingLabel(ExplainSetting{ID: "user.email"}))
+
+	require.Equal(t, "$HOME/.gitconfig", friendlyResourceLocation(ExplainResource{LocationID: "home", Path: ".gitconfig"}))
+	require.Equal(t, "$XDG_CONFIG_HOME/starship.toml", friendlyResourceLocation(ExplainResource{LocationID: "config", Path: "/starship.toml"}))
+	require.Equal(t, "chosen by the custom recipe", friendlyResourceLocation(ExplainResource{LocationID: "recipe-defined", Path: "ignored"}))
+	require.Equal(t, "bundle/settings.json", friendlyResourceLocation(ExplainResource{LocationID: "bundle", Path: "/settings.json"}))
+	require.Equal(t, "bundle", friendlyResourceLocation(ExplainResource{LocationID: "bundle"}))
+	require.Equal(t, "path-only.yaml", friendlyResourceLocation(ExplainResource{Path: "path-only.yaml"}))
+	require.Equal(t, "JSON path $.user.email", friendlyResourceLocation(ExplainResource{Selector: &ExplainSelector{Summary: "JSON path $.user.email"}}))
+	require.Equal(t, "$HOME/.gitconfig ([user] email)", friendlyResourceLocation(ExplainResource{LocationID: "home", Path: ".gitconfig", Selector: &ExplainSelector{Summary: "[user] email"}}))
+
+	require.Equal(t, "single value", friendlyArtifactForm("scalar"))
+	require.Equal(t, "file", friendlyArtifactForm("file"))
+	require.Equal(t, "folder tree", friendlyArtifactForm("file-tree"))
+	require.Equal(t, "native export", friendlyArtifactForm("native"))
+	require.Equal(t, "native export", friendlyArtifactForm("native-export"))
+	require.Equal(t, "custom form", friendlyArtifactForm("custom-form"))
+
+	settings := []ExplainSetting{
+		{ID: "read", Capability: "read-only"},
+		{ID: "export", Capability: "export-only"},
+		{ID: "write", Capability: "read-write"},
+	}
+	require.Equal(t, "export", firstManageableSetting(settings).ID)
+	require.Equal(t, "read", firstManageableSetting([]ExplainSetting{{ID: "read", Capability: "read-only"}}).ID)
+	require.Nil(t, firstManageableSetting(nil))
+
+	require.Equal(t, "dotfiles-manager --config dotfiles-manager.v2.yaml add git --setting user.email --scope user --dry-run", friendlyRecipeAddCommand("git", "user.email", "user"))
+	require.Equal(t, "dotfiles-manager --config dotfiles-manager.v2.yaml add git --dry-run", friendlyRecipeAddCommand("git", "", "unknown"))
+	require.Equal(t, "Custom App", titleWords("custom app"))
+	require.Equal(t, []string{"line"}, trimBlank([]string{"line", "", "  "}))
 }
 
 func requireDiagnosticCodeInRecipe(t *testing.T, report *ExplainReport, code string) {

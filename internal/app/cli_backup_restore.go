@@ -95,29 +95,33 @@ func newBackupCmd(opts *rootOptions) *cobra.Command {
 
 func newBackupListCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List v2 local backups",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBackupListCommand(cmd, opts, jsonOutput)
+			return runBackupListCommand(cmd, opts, jsonOutput, verbose)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	return cmd
 }
 
 func newBackupShowCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "show <run-id>",
 		Short: "Show v2 local backup metadata",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBackupShowCommand(cmd, opts, args[0], jsonOutput)
+			return runBackupShowCommand(cmd, opts, args[0], jsonOutput, verbose)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	return cmd
 }
 
@@ -152,30 +156,30 @@ func newRestoreCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
-func runBackupListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool) error {
+func runBackupListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool, verbose bool) error {
 	store, err := backupStore(opts)
 	if err != nil {
-		return emitBackupError(cmd.OutOrStdout(), jsonOutput, "backup.root", "backup.list", err, v2preview.ExitValidation)
+		return emitBackupError(cmd.OutOrStdout(), jsonOutput, verbose, "backup.root", "backup.list", err, v2preview.ExitValidation)
 	}
 	backups, err := store.ListBackups()
 	if err != nil {
-		return emitBackupError(cmd.OutOrStdout(), jsonOutput, "backup.list", "backup.list", err, v2preview.ExitInternalError)
+		return emitBackupError(cmd.OutOrStdout(), jsonOutput, verbose, "backup.list", "backup.list", err, v2preview.ExitInternalError)
 	}
 	report := backupReportFromMetadata("backup.list", backups)
-	return emitBackupReport(cmd.OutOrStdout(), report, jsonOutput)
+	return emitBackupReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
 }
 
-func runBackupShowCommand(cmd *cobra.Command, opts *rootOptions, runID string, jsonOutput bool) error {
+func runBackupShowCommand(cmd *cobra.Command, opts *rootOptions, runID string, jsonOutput bool, verbose bool) error {
 	store, err := backupStore(opts)
 	if err != nil {
-		return emitBackupError(cmd.OutOrStdout(), jsonOutput, "backup.root", "backup.show", err, v2preview.ExitValidation)
+		return emitBackupError(cmd.OutOrStdout(), jsonOutput, verbose, "backup.root", "backup.show", err, v2preview.ExitValidation)
 	}
 	backup, err := store.ReadBackup(runID)
 	if err != nil {
-		return emitBackupError(cmd.OutOrStdout(), jsonOutput, "backup.show", "backup.show", err, v2preview.ExitValidation)
+		return emitBackupError(cmd.OutOrStdout(), jsonOutput, verbose, "backup.show", "backup.show", err, v2preview.ExitValidation)
 	}
 	report := backupReportFromMetadata("backup.show", []v2ledger.BackupMetadata{backup})
-	return emitBackupReport(cmd.OutOrStdout(), report, jsonOutput)
+	return emitBackupReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
 }
 
 func runRestoreCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions) error {
@@ -321,15 +325,19 @@ func restoreDriverSupported(driver string) bool {
 	}
 }
 
-func emitBackupReport(stdout io.Writer, report backupReport, jsonOutput bool) error {
+func emitBackupReport(stdout io.Writer, report backupReport, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		return emitJSON(stdout, report)
+	}
+	if verbose {
+		_, err := fmt.Fprint(stdout, backupReportVerboseText(report))
+		return err
 	}
 	_, err := fmt.Fprint(stdout, backupReportText(report))
 	return err
 }
 
-func emitBackupError(stdout io.Writer, jsonOutput bool, code string, command string, err error, exit int) error {
+func emitBackupError(stdout io.Writer, jsonOutput bool, verbose bool, code string, command string, err error, exit int) error {
 	message := restoreErrString(err)
 	report := backupReport{
 		Schema:        backupReportSchema,
@@ -338,11 +346,63 @@ func emitBackupError(stdout io.Writer, jsonOutput bool, code string, command str
 		Summary:       backupReportSummary{Status: "error"},
 		Error:         &backupErrorObject{Code: code, Message: message},
 	}
-	_ = emitBackupReport(stdout, report, jsonOutput)
+	_ = emitBackupReport(stdout, report, jsonOutput, verbose)
 	return &backupCLIError{code: code, message: message, exit: exit}
 }
 
 func backupReportText(report backupReport) string {
+	var b strings.Builder
+	switch report.Command {
+	case "backup.show":
+		if len(report.Backups) == 1 {
+			fmt.Fprintf(&b, "Backup %s\n", report.Backups[0].RunID)
+		} else {
+			b.WriteString("Backup details\n")
+		}
+	default:
+		b.WriteString("Backups\n")
+	}
+	if report.Error != nil {
+		fmt.Fprintf(&b, "\nCommand result:\n  %s\n", report.Error.Message)
+		b.WriteString("\nNo files changed.\nRun with --verbose for technical details.\n")
+		return b.String()
+	}
+	if len(report.Backups) == 0 {
+		b.WriteString("\nNo backups found yet.\n\nBackups are created before confirmed apply/restore writes.\n")
+		b.WriteString("Use --verbose or --json for technical details.\n")
+		return b.String()
+	}
+	for _, backup := range report.Backups {
+		if report.Command != "backup.show" {
+			fmt.Fprintf(&b, "\n%s\n", backup.RunID)
+		}
+		if backup.CreatedAt != "" {
+			fmt.Fprintf(&b, "  Created: %s\n", backup.CreatedAt)
+		}
+		fmt.Fprintf(&b, "  Restorable items: %d\n", backup.ItemCount)
+		if len(backup.Items) > 0 {
+			b.WriteString("  Can restore:\n")
+			for _, item := range backup.Items {
+				fmt.Fprintf(&b, "    %s — %s\n", backupItemFriendlyRef(item), backupItemFriendlyLabel(item))
+				if item.Restore.Compatible && restoreDriverSupported(item.Driver) {
+					b.WriteString("      To the value from before the apply run.\n")
+				} else {
+					message := strings.TrimSpace(item.Restore.Message)
+					if message == "" {
+						message = "Restore is not supported for this backup item."
+					}
+					fmt.Fprintf(&b, "      Cannot restore automatically: %s\n", message)
+				}
+			}
+		}
+		fmt.Fprintf(&b, "  Preview restore:\n    dotfiles-manager --config %s restore %s --dry-run\n", v2resolution.RootConfigFile, backup.RunID)
+	}
+	b.WriteString("\nBackup payload contents are stored for restore but are not printed.\n")
+	b.WriteString("Use --verbose for technical details or --json for machine-readable output.\n")
+	return b.String()
+}
+
+func backupReportVerboseText(report backupReport) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "dotfiles-manager v2 %s\n", report.Command)
 	if report.Error != nil {
@@ -365,6 +425,45 @@ func backupReportText(report backupReport) string {
 	}
 	b.WriteString("Use --json for technical details. Backup payload contents are never printed.\n")
 	return b.String()
+}
+
+func backupItemFriendlyRef(item backupItemView) string {
+	if strings.TrimSpace(item.SettingRef) != "" {
+		return item.SettingRef
+	}
+	if strings.TrimSpace(item.TargetRef) != "" {
+		return item.TargetRef
+	}
+	return "selected setting"
+}
+
+func backupItemFriendlyLabel(item backupItemView) string {
+	if strings.TrimSpace(item.SettingRef) != "" {
+		return selectedSettingLabelForBackup(item.SettingRef)
+	}
+	if strings.TrimSpace(item.Ref) != "" {
+		return selectedSettingLabelForBackup(item.Ref)
+	}
+	return "Selected setting"
+}
+
+func selectedSettingLabelForBackup(ref string) string {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "Selected setting"
+	}
+	if _, setting, ok := strings.Cut(trimmed, ":"); ok {
+		trimmed = setting
+	}
+	parts := strings.Fields(strings.NewReplacer(".", " ", "-", " ", "_", " ", "/", " ").Replace(trimmed))
+	if len(parts) == 0 {
+		return "Selected setting"
+	}
+	for i, part := range parts {
+		parts[i] = strings.ToLower(part)
+	}
+	parts[0] = strings.ToUpper(parts[0][:1]) + parts[0][1:]
+	return strings.Join(parts, " ")
 }
 
 func emitRestorePreviewReport(stdout io.Writer, envelope v2preview.Envelope, jsonOutput bool) error {

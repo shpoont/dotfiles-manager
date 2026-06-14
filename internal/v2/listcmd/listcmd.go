@@ -90,6 +90,7 @@ type ManagedSetting struct {
 	Resource        ResourceInfo `json:"resource"`
 	SelectorSummary string       `json:"selectorSummary,omitempty"`
 	NextActions     []string     `json:"nextActions"`
+	DesiredSaved    bool         `json:"-"`
 }
 
 type TargetInfo struct {
@@ -199,6 +200,55 @@ func JSON(report *Report) (string, error) {
 
 func Text(report *Report) string {
 	if report == nil {
+		return "Selected settings\n\nCommand result:\n  The command could not complete.\n"
+	}
+	if report.Error != nil {
+		return friendlyListErrorText(report)
+	}
+	lines := []string{"Selected settings", ""}
+	if len(report.List.Settings) == 0 {
+		lines = append(lines, "No settings are selected yet.", "", "Next:", "  Discover supported settings:", "  dotfiles-manager --config dotfiles-manager.v2.yaml recipe discover")
+	} else {
+		groups := groupManagedSettings(report.List.Settings)
+		for _, target := range sortedManagedTargets(groups) {
+			lines = append(lines, target)
+			for _, setting := range groups[target] {
+				lines = append(lines, fmt.Sprintf("  %s — %s", setting.Ref, settingLabel(setting)))
+				lines = append(lines, fmt.Sprintf("    Scope: %s — %s", setting.Scope, setting.ScopeLabel))
+				if setting.Subject.Resolved {
+					lines = append(lines, "    Subject: "+setting.Subject.ID)
+				} else if len(setting.Subject.Missing) > 0 {
+					lines = append(lines, "    Subject: unresolved; missing "+strings.Join(setting.Subject.Missing, ", "))
+				}
+				lines = append(lines, "    Desired state: "+friendlyDesiredSaved(setting))
+			}
+			lines = append(lines, "")
+		}
+		if first := firstActionableListSetting(report.List.Settings); first != nil {
+			lines = append(lines, "Next:")
+			if first.DesiredSaved {
+				lines = append(lines, "  Inspect drift:", "  "+listCommandLine("diff", first.Ref, first.Subject.ID))
+			} else {
+				lines = append(lines, "  Preview saving the current live value:", "  "+listCommandLine("save", first.Ref, first.Subject.ID))
+			}
+			lines = append(lines, "")
+		}
+		lines = append(lines, fmt.Sprintf("Summary: %d selected setting%s, %d unresolved.", report.Summary.Settings, plural(report.Summary.Settings), report.Summary.Unresolved))
+	}
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Severity == SeverityError {
+			lines = append(lines, "", "Problem:", "  "+diagnostic.Message)
+		}
+	}
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func VerboseText(report *Report) string {
+	return technicalText(report)
+}
+
+func technicalText(report *Report) string {
+	if report == nil {
 		return "list\nsummary status=error targets=0 settings=0 unresolved=0 blocked=0 failed=1"
 	}
 	lines := []string{"list"}
@@ -250,6 +300,130 @@ func Text(report *Report) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s targets=%d settings=%d unresolved=%d blocked=%d failed=%d", report.Summary.Status, report.Summary.Targets, report.Summary.Settings, report.Summary.Unresolved, report.Summary.Blocked, report.Summary.Failed))
 	return strings.Join(lines, "\n")
+}
+
+func friendlyListErrorText(report *Report) string {
+	lines := []string{"Selected settings", "", "Command result:", "  " + report.Error.Message, "", "No files changed.", "", "Run with --verbose for technical details."}
+	return strings.Join(lines, "\n")
+}
+
+func groupManagedSettings(settings []ManagedSetting) map[string][]ManagedSetting {
+	groups := map[string][]ManagedSetting{}
+	for _, setting := range settings {
+		target := setting.Target.DisplayName
+		if strings.TrimSpace(target) == "" {
+			target = targetDisplayName(setting.Target.ID)
+		}
+		groups[target] = append(groups[target], setting)
+	}
+	return groups
+}
+
+func sortedManagedTargets(groups map[string][]ManagedSetting) []string {
+	targets := make([]string, 0, len(groups))
+	for target := range groups {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	return targets
+}
+
+func settingLabel(setting ManagedSetting) string {
+	if strings.TrimSpace(setting.Setting.Label) != "" {
+		return setting.Setting.Label
+	}
+	if strings.TrimSpace(setting.Setting.ID) != "" {
+		return wordsFromID(setting.Setting.ID)
+	}
+	return setting.Ref
+}
+
+func friendlyDesiredSaved(setting ManagedSetting) string {
+	if setting.DesiredSaved {
+		return "saved"
+	}
+	return "not saved yet"
+}
+
+func firstActionableListSetting(settings []ManagedSetting) *ManagedSetting {
+	for i := range settings {
+		if settings[i].Subject.Resolved {
+			return &settings[i]
+		}
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return &settings[0]
+}
+
+func listCommandLine(command string, ref string, userID string) string {
+	args := []string{"dotfiles-manager", "--config", resolution.RootConfigFile, command}
+	if command == "save" {
+		args = append(args, "--dry-run")
+	}
+	if strings.TrimSpace(userID) != "" && userID != "-" {
+		args = append(args, "--user-id", userID)
+	}
+	args = append(args, ref)
+	return strings.Join(args, " ")
+}
+
+func targetDisplayName(target string) string {
+	switch strings.TrimSpace(target) {
+	case "git":
+		return "Git"
+	case "starship":
+		return "Starship"
+	case "zsh":
+		return "Zsh"
+	case "tmux":
+		return "tmux"
+	case "nvim":
+		return "Neovim"
+	case "ssh":
+		return "SSH"
+	case "":
+		return "Selected target"
+	default:
+		return titleWords(strings.ReplaceAll(target, ".", " "))
+	}
+}
+
+func wordsFromID(id string) string {
+	parts := strings.Fields(strings.NewReplacer(".", " ", "-", " ", "_", " ").Replace(id))
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToLower(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+func titleWords(value string) string {
+	parts := strings.Fields(value)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, " ")
+}
+
+func plural(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func trimBlank(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func baseReport() *Report {
@@ -543,10 +717,23 @@ func buildSettings(repo *repoState, ids identityIDs) ([]ManagedSetting, []Diagno
 			}
 			item.DesiredURI = uri
 			item.DesiredRelPath = relPath
+			item.DesiredSaved = desiredArtifactExists(repo.root, relPath)
 		}
 		settings = append(settings, item)
 	}
 	return settings, diagnostics, nil
+}
+
+func desiredArtifactExists(repoRoot string, relPath string) bool {
+	trimmed := strings.TrimSpace(relPath)
+	if trimmed == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(trimmed)))
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
 }
 
 type metadata struct {

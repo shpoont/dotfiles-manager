@@ -218,6 +218,70 @@ func JSON(report *Report) (string, error) {
 
 func Text(report *Report) string {
 	if report == nil {
+		return "Initialize dotfiles-manager v2 workspace.\n\nCommand result:\n  The command could not complete.\n"
+	}
+	if report.Error != nil {
+		return friendlyInitErrorText(report)
+	}
+	lines := []string{}
+	if report.DryRun {
+		lines = append(lines, "Preview: initialize dotfiles-manager v2 workspace.")
+	} else if report.Summary.Written > 0 || report.Summary.Planned > 0 {
+		lines = append(lines, "Initialized dotfiles-manager v2 workspace.")
+	} else {
+		lines = append(lines, "dotfiles-manager v2 workspace is already initialized.")
+	}
+	lines = append(lines, "")
+	if len(report.Init.RepoFiles) > 0 {
+		lines = append(lines, "Repo files:")
+		for _, file := range report.Init.RepoFiles {
+			lines = append(lines, "  "+friendlyInitAction(report, file.Action)+" "+file.Path)
+		}
+		lines = append(lines, "")
+	}
+	if len(report.Init.IdentityFiles) > 0 {
+		lines = append(lines, "Local identity:")
+		for _, file := range report.Init.IdentityFiles {
+			label := titleWord(file.Kind)
+			if file.ID != "" {
+				lines = append(lines, fmt.Sprintf("  %s: %s", label, file.ID))
+			} else {
+				lines = append(lines, fmt.Sprintf("  %s: %s", label, friendlyInitAction(report, file.Action)))
+			}
+		}
+		lines = append(lines, "", "These local identity files are used to keep this machine/user separate from shared repo state.", "")
+	}
+	if len(report.Init.MissingChoices) > 0 {
+		lines = append(lines, "Needs input:")
+		for _, choice := range report.Init.MissingChoices {
+			lines = append(lines, "  "+choice.Message)
+		}
+		lines = append(lines, "")
+	}
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Severity == SeverityError {
+			lines = append(lines, "Problem:", "  "+diagnostic.Message, "")
+		}
+	}
+	lines = append(lines, fmt.Sprintf("Summary: %d repo files %s, %d local identity files %s.",
+		len(report.Init.RepoFiles),
+		friendlyInitRepoPluralAction(report, report.Init.RepoFiles),
+		len(report.Init.IdentityFiles),
+		friendlyInitIdentityPluralAction(report, report.Init.IdentityFiles),
+	))
+	if report.DryRun {
+		lines = append(lines, "", "No files changed.")
+	}
+	lines = append(lines, "", "Next:", "  Discover supported settings:", "  dotfiles-manager --config dotfiles-manager.v2.yaml recipe discover")
+	return strings.Join(trimBlank(lines), "\n")
+}
+
+func VerboseText(report *Report) string {
+	return technicalText(report)
+}
+
+func technicalText(report *Report) string {
+	if report == nil {
 		return "init\nsummary status=error planned=0 written=0 unchanged=0 blocked=0 failed=1"
 	}
 	lines := []string{"init"}
@@ -261,6 +325,95 @@ func Text(report *Report) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s planned=%d written=%d unchanged=%d blocked=%d failed=%d", report.Summary.Status, report.Summary.Planned, report.Summary.Written, report.Summary.Unchanged, report.Summary.Blocked, report.Summary.Failed))
 	return strings.Join(lines, "\n")
+}
+
+func friendlyInitErrorText(report *Report) string {
+	lines := []string{"Initialize dotfiles-manager v2 workspace.", "", "Command result:", "  " + report.Error.Message}
+	if len(report.Init.MissingChoices) > 0 {
+		lines = append(lines, "", "Needs input:")
+		for _, choice := range report.Init.MissingChoices {
+			lines = append(lines, "  "+choice.Message)
+		}
+	}
+	lines = append(lines, "", "No files changed.", "", "Run with --verbose for technical details.")
+	return strings.Join(lines, "\n")
+}
+
+func friendlyInitAction(report *Report, action string) string {
+	switch action {
+	case "create":
+		if report != nil && report.DryRun {
+			return "Would create"
+		}
+		return "Created"
+	case "unchanged":
+		return "Already exists"
+	default:
+		if action == "" {
+			return "Checked"
+		}
+		return titleWord(action)
+	}
+}
+
+func friendlyInitRepoPluralAction(report *Report, files []InitFile) string {
+	if len(files) == 0 {
+		return "checked"
+	}
+	created := 0
+	unchanged := 0
+	for _, file := range files {
+		if file.Action == "create" {
+			created++
+		} else if file.Action == "unchanged" {
+			unchanged++
+		}
+	}
+	return friendlyPluralAction(report, len(files), created, unchanged)
+}
+
+func friendlyInitIdentityPluralAction(report *Report, files []IdentityFile) string {
+	if len(files) == 0 {
+		return "checked"
+	}
+	created := 0
+	unchanged := 0
+	for _, file := range files {
+		if file.Action == "create" {
+			created++
+		} else if file.Action == "unchanged" {
+			unchanged++
+		}
+	}
+	return friendlyPluralAction(report, len(files), created, unchanged)
+}
+
+func friendlyPluralAction(report *Report, total int, created int, unchanged int) string {
+	if created > 0 {
+		if report != nil && report.DryRun {
+			return "would be created"
+		}
+		return "created"
+	}
+	if unchanged == total {
+		return "already existed"
+	}
+	return "checked"
+}
+
+func titleWord(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+func trimBlank(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func baseReport(dryRun bool) *Report {

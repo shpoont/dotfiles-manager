@@ -68,7 +68,7 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"recipe", "explain", "git"})
+	cmd.SetArgs([]string{"recipe", "explain", "git", "--verbose"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	stderr.Reset()
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"recipe", "explain", "custom.files"})
+	cmd.SetArgs([]string{"recipe", "explain", "custom.files", "--verbose"})
 	err = cmd.Execute()
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
@@ -101,7 +101,7 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	stderr.Reset()
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"recipe", "explain", "starship"})
+	cmd.SetArgs([]string{"recipe", "explain", "starship", "--verbose"})
 	err = cmd.Execute()
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
@@ -117,7 +117,7 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	stderr.Reset()
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"recipe", "explain", "tmux"})
+	cmd.SetArgs([]string{"recipe", "explain", "tmux", "--verbose"})
 	err = cmd.Execute()
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
@@ -135,7 +135,7 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	stderr.Reset()
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"recipe", "explain", "zsh"})
+	cmd.SetArgs([]string{"recipe", "explain", "zsh", "--verbose"})
 	err = cmd.Execute()
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
@@ -216,7 +216,7 @@ func TestRecipeDiscoverTextAndJSON(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"recipe", "discover", "git"})
+	cmd.SetArgs([]string{"recipe", "discover", "git", "--verbose"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)

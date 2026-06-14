@@ -69,7 +69,7 @@ func TestBackupTextOutputAndMissingShowError(t *testing.T) {
 	require.NoError(t, err)
 	runID := payload["runId"].(string)
 
-	stdout, err := runBackupRestoreRawCLI(t, []string{"backup", "list"})
+	stdout, err := runBackupRestoreRawCLI(t, []string{"backup", "list", "--verbose"})
 	require.NoError(t, err)
 	require.Contains(t, stdout, "dotfiles-manager v2 backup.list")
 	require.Contains(t, stdout, runID)
@@ -140,6 +140,61 @@ func TestBackupRestoreHelperBranches(t *testing.T) {
 	replaced, ok = replacePathPrefix("/tmp/example/file", "/other", "$X")
 	require.False(t, ok)
 	require.Equal(t, "/tmp/example/file", replaced)
+}
+
+func TestBackupFriendlyRendererHelpersCoverFallbackBranches(t *testing.T) {
+	t.Parallel()
+
+	noBackups := backupReport{Command: "backup.list"}
+	require.Contains(t, backupReportText(noBackups), "No backups found yet.")
+
+	errText := backupReportText(backupReport{Command: "backup.show", Error: &backupErrorObject{Message: "backup missing"}})
+	require.Contains(t, errText, "Command result:")
+	require.Contains(t, errText, "backup missing")
+	require.Contains(t, errText, "No files changed.")
+
+	report := backupReport{
+		Command: "backup.show",
+		Backups: []backupView{{
+			RunID:     "backup-1",
+			CreatedAt: "2026-06-13T12:00:00Z",
+			ItemCount: 3,
+			Items: []backupItemView{
+				{
+					SettingRef: "git:user.email",
+					Driver:     v2recipe.IniFileDriverID,
+					Restore:    v2ledger.RestoreCompatibility{Compatible: true},
+				},
+				{
+					Ref:     "raycast/native-export",
+					Driver:  "native",
+					Restore: v2ledger.RestoreCompatibility{Compatible: false, Message: "native import is manual"},
+				},
+				{
+					TargetRef: "fallback.target",
+					Driver:    "native",
+					Restore:   v2ledger.RestoreCompatibility{},
+				},
+			},
+		}},
+	}
+	text := backupReportText(report)
+	require.Contains(t, text, "Backup backup-1")
+	require.Contains(t, text, "git:user.email — User email")
+	require.Contains(t, text, "To the value from before the apply run.")
+	require.Contains(t, text, "selected setting — Raycast native export")
+	require.Contains(t, text, "Cannot restore automatically: native import is manual")
+	require.Contains(t, text, "fallback.target — Selected setting")
+	require.Contains(t, text, "Cannot restore automatically: Restore is not supported for this backup item.")
+	require.Contains(t, text, "Use --verbose for technical details or --json for machine-readable output.")
+
+	require.Equal(t, "git:user.email", backupItemFriendlyRef(backupItemView{SettingRef: "git:user.email", TargetRef: "git"}))
+	require.Equal(t, "git", backupItemFriendlyRef(backupItemView{TargetRef: "git"}))
+	require.Equal(t, "selected setting", backupItemFriendlyRef(backupItemView{}))
+	require.Equal(t, "User email", backupItemFriendlyLabel(backupItemView{SettingRef: "git:user.email"}))
+	require.Equal(t, "Credential helper secret", backupItemFriendlyLabel(backupItemView{Ref: "credential-helper-secret"}))
+	require.Equal(t, "Selected setting", backupItemFriendlyLabel(backupItemView{}))
+	require.Equal(t, "Selected setting", selectedSettingLabelForBackup("  "))
 }
 
 func TestRestoreBlocksAllWritesWhenRunContainsNativeUnsupportedItem(t *testing.T) {

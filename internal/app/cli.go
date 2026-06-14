@@ -316,6 +316,7 @@ func newSyncCmd(opts *rootOptions) *cobra.Command {
 
 func newInitCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	var yes bool
 	var nonInteractive bool
@@ -337,7 +338,7 @@ func newInitCmd(opts *rootOptions) *cobra.Command {
 				JSONMode:       jsonOutput,
 				Input:          cmd.InOrStdin(),
 				PromptOutput:   cmd.OutOrStdout(),
-			}, jsonOutput)
+			}, jsonOutput, verbose)
 		},
 	}
 
@@ -347,11 +348,13 @@ func newInitCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Accept safe generated identity candidates without prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if identity input is required")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	return cmd
 }
 
 func newAddCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	var yes bool
 	var nonInteractive bool
@@ -375,7 +378,7 @@ func newAddCmd(opts *rootOptions) *cobra.Command {
 				JSONMode:       jsonOutput,
 				Input:          cmd.InOrStdin(),
 				PromptOutput:   cmd.OutOrStdout(),
-			}, jsonOutput)
+			}, jsonOutput, verbose)
 		},
 	}
 
@@ -386,6 +389,7 @@ func newAddCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Accept safe recipe defaults without prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail with missing-choice diagnostics when input is required")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	return cmd
 }
 
@@ -486,6 +490,7 @@ func newAppTestCmd(opts *rootOptions) *cobra.Command {
 
 func newListCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
@@ -497,11 +502,12 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 				MachineID:   v2Flags.machineID,
 				UserID:      v2Flags.userID,
 				ExtraLayers: append([]string(nil), v2Flags.profiles...),
-			}, jsonOutput)
+			}, jsonOutput, verbose)
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
@@ -535,33 +541,37 @@ func newRecipeListCmd(opts *rootOptions) *cobra.Command {
 
 func newRecipeExplainCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "explain <target>",
 		Short: "Explain read-only v2 recipe metadata for a target",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRecipeExplainCommand(cmd, opts, args[0], jsonOutput)
+			return runRecipeExplainCommand(cmd, opts, args[0], jsonOutput, verbose)
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	return cmd
 }
 
 func newRecipeDiscoverCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "discover [target]",
 		Short: "Discover read-only install/config state for bundled recipe targets",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRecipeDiscoverCommand(cmd, opts, firstArg(args), jsonOutput)
+			return runRecipeDiscoverCommand(cmd, opts, firstArg(args), jsonOutput, verbose)
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	return cmd
 }
 
@@ -1030,40 +1040,40 @@ func runGuidedSyncRootCommand(cmd *cobra.Command, opts *rootOptions, ref string,
 	return err
 }
 
-func runInitCommand(cmd *cobra.Command, opts *rootOptions, initOpts v2initcmd.Options, jsonOutput bool) error {
+func runInitCommand(cmd *cobra.Command, opts *rootOptions, initOpts v2initcmd.Options, jsonOutput bool, verbose bool) error {
 	repoRoot := strings.TrimSpace(initOpts.RepoRoot)
 	if repoRoot == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
 			report := v2initcmdErrorReport("init.repo.invalid", err.Error())
-			_ = emitInitReport(cmd.OutOrStdout(), report, jsonOutput)
+			_ = emitInitReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
 			return err
 		}
 		repoRoot = cwd
 	}
 	if opts != nil && strings.TrimSpace(opts.configPath) != "" && !isExplicitV2Config(opts.configPath) {
 		report := v2initcmdErrorReport("init.config.invalid", fmt.Sprintf("--config for v2 init must point to %s", v2resolution.RootConfigFile))
-		_ = emitInitReport(cmd.OutOrStdout(), report, jsonOutput)
+		_ = emitInitReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
 		return &v2initcmd.Error{Code: "init.config.invalid", Message: report.Error.Message, Exit: 2}
 	}
 	initOpts.RepoRoot = repoRoot
 	report, err := v2initcmd.Run(initOpts)
-	if emitErr := emitInitReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+	if emitErr := emitInitReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
 		return emitErr
 	}
 	return err
 }
 
-func runListCommand(cmd *cobra.Command, opts *rootOptions, listOpts v2listcmd.Options, jsonOutput bool) error {
+func runListCommand(cmd *cobra.Command, opts *rootOptions, listOpts v2listcmd.Options, jsonOutput bool, verbose bool) error {
 	repoRoot, err := selectedPreviewRepoRootFor(opts, "list")
 	if err != nil {
 		report := v2listcmdErrorReport("list.root.notFound", err.Error())
-		_ = emitListReport(cmd.OutOrStdout(), report, jsonOutput)
+		_ = emitListReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
 		return &v2listcmd.Error{Code: "list.root.notFound", Message: err.Error(), Exit: 2}
 	}
 	listOpts.RepoRoot = repoRoot
 	report, err := v2listcmd.Run(listOpts)
-	if emitErr := emitListReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+	if emitErr := emitListReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
 		return emitErr
 	}
 	return err
@@ -1158,7 +1168,7 @@ func initRepoRootFromConfig(configPath string) string {
 	return filepath.Dir(abs)
 }
 
-func emitInitReport(stdout io.Writer, report *v2initcmd.Report, jsonOutput bool) error {
+func emitInitReport(stdout io.Writer, report *v2initcmd.Report, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		payload, err := v2initcmd.JSON(report)
 		if err != nil {
@@ -1167,17 +1177,25 @@ func emitInitReport(stdout io.Writer, report *v2initcmd.Report, jsonOutput bool)
 		_, err = fmt.Fprint(stdout, payload)
 		return err
 	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2initcmd.VerboseText(report))
+		return err
+	}
 	_, err := fmt.Fprintln(stdout, v2initcmd.Text(report))
 	return err
 }
 
-func emitListReport(stdout io.Writer, report *v2listcmd.Report, jsonOutput bool) error {
+func emitListReport(stdout io.Writer, report *v2listcmd.Report, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		payload, err := v2listcmd.JSON(report)
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2listcmd.VerboseText(report))
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2listcmd.Text(report))
@@ -1311,7 +1329,7 @@ func runAppTestRoundtripCommand(cmd *cobra.Command, opts *rootOptions, testOpts 
 	return runErr
 }
 
-func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
+func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool, verbose bool) error {
 	repoRoot, err := recipeExplainRepoRoot(opts)
 	if err != nil {
 		explainErr := &v2recipe.ExplainError{Code: v2recipe.ExplainCodeInternalError, Message: err.Error(), Exit: 1}
@@ -1324,11 +1342,11 @@ func runRecipeExplainCommand(cmd *cobra.Command, opts *rootOptions, target strin
 			Items:         []any{},
 			Error:         &v2recipe.ExplainErrorObject{Code: explainErr.Code, Message: explainErr.Message},
 		}
-		_ = emitRecipeExplainReport(cmd.OutOrStdout(), report, jsonOutput)
+		_ = emitRecipeExplainReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
 		return explainErr
 	}
 	report, err := v2recipe.Explain(v2recipe.ExplainOptions{Target: target, RepoRoot: repoRoot})
-	if emitErr := emitRecipeExplainReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+	if emitErr := emitRecipeExplainReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
 		return emitErr
 	}
 	return err
@@ -1343,15 +1361,15 @@ func runRecipeListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool
 	return emitRecipeListReport(cmd.OutOrStdout(), report, jsonOutput)
 }
 
-func runRecipeDiscoverCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool) error {
+func runRecipeDiscoverCommand(cmd *cobra.Command, opts *rootOptions, target string, jsonOutput bool, verbose bool) error {
 	report, err := v2recipe.Discover(v2recipe.DiscoverOptions{Target: target})
-	if emitErr := emitRecipeDiscoverReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+	if emitErr := emitRecipeDiscoverReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
 		return emitErr
 	}
 	return err
 }
 
-func runAddCommand(cmd *cobra.Command, opts *rootOptions, addOpts v2addtarget.Options, jsonOutput bool) error {
+func runAddCommand(cmd *cobra.Command, opts *rootOptions, addOpts v2addtarget.Options, jsonOutput bool, verbose bool) error {
 	repoStart, err := addRepoStart(opts)
 	if err != nil {
 		report, addErr := v2addtarget.Run(addOpts)
@@ -1367,7 +1385,7 @@ func runAddCommand(cmd *cobra.Command, opts *rootOptions, addOpts v2addtarget.Op
 			}
 		}
 		_ = addErr
-		if emitErr := emitAddReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		if emitErr := emitAddReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
 			return emitErr
 		}
 		if !jsonOutput {
@@ -1383,7 +1401,7 @@ func runAddCommand(cmd *cobra.Command, opts *rootOptions, addOpts v2addtarget.Op
 	}
 
 	report, runErr := v2addtarget.Run(addOpts)
-	if emitErr := emitAddReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+	if emitErr := emitAddReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
 		return emitErr
 	}
 	if runErr != nil && !jsonOutput {
@@ -1496,13 +1514,17 @@ func v2appTestRoundtripErrorReport(code string, message string) *v2appauthor.Tes
 	return report
 }
 
-func emitRecipeExplainReport(stdout io.Writer, report *v2recipe.ExplainReport, jsonOutput bool) error {
+func emitRecipeExplainReport(stdout io.Writer, report *v2recipe.ExplainReport, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		payload, err := v2recipe.ExplainJSON(report)
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2recipe.ExplainVerboseText(report))
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2recipe.ExplainText(report))
@@ -1522,7 +1544,7 @@ func emitRecipeListReport(stdout io.Writer, report *v2recipe.ListReport, jsonOut
 	return err
 }
 
-func emitRecipeDiscoverReport(stdout io.Writer, report *v2recipe.DiscoverReport, jsonOutput bool) error {
+func emitRecipeDiscoverReport(stdout io.Writer, report *v2recipe.DiscoverReport, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		payload, err := v2recipe.DiscoverJSON(report)
 		if err != nil {
@@ -1531,17 +1553,25 @@ func emitRecipeDiscoverReport(stdout io.Writer, report *v2recipe.DiscoverReport,
 		_, err = fmt.Fprint(stdout, payload)
 		return err
 	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2recipe.DiscoverVerboseText(report))
+		return err
+	}
 	_, err := fmt.Fprintln(stdout, v2recipe.DiscoverText(report))
 	return err
 }
 
-func emitAddReport(stdout io.Writer, report *v2addtarget.Report, jsonOutput bool) error {
+func emitAddReport(stdout io.Writer, report *v2addtarget.Report, jsonOutput bool, verbose bool) error {
 	if jsonOutput {
 		payload, err := v2addtarget.JSON(report)
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2addtarget.VerboseText(report))
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2addtarget.Text(report))
