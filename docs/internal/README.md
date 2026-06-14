@@ -54,7 +54,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 - `ux/v2-aggregate-status-diff-storyboard.md` — aggregate selected
   `status`/`diff` terminal UX storyboard for multi-app output
 - `ux/v2-aggregate-save-apply-storyboard.md` — aggregate selected
-  `save`/`apply` confirmation UX storyboard for multi-app writes
+  `save`/`apply` confirmation UX storyboard for multi-app writes, including
+  final outcome semantics
 
 ## 6) Process
 

@@ -482,6 +482,164 @@ Next:
   dotfiles-manager status --user-id leon git:user.email
 ```
 
+## Final outcome semantics
+
+This section is the #181 addendum for end-of-run result clarity. It does not
+replace the save/apply transcripts above and does not add a new command
+contract. It defines how the final result should be described when an aggregate
+command reaches one of these user-facing outcomes:
+
+- full success: every actionable item completed or was already current;
+- partial success: at least one item changed and at least one selected item did
+  not change because it was already current, skipped, blocked, unsupported, or
+  failed;
+- no-change failure or blocked outcome: no selected item changed because all
+  actionable items were blocked, unsupported, failed, or not applicable.
+
+These are prose labels for humans. They do not define shell exit codes, JSON
+fields, enum names, scripting behavior, or renderer internals. Future
+implementation work may map these outcomes to process behavior only through a
+separate contract issue.
+
+### Final banner wording
+
+Default text should begin confirmed aggregate outcomes with one clear banner:
+
+```text
+Save completed.
+Apply completed.
+Save completed with partial success.
+Apply completed with partial success.
+Apply could not change any selected settings.
+Save could not save any selected settings.
+```
+
+The banner should describe the run result, not the implementation state. Avoid
+phrases such as `planner partially executed`, `action graph failed`,
+`resource batch completed`, or raw state names.
+
+### `Changed` and `Not changed` sections
+
+When a command writes anything, default text should separate changed from
+not-changed items before detailed per-app reasons.
+
+`Changed` means only files, app/config locations, or manager-owned state actually
+written in that run. It must not include items that merely had desired state
+read, live state inspected, or backups considered.
+
+`Not changed` includes already-current, skipped/not-applicable, blocked,
+unsupported, and failed items. An item in `Not changed` was not written, saved,
+applied, restored, or backed up by that item outcome.
+
+Short partial-success excerpt:
+
+```text
+Apply completed with partial success.
+
+Changed:
+  - $HOME/.gitconfig [user] email
+
+Not changed:
+  - Git user name: already up to date
+  - Git credential helper: unsupported
+  - Starship add_newline: skipped / not applicable
+  - Starship scan_timeout: failed
+  - Zsh .zshrc: blocked
+
+Backup created:
+  - backup run <backup-run-id> includes $HOME/.gitconfig
+```
+
+This excerpt intentionally omits the full per-app transcript already shown in
+#179. It only clarifies final outcome grouping.
+
+### No-change all-blocked/all-failed outcome
+
+A no-change outcome must be explicit that nothing was written and there is no
+changed state to restore. It must not invent a backup or recovery handle.
+
+Command:
+
+```bash
+dotfiles-manager apply --yes --user-id leon
+```
+
+Expected default output when every selected item is blocked, unsupported, failed,
+or not applicable:
+
+```text
+Apply could not change any selected settings.
+
+Summary:
+  Applied to live config: 0
+  Already up to date: 0
+  Blocked: 2
+  Unsupported: 1
+  Failed: 2
+  Skipped / not applicable: 1
+
+Write boundary:
+  No live app/config files were changed.
+  Desired-state repo files were not changed.
+  No backup or recovery handle was created because no live write happened.
+  There is no changed state to restore from this run.
+
+Changed:
+  none
+
+Not changed:
+  Git
+    - Git credential helper: unsupported
+      Reason: credentials and credential helpers are not managed by the Git
+      recipe. No credential value was read or printed.
+
+  Starship
+    - Add newline: skipped / not applicable
+      Reason: selected, but no saved desired state exists yet.
+
+    - Scan timeout: failed
+      Reason: saved desired state could not be read.
+
+  Zsh
+    - .zshrc: blocked
+      Reason: the live path is an unsafe symlink. No write was attempted and the
+      symlink target was not printed.
+
+    - .zprofile: blocked
+      Reason: the live path is outside the approved home configuration paths. No
+      write was attempted.
+
+  Git
+    - Git user email: failed
+      Reason: desired state could not be read. No live Git file was changed.
+
+Next:
+  No single command can safely apply the selected items above.
+
+  Diagnose blocked and failed items:
+  dotfiles-manager apply --dry-run --verbose --user-id leon
+
+  Preview saving supported live state before applying skipped items:
+  dotfiles-manager save --dry-run --user-id leon
+```
+
+User takeaway: an all-blocked/all-failed aggregate run is not a partial success.
+The output says no files changed, no backup was created, and restore is not the
+next step because there is no changed state from this run to restore.
+
+### Verbose and JSON boundary for final outcomes
+
+Verbose text may append diagnostic details that explain why the run ended as a
+full success, partial success, or no-change failure/blocked outcome. It may show
+existing technical refs, diagnostics, backup refs that were actually created,
+and item-level action records. It must keep raw values, secrets, account/session
+data, symlink targets, and payload bytes hidden.
+
+JSON remains owned by the existing machine-readable contract. This addendum does
+not introduce field names, enum names, object shapes, shell exit codes, or
+scripting behavior. `--json` and `--json --verbose` must still emit only one
+JSON document to stdout with no appended prose.
+
 ## Expected verbose addition
 
 Command:
