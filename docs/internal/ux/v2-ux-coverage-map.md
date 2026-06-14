@@ -3,7 +3,7 @@
 Status: issue #171 planning artifact.
 Last updated: 2026-06-14.
 Scope: UX planning only; no command behavior, renderer, JSON schema, or v1 output changes.
-Related issues: #165, #166, #167, #168, #169, #171, #177, #179, #181.
+Related issues: #165, #166, #167, #168, #169, #171, #177, #179, #181, #183.
 Pro pre-validation: <https://chatgpt.com/c/6a281d17-56ec-83ed-88d8-fc0d345b3b9f?dfm_storyboard=1781306002>.
 
 ## Purpose
@@ -105,7 +105,7 @@ the happy path should not require them to learn internal nouns first.
 | First setup / init | Create a v2 repo and local identity without touching real app configs. | `init --yes --machine-id ... --user-id ...`, `init --json` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious | Must distinguish repo files from local manager identity state and live app configs. | no |
 | Explain/discover supported apps | Find what can be managed and what is excluded. | `list`, `recipe discover`, `recipe explain git`, `recipe explain ssh` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious, power | Must not overclaim unsupported, excluded, or native lanes. | no |
 | Add one app or setting | Select a supported target safely. | `add git`, `add git:user.email`, `list` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious | Must explain selection vs saved desired value. | no |
-| Add several supported apps/settings | Select multiple apps without requiring internal resource groups. | `add git starship zsh`, repeated `add`, `list` | `must-storyboard` | P0 | current supported | #167 or new issue: `v2 UX: storyboard adding multiple supported apps` | first-time, cautious, power | Must be explicit about what is managed and what is excluded. | no |
+| Add several supported apps/settings | Select multiple apps without requiring internal resource groups. | repeated `add <target>` commands, `list`; future multi-target `add` syntax only if explicitly labeled unsupported | `must-storyboard` | P0 | current supported | #183, `v2-repeated-add-multiple-apps-storyboard.md` | first-time, cautious, power | Must be explicit about what is selected, what is not saved yet, what is excluded, and that current `add` accepts one target at a time. | no, storyboard/docs coverage complete |
 | List selected settings across apps | Review managed surface at a glance. | `list`, `list --json` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious, power | Must show selected apps/settings, scopes, and unsupported/blocked markers without internal IDs by default. | no |
 | Backup list/show | Find available recovery points after writes. | `backup list`, `backup show <run-id>` | `must-storyboard` | P0 | current supported | #167 | cautious, power | Must separate backup run IDs from internal `state://` refs. Must explain whole-file vs semantic restore limits. | no |
 | Restore preview/confirm | Preview and run recovery safely. | `restore <run-id> --dry-run`, `restore <run-id> --yes` | `must-storyboard` | P0 | current supported | #167 | cautious, power | Must identify files affected, backup source, no dry-run writes, and confirmation behavior. | no |

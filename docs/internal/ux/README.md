@@ -18,7 +18,12 @@ tests, and command documentation.
   for aggregate selected `save`/`apply` dry-run and confirmed-write
   confirmations across multiple apps and mixed states, plus the #181 final
   outcome semantics addendum.
+- `v2-repeated-add-multiple-apps-storyboard.md` — high-fidelity terminal
+  storyboard for selecting several supported apps/settings through the current
+  repeated `add <target>` flow, without implying unsupported multi-target add
+  syntax.
 - `reviews/` — checked-in completed transcript reviews, starting with the safe
   Git email quickstart review required by #168 and the aggregate status/diff
   review required by #177 plus the aggregate save/apply review required by
-  #179 and final outcome semantics review required by #181.
+  #179, final outcome semantics review required by #181, and repeated add
+  multi-app review required by #183.

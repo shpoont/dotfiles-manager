@@ -56,6 +56,9 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 - `ux/v2-aggregate-save-apply-storyboard.md` — aggregate selected
   `save`/`apply` confirmation UX storyboard for multi-app writes, including
   final outcome semantics
+- `ux/v2-repeated-add-multiple-apps-storyboard.md` — repeated `add <target>`
+  UX storyboard for selecting several supported apps/settings without implying
+  unsupported multi-target add syntax
 
 ## 6) Process
 
