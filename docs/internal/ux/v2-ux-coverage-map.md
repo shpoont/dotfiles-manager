@@ -3,7 +3,7 @@
 Status: issue #171 planning artifact.
 Last updated: 2026-06-14.
 Scope: UX planning only; no command behavior, renderer, JSON schema, or v1 output changes.
-Related issues: #165, #166, #167, #168, #169, #171, #177, #179.
+Related issues: #165, #166, #167, #168, #169, #171, #177, #179, #181.
 Pro pre-validation: <https://chatgpt.com/c/6a281d17-56ec-83ed-88d8-fc0d345b3b9f?dfm_storyboard=1781306002>.
 
 ## Purpose
@@ -101,7 +101,7 @@ the happy path should not require them to learn internal nouns first.
 | Multi-app selected status/diff | Check all selected settings and see grouped drift. | `status`, `diff`, `status git starship zsh` only if supported by selector grammar | `must-storyboard` | P0 | current supported | #177, `v2-aggregate-status-diff-storyboard.md` | first-time, cautious, power | Must show counts, per-app sections, blocked reasons, unsupported/failed states, and safe next command. Do not invent unsupported subset selectors or fake subset commands. | no, storyboard complete |
 | Multi-app save all selected settings | Save current live state for several supported settings. | `save --dry-run`, `save --yes`, target/ref narrowed saves | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must distinguish repo desired-state writes from live writes. Must show which items are safe to confirm. | no, storyboard/docs coverage complete |
 | Multi-app apply all selected settings | Apply saved desired state across supported apps. | `apply --dry-run`, `apply --yes`, narrowed applies | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must show live-write risk, backups, blocked items, and partial success semantics. | no, storyboard/docs coverage complete |
-| Partial success / partial blocked aggregate run | Understand that some items changed while others were skipped. | aggregate `save --yes` or `apply --yes` with mixed states | `must-storyboard` | P0 | current supported | new issue: `v2 UX: storyboard partial aggregate outcomes` | cautious, power | Must never imply blocked items changed. Exit code and next steps must be clear. | no |
+| Partial success / partial blocked aggregate run | Understand that some items changed while others were skipped. | aggregate `save --yes` or `apply --yes` with mixed states | `must-storyboard` | P0 | current supported | #181, final outcome semantics addendum in `v2-aggregate-save-apply-storyboard.md` | cautious, power | Must never imply blocked items changed. Exit-state wording must stay prose-only unless a separate contract defines shell/JSON behavior. | no, docs coverage complete |
 | First setup / init | Create a v2 repo and local identity without touching real app configs. | `init --yes --machine-id ... --user-id ...`, `init --json` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious | Must distinguish repo files from local manager identity state and live app configs. | no |
 | Explain/discover supported apps | Find what can be managed and what is excluded. | `list`, `recipe discover`, `recipe explain git`, `recipe explain ssh` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious, power | Must not overclaim unsupported, excluded, or native lanes. | no |
 | Add one app or setting | Select a supported target safely. | `add git`, `add git:user.email`, `list` | `must-storyboard` | P0 | current supported | #167 | first-time, cautious | Must explain selection vs saved desired value. | no |
@@ -141,7 +141,7 @@ the happy path should not require them to learn internal nouns first.
 | Mixed changed/unchanged/blocked aggregate run | Always show total checked, changed/unchanged/blocked counts, per-app sections, blocked reasons, and safe next command(s). | Raw states/actions per item. | `must-storyboard` | #166/future aggregate UX |
 | Native export/import unavailable | Say native export/import is not available yet for this app. Do not show fake export/import success mockups. | #113 blocker, candidate evaluation notes. | `future/blocked` | #113/future native UX |
 | Local recipe untrusted or changed | Say local recipe needs review before reading/writing; no target files changed. | Trust record hash, recipe path, validation diagnostics. | `rule-only` | #167 |
-| Partial success after confirmed write | Say which items changed, which were skipped/blocked, whether backups were recorded, and what to do next. | Ledger run refs, per-item mutation records, exit code. | `must-storyboard` | future partial aggregate UX |
+| Partial success after confirmed write | Say which items changed, which were skipped/blocked, whether backups were recorded, and what to do next. | Ledger run refs and per-item mutation records in verbose/JSON. Shell exit-code and JSON contract changes require a separate issue. | `must-storyboard` | #181 docs coverage complete |
 
 ## Multi-app default output shape
 
@@ -249,7 +249,8 @@ Create or reuse issues for these artifacts if they do not already exist:
 1. `v2 UX: storyboard aggregate selected status and diff` — P0, #177 complete.
 2. `v2 UX docs: storyboard aggregate save/apply confirmations` — P0, #179
    docs/storyboard coverage complete.
-3. `v2 UX: storyboard partial aggregate outcomes` — P0, may follow the aggregate save/apply storyboard.
+3. `v2 UX docs: add aggregate final outcome semantics` — P0, #181 docs
+   coverage complete.
 4. `v2 UX: storyboard adding multiple supported apps` — P0/P1, consumes #167.
 5. `v2 UX: storyboard profiles and scopes` — P1, covers global/user/machine/machine-user storage choices.
 6. `v2 UX: storyboard multiple profiles on one machine` — P1, covers ordered profile/layer overlays.
