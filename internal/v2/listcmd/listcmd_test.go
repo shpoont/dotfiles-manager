@@ -78,7 +78,7 @@ managed settings:
   git:user.email User email
     scope=user (Me on all my machines) subject=leon resolved=true sourceLayer=global
     resource=user-email driver=ini-file location=home:.gitconfig selector=[user] email
-    desired=desired://user/leon/targets/git/settings#user.email
+    desired=desired://user/leon/targets/git/settings#user.email status=not-saved
     next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email | dotfiles-manager sync git:user.email
 summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, VerboseText(report))
 
@@ -104,6 +104,7 @@ summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, Verbose
       "artifactForm": "scalar",
       "desiredUri": "desired://user/leon/targets/git/settings#user.email",
       "desiredRelPath": "desired/user/leon/targets/git/settings.yaml",
+      "desiredState": {"status": "not-saved", "saved": false},
       "resource": {"id": "user-email", "driverId": "ini-file", "locationId": "home", "path": ".gitconfig"},
       "selectorSummary": "[user] email",
       "nextActions": [
@@ -116,6 +117,144 @@ summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, Verbose
   "diagnostics": [],
   "error": null
 }`, payload)
+}
+
+func TestRunReportsDesiredStatePerSelectedSettingInSharedSettingsArtifact(t *testing.T) {
+	repoRoot := setupListRepo(t, []string{"global"}, map[string]string{"global": `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  git:
+    settings:
+      user.email:
+        scope: user
+      user.name:
+        scope: user
+`})
+	writeListDesiredSettings(t, repoRoot, "user", "leon", "git", map[string]string{
+		"user.email": "leon@example.com",
+	})
+
+	report, err := Run(Options{RepoRoot: repoRoot, StateRoot: filepath.Join(t.TempDir(), "state"), UserID: "leon"})
+	require.NoError(t, err)
+	require.Equal(t, "ok", report.Summary.Status)
+	require.Len(t, report.List.Settings, 2)
+
+	email := requireListSetting(t, report, "git:user.email")
+	require.True(t, email.DesiredSaved)
+	require.Equal(t, DesiredStateInfo{Status: DesiredStateSaved, Saved: true}, email.DesiredState)
+	name := requireListSetting(t, report, "git:user.name")
+	require.False(t, name.DesiredSaved)
+	require.Equal(t, DesiredStateInfo{Status: DesiredStateNotSaved, Saved: false}, name.DesiredState)
+
+	text := Text(report)
+	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: saved")
+	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: not saved yet")
+	require.Contains(t, text, "Preview saving the current live value:\n  dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.name")
+
+	payload, err := JSON(report)
+	require.NoError(t, err)
+	decoded := decodeListPayload(t, payload)
+	require.Equal(t, "saved", jsonDesiredStateStatus(t, decoded, "git:user.email"))
+	require.Equal(t, true, jsonDesiredStateSaved(t, decoded, "git:user.email"))
+	require.Equal(t, "not-saved", jsonDesiredStateStatus(t, decoded, "git:user.name"))
+	require.Equal(t, false, jsonDesiredStateSaved(t, decoded, "git:user.name"))
+}
+
+func TestRunReportsDesiredStateAllSavedAndNoneSavedInSharedSettingsArtifact(t *testing.T) {
+	tests := []struct {
+		name             string
+		values           map[string]string
+		wantStatus       map[string]string
+		wantNextContains string
+	}{
+		{
+			name:             "all saved",
+			values:           map[string]string{"user.email": "leon@example.com", "user.name": "Leon"},
+			wantStatus:       map[string]string{"git:user.email": DesiredStateSaved, "git:user.name": DesiredStateSaved},
+			wantNextContains: "Inspect drift:\n  dotfiles-manager --config dotfiles-manager.v2.yaml diff --user-id leon git:user.email",
+		},
+		{
+			name:             "none saved",
+			values:           nil,
+			wantStatus:       map[string]string{"git:user.email": DesiredStateNotSaved, "git:user.name": DesiredStateNotSaved},
+			wantNextContains: "Preview saving the current live value:\n  dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot := setupListRepo(t, []string{"global"}, map[string]string{"global": `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  git:
+    settings:
+      user.email:
+        scope: user
+      user.name:
+        scope: user
+`})
+			if tt.values != nil {
+				writeListDesiredSettings(t, repoRoot, "user", "leon", "git", tt.values)
+			}
+
+			report, err := Run(Options{RepoRoot: repoRoot, StateRoot: filepath.Join(t.TempDir(), "state"), UserID: "leon"})
+			require.NoError(t, err)
+			require.Equal(t, "ok", report.Summary.Status)
+			payload, err := JSON(report)
+			require.NoError(t, err)
+			decoded := decodeListPayload(t, payload)
+			for ref, want := range tt.wantStatus {
+				setting := requireListSetting(t, report, ref)
+				require.Equal(t, want, setting.DesiredState.Status)
+				require.Equal(t, want == DesiredStateSaved, setting.DesiredState.Saved)
+				require.Equal(t, want, jsonDesiredStateStatus(t, decoded, ref))
+				require.Equal(t, want == DesiredStateSaved, jsonDesiredStateSaved(t, decoded, ref))
+			}
+			require.Contains(t, Text(report), tt.wantNextContains)
+		})
+	}
+}
+
+func TestRunWarnsOnInvalidDesiredSettingsWithoutClaimingSaved(t *testing.T) {
+	repoRoot := setupListRepo(t, []string{"global"}, map[string]string{"global": `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  git:
+    settings:
+      user.email:
+        scope: user
+      user.name:
+        scope: user
+  zsh:
+    settings:
+      zshrc:
+        scope: user
+        artifact: artifacts/zshrc
+`})
+	writeListFile(t, filepath.Join(repoRoot, "desired", "user", "leon", "targets", "git", "settings.yaml"), "schema: wrong\nschemaVersion: 1\nvalues: {}\n")
+	writeListFile(t, filepath.Join(repoRoot, "desired", "user", "leon", "targets", "zsh", "artifacts", "zshrc"), "# managed zshrc\n")
+
+	report, err := Run(Options{RepoRoot: repoRoot, StateRoot: filepath.Join(t.TempDir(), "state"), UserID: "leon"})
+	require.NoError(t, err)
+	require.Equal(t, "partial", report.Summary.Status)
+	require.Len(t, report.List.Settings, 3)
+	require.Equal(t, DesiredStateNotSaved, requireListSetting(t, report, "git:user.email").DesiredState.Status)
+	require.Equal(t, DesiredStateNotSaved, requireListSetting(t, report, "git:user.name").DesiredState.Status)
+	require.Equal(t, DesiredStateSaved, requireListSetting(t, report, "zsh:zshrc").DesiredState.Status)
+	require.NotEmpty(t, report.Diagnostics)
+	foundDesiredInvalid := false
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code != CodeDesiredInvalid {
+			continue
+		}
+		foundDesiredInvalid = true
+		require.Equal(t, SeverityWarning, diagnostic.Severity)
+		require.Contains(t, diagnostic.Message, "treating the setting as not saved")
+		require.Equal(t, filepath.Join("desired", "user", "leon", "targets", "git", "settings.yaml"), diagnostic.Path)
+	}
+	require.True(t, foundDesiredInvalid)
+	require.Contains(t, Text(report), "zsh:zshrc — .zshrc\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: saved")
+	require.Contains(t, Text(report), "Warning:\n  desired state for git:user.email is invalid; treating the setting as not saved")
 }
 
 func TestRunKeepsReadOnlyListPartialWhenIdentityMissing(t *testing.T) {
@@ -466,6 +605,74 @@ func TestFriendlyListHelpersCoverFallbackBranches(t *testing.T) {
 	dirRel := filepath.ToSlash(filepath.Join("desired", "dir"))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, dirRel), 0o755))
 	require.False(t, desiredArtifactExists(root, dirRel))
+}
+
+func requireListSetting(t *testing.T, report *Report, ref string) ManagedSetting {
+	t.Helper()
+	require.NotNil(t, report)
+	for _, setting := range report.List.Settings {
+		if setting.Ref == ref {
+			return setting
+		}
+	}
+	require.Failf(t, "setting not found", "ref %s was not in list report", ref)
+	return ManagedSetting{}
+}
+
+func writeListDesiredSettings(t *testing.T, repoRoot string, scope string, subject string, target string, values map[string]string) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n")
+	for _, settingID := range sortedKeys(values) {
+		b.WriteString("  " + settingID + ":\n")
+		b.WriteString("    intent: set\n")
+		b.WriteString("    kind: string\n")
+		b.WriteString("    value: " + values[settingID] + "\n")
+	}
+	writeListFile(t, filepath.Join(repoRoot, "desired", scope, subject, "targets", target, "settings.yaml"), b.String())
+}
+
+func decodeListPayload(t *testing.T, payload string) map[string]any {
+	t.Helper()
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal([]byte(payload), &decoded))
+	return decoded
+}
+
+func jsonDesiredStateStatus(t *testing.T, decoded map[string]any, ref string) string {
+	t.Helper()
+	state := jsonDesiredState(t, decoded, ref)
+	status, ok := state["status"].(string)
+	require.True(t, ok, "desiredState.status for %s must be a string", ref)
+	return status
+}
+
+func jsonDesiredStateSaved(t *testing.T, decoded map[string]any, ref string) bool {
+	t.Helper()
+	state := jsonDesiredState(t, decoded, ref)
+	saved, ok := state["saved"].(bool)
+	require.True(t, ok, "desiredState.saved for %s must be a bool", ref)
+	return saved
+}
+
+func jsonDesiredState(t *testing.T, decoded map[string]any, ref string) map[string]any {
+	t.Helper()
+	list, ok := decoded["list"].(map[string]any)
+	require.True(t, ok)
+	settings, ok := list["settings"].([]any)
+	require.True(t, ok)
+	for _, raw := range settings {
+		setting, ok := raw.(map[string]any)
+		require.True(t, ok)
+		if setting["ref"] != ref {
+			continue
+		}
+		state, ok := setting["desiredState"].(map[string]any)
+		require.True(t, ok, "desiredState for %s must be an object", ref)
+		return state
+	}
+	require.Failf(t, "setting not found", "ref %s was not in list JSON", ref)
+	return nil
 }
 
 func setupListRepo(t *testing.T, stack []string, layers map[string]string) string {
