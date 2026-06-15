@@ -185,6 +185,15 @@ func TestNativeRunnerImportsStayConfinedToNativeExportFlow(t *testing.T) {
 		filepath.Join("internal", "v2", "selectedlive", "selectedlive.go"):       true,
 		filepath.Join("internal", "v2", "selectedpreview", "selectedpreview.go"): true,
 	}
+	ignoredScanDirs := map[string]bool{
+		// The import guard checks committed production source only. Local release
+		// evidence roots and snapshot builds can contain clean checkouts or
+		// generated archives that legitimately mirror the allowed production
+		// importers and must not affect the guard result.
+		".git": true,
+		".tmp": true,
+		"dist": true,
+	}
 	var unexpected []string
 	err = filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -195,7 +204,7 @@ func TestNativeRunnerImportsStayConfinedToNativeExportFlow(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if rel == ".git" || strings.HasPrefix(rel, filepath.Join("internal", "v2", "nativeops")) {
+			if ignoredScanDirs[rel] || strings.HasPrefix(rel, filepath.Join("internal", "v2", "nativeops")) {
 				return filepath.SkipDir
 			}
 			return nil
