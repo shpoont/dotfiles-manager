@@ -1,12 +1,18 @@
 ---
 title: v2 MVP release-candidate evidence
-status: release-candidate-audit
+status: historical-superseded
 owner: Engineering Operations
 last_reviewed: 2026-06-11
 audited_commit: 1849bdab9ae8ad41cbdc7cc2ef00224cba5c6824
 ---
 
 # v2 MVP release-candidate evidence
+
+> Historical note: this #124 evidence was superseded by
+> [`v2-release-candidate-issue-192.md`](./v2-release-candidate-issue-192.md),
+> which re-verified the release-candidate surface after the #189/#190/#191
+> production-readiness corrections. Keep this file as historical evidence only.
+
 
 This document records the release-candidate audit for GitHub issue
 [#124](https://github.com/shpoont/dotfiles-manager/issues/124), "v2: mark MVP
