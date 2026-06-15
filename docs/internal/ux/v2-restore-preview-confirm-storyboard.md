@@ -39,14 +39,18 @@ Executable command examples use only command forms exposed by current help:
 - `dotfiles-manager restore <run-id> --dry-run [--user-id <id>]`
 - `dotfiles-manager restore <run-id> --yes [--user-id <id>]`
 - `dotfiles-manager restore <run-id> --non-interactive [--user-id <id>]`
+- `dotfiles-manager restore <run-id> --verbose [--dry-run|--yes] [--user-id <id>]`
 - `dotfiles-manager backup list [--json|--verbose]`
 - `dotfiles-manager backup show <run-id> [--json|--verbose]`
 - `dotfiles-manager status [path-or-ref]`
 - `dotfiles-manager diff [path-or-ref]`
 
-No executable restore verbose-flag examples appear because restore does not
-currently expose that flag. This document also avoids restore JSON examples; it
-introduces no JSON fields, enum names, object shapes, or shell exit-code rules.
+The transcripts below remain default-text examples. `restore --verbose` is a
+technical text tier added by the later #190 implementation work; it must appear
+after the same human summary, preserve redaction, and avoid dry-run/future-tense
+wording after a confirmed successful restore. This document still avoids restore
+JSON examples; it introduces no JSON fields, enum names, object shapes, or shell
+exit-code rules.
 
 Run IDs such as `selected-value-20260615T102030Z` and
 `restore-20260615T103000Z` are illustrative handles for the storyboard. They are
@@ -383,15 +387,12 @@ payload bytes.
 
 ### Technical text
 
-`backup list --verbose` and `backup show <run-id> --verbose` are existing
-technical surfaces. They may show driver/resource/location identifiers and
-internal refs after the human backup summary, while preserving the same
-redaction policy.
-
-This storyboard does not show an executable restore verbose command because that
-flag is not exposed by current restore help. If a later issue adds restore text
-diagnostics, the diagnostics must appear after the human summary and must not
-weaken redaction.
+`restore --verbose`, `backup list --verbose`, and
+`backup show <run-id> --verbose` are technical text surfaces. They may show
+driver/resource/location identifiers and internal refs after the human summary,
+while preserving the same redaction policy. Confirmed successful restore verbose
+text must use completed-work wording (`applied`, actual backup-before-restore
+handle) rather than preview wording (`would-change`, `will be created`).
 
 ### JSON
 
