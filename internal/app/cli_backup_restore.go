@@ -127,6 +127,7 @@ func newBackupShowCmd(opts *rootOptions) *cobra.Command {
 
 func newRestoreCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
+	var verbose bool
 	var dryRun bool
 	var yes bool
 	var nonInteractive bool
@@ -141,6 +142,7 @@ func newRestoreCmd(opts *rootOptions) *cobra.Command {
 				Name:           "restore",
 				PathArg:        args[0],
 				JSONOutput:     jsonOutput,
+				Verbose:        verbose,
 				DryRun:         dryRun,
 				Yes:            yes,
 				NonInteractive: nonInteractive,
@@ -152,6 +154,7 @@ func newRestoreCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm restore without interactive prompting")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if restore needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
@@ -186,13 +189,13 @@ func runRestoreCommand(cmd *cobra.Command, opts *rootOptions, commandOpts comman
 	repoRoot, err := backupRestoreRepoRoot(opts, "restore")
 	if err != nil {
 		report := restoreErrorEnvelope(commandOpts, "restore.root.notFound", err.Error(), v2preview.ExitValidation)
-		_ = emitRestorePreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+		_ = emitRestoreReport(cmd.OutOrStdout(), report, nil, commandOpts.PathArg, commandOpts.JSONOutput, commandOpts.Verbose, false)
 		return &backupCLIError{code: "restore.root.notFound", message: err.Error(), exit: v2preview.ExitValidation}
 	}
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
 		report := restoreErrorEnvelope(commandOpts, "restore.stateRoot.default", err.Error(), v2preview.ExitValidation)
-		_ = emitRestorePreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+		_ = emitRestoreReport(cmd.OutOrStdout(), report, nil, commandOpts.PathArg, commandOpts.JSONOutput, commandOpts.Verbose, false)
 		return &backupCLIError{code: "restore.stateRoot.default", message: err.Error(), exit: v2preview.ExitValidation}
 	}
 	profile, err := v2resolution.Resolve(repoRoot, v2resolution.ResolveOptions{
@@ -202,13 +205,13 @@ func runRestoreCommand(cmd *cobra.Command, opts *rootOptions, commandOpts comman
 	})
 	if err != nil {
 		report := restoreErrorEnvelope(commandOpts, "restore.profile.resolve", err.Error(), v2preview.ExitValidation)
-		_ = emitRestorePreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+		_ = emitRestoreReport(cmd.OutOrStdout(), report, nil, commandOpts.PathArg, commandOpts.JSONOutput, commandOpts.Verbose, false)
 		return &backupCLIError{code: "restore.profile.resolve", message: err.Error(), exit: v2preview.ExitValidation}
 	}
 	store, err := v2ledger.NewStore(stateRoot)
 	if err != nil {
 		report := restoreErrorEnvelope(commandOpts, "restore.ledger.open", err.Error(), v2preview.ExitValidation)
-		_ = emitRestorePreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+		_ = emitRestoreReport(cmd.OutOrStdout(), report, nil, commandOpts.PathArg, commandOpts.JSONOutput, commandOpts.Verbose, false)
 		return &backupCLIError{code: "restore.ledger.open", message: err.Error(), exit: v2preview.ExitValidation}
 	}
 	started := time.Now().UTC()
@@ -223,11 +226,21 @@ func runRestoreCommand(cmd *cobra.Command, opts *rootOptions, commandOpts comman
 	})
 	if restoreRun == nil || restoreRun.Preview.Command == "" {
 		report := restoreErrorEnvelope(commandOpts, "restore.failed", defaultBackupString(restoreErrString(restoreErr), "restore failed"), v2preview.ExitValidation)
-		_ = emitRestorePreviewReport(cmd.OutOrStdout(), report, commandOpts.JSONOutput)
+		_ = emitRestoreReport(cmd.OutOrStdout(), report, restoreRun, commandOpts.PathArg, commandOpts.JSONOutput, commandOpts.Verbose, false)
 		return &backupCLIError{code: "restore.failed", message: restoreErrString(restoreErr), exit: v2preview.ExitValidation}
 	}
-	if emitErr := emitRestorePreviewReport(cmd.OutOrStdout(), restoreRun.Preview, commandOpts.JSONOutput); emitErr != nil {
+	outputEnvelope := restoreRun.Preview
+	completed := false
+	var completedErr error
+	if restoreErr == nil && commandOpts.Yes && !commandOpts.DryRun && restoreRun.RunRecord != nil {
+		outputEnvelope, completedErr = completedRestoreEnvelope(restoreRun)
+		completed = true
+	}
+	if emitErr := emitRestoreReport(cmd.OutOrStdout(), outputEnvelope, restoreRun, commandOpts.PathArg, commandOpts.JSONOutput, commandOpts.Verbose, completed); emitErr != nil {
 		return emitErr
+	}
+	if completedErr != nil {
+		return &backupCLIError{code: "restore.backupBeforeRestore.missing", message: completedErr.Error(), exit: v2preview.ExitInternalError}
 	}
 	if restoreErr != nil {
 		return &backupCLIError{code: "restore.failed", message: restoreErr.Error(), exit: restoreExitCode(restoreRun.Preview)}
@@ -466,7 +479,7 @@ func selectedSettingLabelForBackup(ref string) string {
 	return strings.Join(parts, " ")
 }
 
-func emitRestorePreviewReport(stdout io.Writer, envelope v2preview.Envelope, jsonOutput bool) error {
+func emitRestoreReport(stdout io.Writer, envelope v2preview.Envelope, run *v2ledger.RestoreRun, sourceRunID string, jsonOutput bool, verbose bool, completed bool) error {
 	envelope = redactPreviewEnvelope(envelope)
 	if jsonOutput {
 		payload, err := v2preview.JSON(envelope)
@@ -476,7 +489,7 @@ func emitRestorePreviewReport(stdout io.Writer, envelope v2preview.Envelope, jso
 		_, err = fmt.Fprint(stdout, payload)
 		return err
 	}
-	_, err := fmt.Fprintln(stdout, v2preview.RenderText(envelope))
+	_, err := fmt.Fprintln(stdout, restoreReportText(envelope, run, sourceRunID, completed, verbose))
 	return err
 }
 
