@@ -38,3 +38,9 @@ archives:
       - docs/**
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+
+release:
+  # Mark semantic-version prerelease tags such as v0.2.0-rc.1 as GitHub
+  # pre-releases. The v2 release-candidate publication gate must not rely on
+  # post-publish manual correction for prerelease status.
+  prerelease: auto
