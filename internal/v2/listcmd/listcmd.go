@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
@@ -30,12 +31,18 @@ const (
 	CodeSelectionInvalid = "list.selection.invalid"
 	CodeIdentityInvalid  = "list.identity.invalid"
 	CodeRecipeInvalid    = "list.recipe.invalid"
+	CodeDesiredInvalid   = "list.desired.invalid"
 )
 
 const (
 	SeverityInfo    = "info"
 	SeverityWarning = "warning"
 	SeverityError   = "error"
+)
+
+const (
+	DesiredStateSaved    = "saved"
+	DesiredStateNotSaved = "not-saved"
 )
 
 var identityIDRegexp = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -76,21 +83,27 @@ type ListResult struct {
 }
 
 type ManagedSetting struct {
-	Ref             string       `json:"ref"`
-	Target          TargetInfo   `json:"target"`
-	Setting         SettingInfo  `json:"setting"`
-	Scope           string       `json:"scope"`
-	ScopeLabel      string       `json:"scopeLabel"`
-	Subject         SubjectInfo  `json:"subject"`
-	SourceLayer     string       `json:"sourceLayer"`
-	Artifact        string       `json:"artifact,omitempty"`
-	ArtifactForm    string       `json:"artifactForm,omitempty"`
-	DesiredURI      string       `json:"desiredUri,omitempty"`
-	DesiredRelPath  string       `json:"desiredRelPath,omitempty"`
-	Resource        ResourceInfo `json:"resource"`
-	SelectorSummary string       `json:"selectorSummary,omitempty"`
-	NextActions     []string     `json:"nextActions"`
-	DesiredSaved    bool         `json:"-"`
+	Ref             string           `json:"ref"`
+	Target          TargetInfo       `json:"target"`
+	Setting         SettingInfo      `json:"setting"`
+	Scope           string           `json:"scope"`
+	ScopeLabel      string           `json:"scopeLabel"`
+	Subject         SubjectInfo      `json:"subject"`
+	SourceLayer     string           `json:"sourceLayer"`
+	Artifact        string           `json:"artifact,omitempty"`
+	ArtifactForm    string           `json:"artifactForm,omitempty"`
+	DesiredURI      string           `json:"desiredUri,omitempty"`
+	DesiredRelPath  string           `json:"desiredRelPath,omitempty"`
+	DesiredState    DesiredStateInfo `json:"desiredState"`
+	Resource        ResourceInfo     `json:"resource"`
+	SelectorSummary string           `json:"selectorSummary,omitempty"`
+	NextActions     []string         `json:"nextActions"`
+	DesiredSaved    bool             `json:"-"`
+}
+
+type DesiredStateInfo struct {
+	Status string `json:"status"`
+	Saved  bool   `json:"saved"`
 }
 
 type TargetInfo struct {
@@ -236,8 +249,11 @@ func Text(report *Report) string {
 		lines = append(lines, fmt.Sprintf("Summary: %d selected setting%s, %d unresolved.", report.Summary.Settings, plural(report.Summary.Settings), report.Summary.Unresolved))
 	}
 	for _, diagnostic := range report.Diagnostics {
-		if diagnostic.Severity == SeverityError {
+		switch diagnostic.Severity {
+		case SeverityError:
 			lines = append(lines, "", "Problem:", "  "+diagnostic.Message)
+		case SeverityWarning:
+			lines = append(lines, "", "Warning:", "  "+diagnostic.Message)
 		}
 	}
 	return strings.Join(trimBlank(lines), "\n")
@@ -285,7 +301,7 @@ func technicalText(report *Report) string {
 				lines = append(lines, "    artifact="+setting.Artifact)
 			}
 			if setting.DesiredURI != "" {
-				lines = append(lines, "    desired="+setting.DesiredURI)
+				lines = append(lines, "    desired="+setting.DesiredURI+" status="+setting.DesiredState.Status)
 			}
 			if len(setting.NextActions) > 0 {
 				lines = append(lines, "    next: "+strings.Join(setting.NextActions, " | "))
@@ -339,13 +355,27 @@ func settingLabel(setting ManagedSetting) string {
 }
 
 func friendlyDesiredSaved(setting ManagedSetting) string {
-	if setting.DesiredSaved {
+	switch setting.DesiredState.Status {
+	case DesiredStateSaved:
 		return "saved"
+	case DesiredStateNotSaved:
+		return "not saved yet"
+	case "":
+		if setting.DesiredSaved {
+			return "saved"
+		}
+		return "not saved yet"
+	default:
+		return setting.DesiredState.Status
 	}
-	return "not saved yet"
 }
 
 func firstActionableListSetting(settings []ManagedSetting) *ManagedSetting {
+	for i := range settings {
+		if settings[i].Subject.Resolved && !settings[i].DesiredSaved {
+			return &settings[i]
+		}
+	}
 	for i := range settings {
 		if settings[i].Subject.Resolved {
 			return &settings[i]
@@ -703,6 +733,7 @@ func buildSettings(repo *repoState, ids identityIDs) ([]ManagedSetting, []Diagno
 			Resource:        meta.resource,
 			SelectorSummary: meta.selectorSummary,
 			NextActions:     nextActions(key),
+			DesiredState:    desiredStateInfo(false),
 		}
 		if item.Setting.ID == "" {
 			item.Setting.ID = selection.SettingID
@@ -717,11 +748,45 @@ func buildSettings(repo *repoState, ids identityIDs) ([]ManagedSetting, []Diagno
 			}
 			item.DesiredURI = uri
 			item.DesiredRelPath = relPath
-			item.DesiredSaved = desiredArtifactExists(repo.root, relPath)
+			saved, diagnostic := desiredStateSaved(repo.root, item)
+			item.DesiredState = desiredStateInfo(saved)
+			item.DesiredSaved = saved
+			if diagnostic != nil {
+				diagnostics = append(diagnostics, *diagnostic)
+			}
 		}
 		settings = append(settings, item)
 	}
 	return settings, diagnostics, nil
+}
+
+func desiredStateInfo(saved bool) DesiredStateInfo {
+	if saved {
+		return DesiredStateInfo{Status: DesiredStateSaved, Saved: true}
+	}
+	return DesiredStateInfo{Status: DesiredStateNotSaved, Saved: false}
+}
+
+func desiredStateSaved(repoRoot string, item ManagedSetting) (bool, *Diagnostic) {
+	if desiredURIHasFragment(item.DesiredURI) {
+		read, err := desired.ReadSelectedValue(repoRoot, item.DesiredURI)
+		if err != nil {
+			return false, &Diagnostic{
+				Code:     CodeDesiredInvalid,
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("desired state for %s is invalid; treating the setting as not saved: %s", item.Ref, err),
+				Ref:      item.Ref,
+				Path:     item.DesiredRelPath,
+			}
+		}
+		return read.Status == desired.StatusPresent && read.Desired != nil, nil
+	}
+	return desiredArtifactExists(repoRoot, item.DesiredRelPath), nil
+}
+
+func desiredURIHasFragment(uri string) bool {
+	_, fragment, ok := strings.Cut(strings.TrimSpace(uri), "#")
+	return ok && strings.TrimSpace(fragment) != ""
 }
 
 func desiredArtifactExists(repoRoot string, relPath string) bool {

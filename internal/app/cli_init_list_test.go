@@ -78,6 +78,35 @@ selections:
 	require.Equal(t, ".gitconfig", resource["path"])
 }
 
+func TestListCLIReportsGitDesiredStateAtSettingGranularity(t *testing.T) {
+	home := setTempHome(t)
+	writeCLIFile(t, filepath.Join(home, ".gitconfig"), "[user]\n\temail = leon@example.com\n\tname = Leon\n")
+	repoRoot := setupAddCLIRepo(t, []string{"global"}, map[string]string{"global": `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections:
+  git:
+    settings:
+      user.email:
+        scope: user
+      user.name:
+        scope: user
+`})
+	setCWD(t, repoRoot)
+
+	_ = runUX167JSON(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
+
+	text := runUX167Text(t, []string{"list", "--user-id", "leon"})
+	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: saved")
+	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: not saved yet")
+	require.Contains(t, text, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.name")
+
+	payload := runUX167JSON(t, []string{"list", "--json", "--user-id", "leon"})
+	require.Equal(t, "saved", listDesiredStateStatus(t, payload, "git:user.email"))
+	require.Equal(t, true, listDesiredStateSaved(t, payload, "git:user.email"))
+	require.Equal(t, "not-saved", listDesiredStateStatus(t, payload, "git:user.name"))
+	require.Equal(t, false, listDesiredStateSaved(t, payload, "git:user.name"))
+}
+
 func TestListTextKeepsHappyPathVocabulary(t *testing.T) {
 	repoRoot := setupAddCLIRepo(t, []string{"global"}, map[string]string{"global": `schema: dotfiles-manager.v2.profile-layer
 schemaVersion: 1
@@ -136,6 +165,39 @@ func TestInitHonorsExplicitV2ConfigDirectory(t *testing.T) {
 	require.Empty(t, stderr)
 	require.Equal(t, "changed", payload["summary"].(map[string]any)["status"])
 	require.FileExists(t, configPath)
+}
+
+func listDesiredStateStatus(t *testing.T, payload map[string]any, ref string) string {
+	t.Helper()
+	state := listDesiredState(t, payload, ref)
+	status, ok := state["status"].(string)
+	require.True(t, ok, "desiredState.status for %s must be a string", ref)
+	return status
+}
+
+func listDesiredStateSaved(t *testing.T, payload map[string]any, ref string) bool {
+	t.Helper()
+	state := listDesiredState(t, payload, ref)
+	saved, ok := state["saved"].(bool)
+	require.True(t, ok, "desiredState.saved for %s must be a bool", ref)
+	return saved
+}
+
+func listDesiredState(t *testing.T, payload map[string]any, ref string) map[string]any {
+	t.Helper()
+	list := payload["list"].(map[string]any)
+	settings := list["settings"].([]any)
+	for _, raw := range settings {
+		setting := raw.(map[string]any)
+		if setting["ref"] != ref {
+			continue
+		}
+		state, ok := setting["desiredState"].(map[string]any)
+		require.True(t, ok, "desiredState for %s must be an object", ref)
+		return state
+	}
+	require.Failf(t, "setting not found", "ref %s was not in list JSON", ref)
+	return nil
 }
 
 func runRootJSONCLI(t *testing.T, args []string, stdin string) (map[string]any, string, string, error) {
