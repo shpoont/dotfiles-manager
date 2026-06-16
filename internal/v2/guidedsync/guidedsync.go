@@ -18,6 +18,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	v2preview "github.com/shpoont/dotfiles-manager/internal/v2/preview"
+	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedlive"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
 	v2status "github.com/shpoont/dotfiles-manager/internal/v2/status"
@@ -61,14 +62,15 @@ const (
 )
 
 const (
-	CodeChoiceInvalid        = "guidedsync.choice.invalid"
-	CodeChoiceDuplicate      = "guidedsync.choice.duplicate"
-	CodeChoiceUnknownRef     = "guidedsync.choice.unknownRef"
-	CodeChoiceNotAllowed     = "guidedsync.choice.notAllowed"
-	CodeChoiceRequired       = "guidedsync.choice.required"
-	CodePromptRequired       = "guidedsync.prompt.required"
-	CodeConfirmationRequired = "guidedsync.confirmationRequired"
-	CodeExecutionFailed      = "guidedsync.executionFailed"
+	CodeChoiceInvalid         = "guidedsync.choice.invalid"
+	CodeChoiceDuplicate       = "guidedsync.choice.duplicate"
+	CodeChoiceUnknownRef      = "guidedsync.choice.unknownRef"
+	CodeChoiceNotAllowed      = "guidedsync.choice.notAllowed"
+	CodeChoiceRequired        = "guidedsync.choice.required"
+	CodePromptRequired        = "guidedsync.prompt.required"
+	CodeConfirmationRequired  = "guidedsync.confirmationRequired"
+	CodeExecutionFailed       = "guidedsync.executionFailed"
+	CodeFileTreeApplyDeferred = "guidedsync.fileTreeApply.deferred"
 )
 
 // PreviewBuilder exists so tests can exercise conflict and failure branches
@@ -364,7 +366,7 @@ func fromPreviewItem(item selectedpreview.Item) Item {
 	if isBlockedState(item.State) {
 		outcome = OutcomeBlocked
 	}
-	return Item{
+	out := Item{
 		TargetRef:      item.TargetRef,
 		SettingRef:     item.SettingRef,
 		Scope:          item.Scope,
@@ -383,6 +385,41 @@ func fromPreviewItem(item selectedpreview.Item) Item {
 		Diff:           item.Diff,
 		Diagnostics:    append([]selectedpreview.Diagnostic(nil), item.Diagnostics...),
 	}
+	applyFileTreeSyncRestrictions(&out)
+	return out
+}
+
+func applyFileTreeSyncRestrictions(item *Item) {
+	if item == nil || item.Resource.DriverID != recipe.FileTreeDriverID || !choiceAllowed(ChoiceApply, item.AllowedChoices) {
+		return
+	}
+
+	item.AllowedChoices = removeChoice(item.AllowedChoices, ChoiceApply)
+	if item.Recommended == ChoiceApply {
+		item.Recommended = ""
+	}
+	if item.Message != "" {
+		item.Message += " "
+	}
+	item.Message += "File-tree apply is deferred in sync; use explicit apply --dry-run/--yes so removals are shown before confirmation."
+	item.Diagnostics = append(item.Diagnostics, selectedpreview.Diagnostic{
+		Code:       CodeFileTreeApplyDeferred,
+		Severity:   selectedpreview.SeverityWarning,
+		Message:    "guided sync file-tree apply choices are deferred; use explicit apply --dry-run and apply --yes so pending removals are shown before confirmation",
+		Ref:        item.SettingRef,
+		ResourceID: item.Resource.ID,
+		DriverID:   item.Resource.DriverID,
+	})
+}
+
+func removeChoice(choices []string, remove string) []string {
+	out := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		if choice != remove {
+			out = append(out, choice)
+		}
+	}
+	return out
 }
 
 func applyFlagChoices(report *Report, choices []Choice) error {

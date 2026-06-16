@@ -39,7 +39,9 @@ selections:
 	require.Equal(t, "home", item.Resource.LocationID)
 	require.Equal(t, ".gitconfig", item.Resource.Path)
 	require.Equal(t, "[user] email", item.SelectorSummary)
-	require.Contains(t, strings.Join(item.NextActions, "\n"), "dotfiles-manager sync git:user.email")
+	require.Contains(t, strings.Join(item.NextActions, "\n"), "dotfiles-manager save --dry-run git:user.email")
+	require.NotContains(t, strings.Join(item.NextActions, "\n"), "dotfiles-manager sync git:user.email")
+	require.NotContains(t, strings.Join(item.NextActions, "\n"), "dotfiles-manager apply --dry-run git:user.email")
 
 	text := Text(report)
 	require.Contains(t, text, "Selected settings")
@@ -79,7 +81,7 @@ managed settings:
     scope=user (Me on all my machines) subject=leon resolved=true sourceLayer=global
     resource=user-email driver=ini-file location=$HOME/.gitconfig selector=[user] email
     desired=desired://user/leon/targets/git/settings#user.email status=not-saved
-    next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email | dotfiles-manager sync git:user.email
+    next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email
 summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, VerboseText(report))
 
 	payload, err := JSON(report)
@@ -109,8 +111,7 @@ summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, Verbose
       "selectorSummary": "[user] email",
       "nextActions": [
         "dotfiles-manager status git:user.email",
-        "dotfiles-manager save --dry-run git:user.email",
-        "dotfiles-manager sync git:user.email"
+        "dotfiles-manager save --dry-run git:user.email"
       ]
     }]
   },

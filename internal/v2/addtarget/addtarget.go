@@ -1071,7 +1071,6 @@ func nextActions(ref string) []string {
 	return []string{
 		"dotfiles-manager status " + ref,
 		"dotfiles-manager save --dry-run " + ref,
-		"dotfiles-manager sync " + ref,
 	}
 }
 

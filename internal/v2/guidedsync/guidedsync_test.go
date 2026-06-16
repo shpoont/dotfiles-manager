@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedlive"
 	"github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
 	v2status "github.com/shpoont/dotfiles-manager/internal/v2/status"
@@ -219,6 +220,36 @@ func TestAllowedChoicesAndRecommendationsByState(t *testing.T) {
 		require.Equal(t, tc.choices, item.AllowedChoices, tc.state)
 		require.Equal(t, tc.outcome, item.Outcome, tc.state)
 	}
+}
+
+func TestFileTreeApplyChoiceDeferredUntilRemovalPreviewIsExposed(t *testing.T) {
+	fileTreeItem := previewItem("app:config", v2status.StateReadyToApply, func(item *selectedpreview.Item) {
+		item.Resource = selectedpreview.ResourceInfo{ID: "config-tree", DriverID: recipe.FileTreeDriverID, RelPath: "artifacts/config"}
+	})
+
+	report, err := Run(Options{NonInteractive: true, PreviewBuilder: fakePreviewBuilder(fileTreeItem)})
+	require.NoError(t, err)
+	require.Equal(t, SummaryNeedsChoice, report.Summary.Status)
+	require.Equal(t, []string{ChoiceSkip}, report.Items[0].AllowedChoices)
+	require.Empty(t, report.Items[0].Recommended)
+	require.Contains(t, report.Items[0].Message, "File-tree apply is deferred in sync")
+	requireCLIPackageDiagnosticCode(t, report.Items[0].Diagnostics, CodeFileTreeApplyDeferred)
+
+	calls := 0
+	report, err = Run(Options{
+		Confirmed:      true,
+		Choices:        []Choice{{Ref: "app:config", Action: ChoiceApply}},
+		PreviewBuilder: fakePreviewBuilder(fileTreeItem),
+		LiveRunner: func(selectedlive.Options) (*selectedlive.Result, error) {
+			calls++
+			return nil, nil
+		},
+	})
+	require.Error(t, err)
+	require.Equal(t, 0, calls)
+	require.Equal(t, SummaryError, report.Summary.Status)
+	require.Equal(t, CodeChoiceNotAllowed, report.Error.Code)
+	require.Equal(t, []string{ChoiceSkip}, report.Error.Details["allowedChoices"])
 }
 
 func TestConfirmedExecutionRequiresChoicesBeforeWrites(t *testing.T) {
