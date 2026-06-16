@@ -1090,6 +1090,9 @@ func markReportItem(report *selectedpreview.Report, settingRef string, item v2le
 				BackupPayload: item.ArtifactRefs.BackupPayload,
 			},
 		}
+		if item.Driver == recipe.FileTreeDriverID && item.Operation == selectedpreview.CommandApply && item.Result == v2ledger.ItemResultVerified {
+			selectedpreview.SetFileTreeOperationState(&report.Items[idx], selectedpreview.FileTreeOperationStateApplied)
+		}
 		for _, diagnostic := range item.Diagnostics {
 			report.Items[idx].Diagnostics = append(report.Items[idx].Diagnostics, selectedpreview.Diagnostic{Code: diagnostic.Code, Severity: selectedpreview.SeverityError, Message: diagnostic.Message, Ref: settingRef, Path: diagnostic.Path})
 		}

@@ -59,6 +59,8 @@ func completedRestoreEnvelope(run *v2ledger.RestoreRun) (v2preview.Envelope, err
 				item.Message = fmt.Sprintf("Restored live state from backup %s.", sourceRef)
 				if isSelectedValueRestoreDriver(recordItem.Driver) {
 					item.Message = fmt.Sprintf("Restored the whole backing file for selected value %s from backup %s; this was not a semantic single-value rollback.", recordItem.SettingRef, sourceRef)
+				} else if recordItem.Driver == v2recipe.FileTreeDriverID {
+					item.Message = fmt.Sprintf("Restored the whole managed file tree for %s from backup %s.", recordItem.SettingRef, sourceRef)
 				}
 				if backupRef := firstString(recordItem.BackupRefs); backupRef != "" {
 					item.Backup = v2preview.Backup{
@@ -87,6 +89,8 @@ func completedRestoreEnvelope(run *v2ledger.RestoreRun) (v2preview.Envelope, err
 				item.Message = fmt.Sprintf("Live state already matched backup %s; no live write was needed.", sourceRef)
 				if isSelectedValueRestoreDriver(recordItem.Driver) {
 					item.Message = fmt.Sprintf("Whole backing file for selected value %s already matched backup %s; no live write was needed.", recordItem.SettingRef, sourceRef)
+				} else if recordItem.Driver == v2recipe.FileTreeDriverID {
+					item.Message = fmt.Sprintf("Whole managed file tree for %s already matched backup %s; no live write was needed.", recordItem.SettingRef, sourceRef)
 				}
 				item.Backup = v2preview.Backup{
 					Policy:  v2preview.BackupNotApplicable,
@@ -192,6 +196,8 @@ func restoreWriteListText(b *strings.Builder, items []v2preview.Item, completed 
 		fmt.Fprintf(b, "    Backup item: %s\n", selectedSettingLabelForBackup(restoreItemLabel(item)))
 		if isSelectedValueRestoreDriver(item.Driver) {
 			b.WriteString("    Restore type: whole file/artifact restore\n")
+		} else if item.Driver == v2recipe.FileTreeDriverID {
+			b.WriteString("    Restore type: whole file-tree restore\n")
 		}
 	}
 	b.WriteString("\n")
@@ -199,13 +205,31 @@ func restoreWriteListText(b *strings.Builder, items []v2preview.Item, completed 
 
 func restoreTypeText(b *strings.Builder, items []v2preview.Item, completed bool) {
 	var selected *v2preview.Item
+	var fileTree *v2preview.Item
 	for i := range items {
 		if isSelectedValueRestoreDriver(items[i].Driver) {
 			selected = &items[i]
 			break
 		}
+		if items[i].Driver == v2recipe.FileTreeDriverID && fileTree == nil {
+			fileTree = &items[i]
+		}
 	}
 	if selected == nil {
+		if fileTree == nil {
+			return
+		}
+		live := defaultBackupString(fileTree.LivePath, "the live backing tree")
+		setting := defaultBackupString(fileTree.SettingRef, "the selected file-tree setting")
+		b.WriteString("Restore type:\n")
+		b.WriteString("  Whole file-tree restore.\n")
+		if completed {
+			fmt.Fprintf(b, "  Restore wrote the backed-up %s tree.\n", live)
+			fmt.Fprintf(b, "  It restored %s as a managed tree and may have removed live paths absent from the backup payload.\n\n", setting)
+			return
+		}
+		fmt.Fprintf(b, "  Confirming restore would write the backed-up %s tree.\n", live)
+		fmt.Fprintf(b, "  It would restore %s as a managed tree and may remove live paths absent from the backup payload.\n\n", setting)
 		return
 	}
 	live := defaultBackupString(selected.LivePath, "the live backing file")

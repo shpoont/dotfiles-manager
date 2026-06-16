@@ -1571,6 +1571,35 @@ filesystem-resource path as selected whole-file resources:
 - `apply --yes` writes a pre-apply backup, applies the desired artifact
   directory to the live tree, and verifies it.
 
+File-tree apply is whole-tree reconciliation for the managed backing tree.
+Managed live entries absent from the desired artifact are removal operations,
+not ignored drift. `apply --dry-run` text must make pending removals explicit
+before confirmation. Confirmed apply text must make completed removals explicit
+when practical. Text may cap visible removal paths at 20, but must state that
+more paths were omitted and point to JSON for the full list.
+
+Selected-preview JSON for file-tree apply exposes a stable, namespaced,
+untruncated operation list at `items[].fileTree.operations[]`. Each operation is
+metadata-only:
+
+```yaml
+fileTree:
+  operations:
+    - action: create | update | remove
+      path: slash/relative/path
+      kind: file | directory
+      state: planned | applied
+```
+
+`path` is relative to the managed file-tree root, slash-separated, never
+absolute, and never contains `.` or `..` path segments. Operation entries must
+not include raw file contents, content hashes, absolute paths, ownership,
+permissions, or app-specific metadata. The current file-tree driver supports
+only regular files and directories; symlinks and other non-regular entries fail
+closed before operation entries are emitted. A confirmed apply may mark
+operations `applied` only after the live write verified successfully; blocked or
+failed items must not report planned removals as applied.
+
 Missing-state behavior is normative:
 
 - missing named location root (`~/.config` by default) blocks status/diff/save/apply;
@@ -1582,6 +1611,11 @@ Missing-state behavior is normative:
 - missing live tree with existing desired artifact is allowed for apply; dry-run
   previews create, live apply records an absent-tree backup, creates the tree,
   and verifies.
+
+File-tree restore from backup is also a whole-tree operation for the managed
+resource. Restore docs and preview text must not imply a semantic single-setting
+rollback: confirming restore writes the backed-up managed tree state and can
+remove managed live paths absent from the backup payload.
 
 The bundled Nvim recipe must exclude generated/risky paths narrowly by default,
 including shada, swap, undo, view, session, cache, `.netrwhist`, plugin clone
