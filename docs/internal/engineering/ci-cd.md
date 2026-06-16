@@ -80,6 +80,26 @@ Rules:
   - Linux amd64
   - checksums file
 
+Release version metadata contract:
+- GoReleaser must stamp every archive binary with
+  `version=<tag without v>`, `commit=<40-char git sha>`,
+  `date=<commit timestamp as UTC RFC3339 Z>`, `channel=stable` for normal
+  releases or `channel=prerelease` for semantic prerelease tags, and
+  `provenance=goreleaser`.
+- GoReleaser snapshots may use `channel=snapshot`, but still must stamp a
+  non-unknown commit/date and explicit provenance.
+- Homebrew formula builds must stamp the same version/commit/date/channel
+  fields as the source release and use `provenance=homebrew-source`.
+- Release and Homebrew publication paths must fail closed instead of publishing
+  binaries that report `commit=unknown`, `date=unknown`, `channel=dev`, or
+  `provenance=unspecified`.
+- The release workflow must run the GoReleaser archive metadata check before
+  the publishing GoReleaser step. The archive check statically inspects all
+  target archives with `go version -m` and also executes the extracted
+  host-matching archive binary when one is present.
+- Manual `workflow_dispatch` release runs must be started from a `v*` tag ref;
+  branch refs are rejected before GoReleaser can publish.
+
 ## 4) Approval and publish policy
 
 - Any maintainer can trigger a release workflow.
@@ -114,6 +134,8 @@ CI helper scripts:
 - `scripts/ci/coverage-aggregate.sh`
 - `scripts/ci/final-required-check.sh`
 - `scripts/ci/guard-release.sh`
+- `scripts/ci/check-release-version-metadata.sh`
+- `scripts/ci/check-goreleaser-archive-version-metadata.sh`
 
 Bootstrap behavior:
 - if `go.mod` is absent, CI jobs run and skip Go-specific execution paths without failing
@@ -136,7 +158,10 @@ Manual procedure:
 
 1. Download release artifact + checksums.
 2. Verify artifact checksum.
-3. Run binary in isolated temp repo/temp HOME:
+3. Verify archive metadata. This statically checks all archives and executes
+   the host-matching archive binary when one is present:
+   - `scripts/ci/check-goreleaser-archive-version-metadata.sh <dist-dir> --expected-version <version> --expected-channel <stable|prerelease> --expected-provenance goreleaser`
+4. Run binary in isolated temp repo/temp HOME:
    - `dotfiles-manager --help`
    - `dotfiles-manager --version`
    - `dotfiles-manager status`

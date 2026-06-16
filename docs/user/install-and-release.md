@@ -4,6 +4,17 @@ These docs describe the v2 local-settings-manager workflow in this repository.
 After installing any binary, verify that the binary exposes the v2 commands you
 intend to use before following the quickstart.
 
+A release-built binary should also identify where it came from:
+
+```text
+dotfiles-manager version=0.2.0 commit=<40-char-sha> date=<utc-rfc3339-z> channel=stable provenance=goreleaser
+```
+
+Homebrew formula builds use the same fields but report
+`provenance=homebrew-source`. Local source builds that were not stamped by a
+release tool report the explicit development fallback
+`version=dev commit=unknown date=unknown channel=dev provenance=unspecified`.
+
 ## Prerequisites
 
 - Git, for the Git-based quickstart and normal repository work.
@@ -70,6 +81,9 @@ internal gate mechanics out of the normal workflow. The user-facing guarantee is
 simpler:
 
 - the binary should print version/help successfully;
+- release artifacts and Homebrew formula builds should not report
+  `commit=unknown`, `date=unknown`, `channel=dev`, or
+  `provenance=unspecified`;
 - the safe temporary-home quickstart in [`getting-started.md`](./getting-started.md)
   should complete without touching the real home directory;
 - live writes should require explicit confirmation and create local backup

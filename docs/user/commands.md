@@ -84,15 +84,20 @@ Selected-setting output tiers:
 Both commands print a single line and exit:
 
 ```text
-dotfiles-manager version 0.1.4
+dotfiles-manager version=0.2.0 commit=cd127ba0969c07eba05916004547e0094303f9cb date=2026-06-15T18:06:25Z channel=stable provenance=goreleaser
 ```
 
 Behavior:
 - `dotfiles-manager version` and `dotfiles-manager --version` are equivalent
 - they do not load config
 - they do not accept `[path]`, `--json`, or `--dry-run`
-- release builds print semantic version
-- local non-release builds print `dev`
+- GoReleaser release archives print the semantic version, full source commit,
+  commit timestamp in UTC RFC3339 `Z` form, `channel=stable` or
+  `channel=prerelease`, and `provenance=goreleaser`
+- Homebrew release builds use the same fields; `provenance=homebrew-source`
+  identifies a formula build from the release source archive
+- local non-release builds use the explicit fallback
+  `version=dev commit=unknown date=unknown channel=dev provenance=unspecified`
 
 ## v2 `init`
 
@@ -1022,7 +1027,8 @@ If `[path]` matches no syncs, command fails.
 
 ## Output and exit codes
 
-- `version`/`--version` output one line: `dotfiles-manager version <value>`.
+- `version`/`--version` output one line:
+  `dotfiles-manager version=<version> commit=<sha> date=<utc-rfc3339-z> channel=<stable|prerelease|snapshot|dev> provenance=<source>`.
 - `version`/`--version` exit `0` and do not require config.
 - text mode prints per-sync sections with exact file operations.
 - status text includes one concise direction reminder line once per run.

@@ -13,7 +13,13 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -X github.com/shpoont/dotfiles-manager/internal/app.buildVersion={{ .Version }}
+      - >-
+        -s -w
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildVersion={{ .Version }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildCommit={{ .FullCommit }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildDate={{ .CommitDate }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildChannel={{ if .IsSnapshot }}snapshot{{ else if .Prerelease }}prerelease{{ else }}stable{{ end }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildProvenance=goreleaser
   - id: darwin
     main: ./cmd/dotfiles-manager
     binary: dotfiles-manager
@@ -25,7 +31,13 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -X github.com/shpoont/dotfiles-manager/internal/app.buildVersion={{ .Version }}
+      - >-
+        -s -w
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildVersion={{ .Version }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildCommit={{ .FullCommit }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildDate={{ .CommitDate }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildChannel={{ if .IsSnapshot }}snapshot{{ else if .Prerelease }}prerelease{{ else }}stable{{ end }}
+        -X github.com/shpoont/dotfiles-manager/internal/app.buildProvenance=goreleaser
 archives:
   - id: default
     ids:
