@@ -114,24 +114,28 @@ type DiscoveryCommandProbe struct {
 }
 
 type DiscoveryConfigProbe struct {
-	Kind         string   `json:"kind"`
-	ID           string   `json:"id"`
-	LocationID   string   `json:"locationId"`
-	Path         string   `json:"path"`
-	ExpectedType string   `json:"expectedType"`
-	ActualType   string   `json:"actualType,omitempty"`
-	State        string   `json:"state"`
-	Resources    []string `json:"resources"`
+	Kind            string   `json:"kind"`
+	ID              string   `json:"id"`
+	LocationID      string   `json:"locationId"`
+	LocationDefault string   `json:"locationDefault,omitempty"`
+	Path            string   `json:"path"`
+	DisplayPath     string   `json:"displayPath,omitempty"`
+	ExpectedType    string   `json:"expectedType"`
+	ActualType      string   `json:"actualType,omitempty"`
+	State           string   `json:"state"`
+	Resources       []string `json:"resources"`
 }
 
 type configProbePlan struct {
-	id            string
-	locationID    string
-	path          string
-	expectedType  string
-	absPath       string
-	resources     []string
-	rejectSymlink bool
+	id              string
+	locationID      string
+	locationDefault string
+	path            string
+	displayPath     string
+	expectedType    string
+	absPath         string
+	resources       []string
+	rejectSymlink   bool
 }
 
 func Discover(opts DiscoverOptions) (*DiscoverReport, error) {
@@ -189,7 +193,7 @@ func DiscoverText(report *DiscoverReport) string {
 			if len(target.ConfigProbes) > 0 {
 				lines = append(lines, "  Config files:")
 				for _, probe := range target.ConfigProbes {
-					lines = append(lines, fmt.Sprintf("    %s — %s", friendlyProbeLocation(probe.LocationID, probe.Path), friendlyProbeState(probe.State)))
+					lines = append(lines, fmt.Sprintf("    %s — %s", friendlyProbeLocation(probe), friendlyProbeState(probe.State)))
 				}
 			}
 			if explain, ok := bundledExplain(target.ID); ok {
@@ -333,8 +337,11 @@ func friendlyProbeState(state string) string {
 	}
 }
 
-func friendlyProbeLocation(locationID string, path string) string {
-	return friendlyResourceLocation(ExplainResource{LocationID: locationID, Path: path})
+func friendlyProbeLocation(probe DiscoveryConfigProbe) string {
+	if strings.TrimSpace(probe.DisplayPath) != "" {
+		return probe.DisplayPath
+	}
+	return friendlyResourceLocation(ExplainResource{LocationID: probe.LocationID, LocationDefault: probe.LocationDefault, Path: probe.Path})
 }
 
 func friendlyFirstDiscoverSetting(targetID string) *ExplainSetting {
@@ -497,7 +504,7 @@ func discoverConfigProbes(target BundledTarget, opts DiscoverOptions, diagnostic
 	state := DiscoverConfigMissing
 	var probes []DiscoveryConfigProbe
 	for _, plan := range plans {
-		probe := DiscoveryConfigProbe{Kind: DiscoverProbeConfig, ID: plan.id, LocationID: plan.locationID, Path: plan.path, ExpectedType: plan.expectedType, State: DiscoverProbeMissing, Resources: append([]string(nil), plan.resources...)}
+		probe := DiscoveryConfigProbe{Kind: DiscoverProbeConfig, ID: plan.id, LocationID: plan.locationID, LocationDefault: plan.locationDefault, Path: plan.path, DisplayPath: plan.displayPath, ExpectedType: plan.expectedType, State: DiscoverProbeMissing, Resources: append([]string(nil), plan.resources...)}
 		info, err := lstat(plan.absPath)
 		switch {
 		case err == nil:
@@ -555,9 +562,14 @@ func configProbePlans(target BundledTarget, opts DiscoverOptions) ([]configProbe
 			continue
 		}
 		id := resource.Location + ":" + resourceRelPath + ":" + expectedType
+		locationDefault := ""
+		if location, ok := rec.Locations[resource.Location]; ok {
+			locationDefault = location.Default
+		}
+		displayPath := FriendlyLocationPath(rec, resource.Location, resourceRelPath, opts.LocationRoots)
 		plan, ok := plansByID[id]
 		if !ok {
-			plan = &configProbePlan{id: id, locationID: resource.Location, path: resourceRelPath, expectedType: expectedType, absPath: filepath.Join(locationRoot, filepath.FromSlash(resourceRelPath)), rejectSymlink: discoveryRejectsLeafSymlink(resource)}
+			plan = &configProbePlan{id: id, locationID: resource.Location, locationDefault: locationDefault, path: resourceRelPath, displayPath: displayPath, expectedType: expectedType, absPath: filepath.Join(locationRoot, filepath.FromSlash(resourceRelPath)), rejectSymlink: discoveryRejectsLeafSymlink(resource)}
 			plansByID[id] = plan
 		}
 		plan.resources = append(plan.resources, resourceID)

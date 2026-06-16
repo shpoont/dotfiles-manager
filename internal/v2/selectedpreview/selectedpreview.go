@@ -145,11 +145,12 @@ type RecipeInfo struct {
 }
 
 type ResourceInfo struct {
-	ID         string `json:"id"`
-	DriverID   string `json:"driverId"`
-	LocationID string `json:"locationId"`
-	RelPath    string `json:"relPath"`
-	Path       string `json:"path,omitempty"`
+	ID          string `json:"id"`
+	DriverID    string `json:"driverId"`
+	LocationID  string `json:"locationId"`
+	RelPath     string `json:"relPath"`
+	Path        string `json:"path,omitempty"`
+	DisplayPath string `json:"displayPath,omitempty"`
 }
 
 type SelectorInfo struct {
@@ -735,6 +736,9 @@ func livePathLabel(item Item) string {
 	if item.Resource.LocationID == "home" && strings.TrimSpace(item.Resource.RelPath) != "" {
 		return "$HOME/" + strings.TrimPrefix(filepath.ToSlash(item.Resource.RelPath), "/")
 	}
+	if strings.TrimSpace(item.Resource.DisplayPath) != "" {
+		return item.Resource.DisplayPath
+	}
 	if strings.TrimSpace(item.Resource.Path) != "" {
 		return item.Resource.Path
 	}
@@ -1265,7 +1269,17 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.resource.unknown", SeverityError, err.Error(), item.SettingRef))
 		return finishBlocked(item, v2status.StateUnsupported, "Selected setting is not supported by the recipe runtime.")
 	}
-	item.Resource = ResourceInfo{ID: resourceID, DriverID: resource.Driver, LocationID: resource.Location, RelPath: resource.Path}
+	locationRoots := opts.LocationRoots[setting.TargetID]
+	if locationRoots == nil {
+		locationRoots = map[string]string{}
+	}
+	item.Resource = ResourceInfo{
+		ID:          resourceID,
+		DriverID:    resource.Driver,
+		LocationID:  resource.Location,
+		RelPath:     resource.Path,
+		DisplayPath: recipe.FriendlyLocationPath(rec, resource.Location, resource.Path, locationRoots),
+	}
 	item.Selector = selectorInfo(selectedvalue.SelectorInfo{})
 	if resource.Selector != nil {
 		item.Selector = selectorFromRecipe(resource)
@@ -1294,10 +1308,6 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 			return finishBlocked(item, blockedStateForRecipeDiagnostics(validations), "Recipe write-safety metadata blocks native export preview.")
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
-		locationRoots := opts.LocationRoots[setting.TargetID]
-		if locationRoots == nil {
-			locationRoots = map[string]string{}
-		}
 		return applyLifecyclePreview(buildNativeExportItem(repoRoot, stateRoot, command, item, rec, runtime.Source, trustEval, setting, resourceID, resource, locationRoots, opts), rec, setting, resourceID, command, opts)
 	}
 	if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
@@ -1323,10 +1333,6 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
-		locationRoots := opts.LocationRoots[setting.TargetID]
-		if locationRoots == nil {
-			locationRoots = map[string]string{}
-		}
 		return applyLifecyclePreview(buildFileResourceItem(repoRoot, command, item, rec, setting, locationRoots), rec, setting, resourceID, command, opts)
 	}
 	if !isSelectedValueDriver(resource.Driver) {
@@ -1366,10 +1372,6 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	item.Desired.Kind = read.Kind
 	item.Desired.Unmanaged = read.Status == desired.StatusUnmanaged
 
-	locationRoots := opts.LocationRoots[setting.TargetID]
-	if locationRoots == nil {
-		locationRoots = map[string]string{}
-	}
 	if read.Status == desired.StatusUnmanaged {
 		item.State = v2status.StateUnchanged
 		item.Message = "Setting is intentionally unmanaged in desired settings."
@@ -1584,7 +1586,7 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 
 func buildNativeExportItem(repoRoot string, stateRoot string, command string, item Item, rec *recipe.Recipe, source string, trustEval recipe.TrustEvaluation, setting resolution.ResolvedSetting, resourceID string, resource recipe.Resource, roots map[string]string, opts Options) Item {
 	op := rec.NativeOperations[resource.NativeOperation]
-	item.Resource = ResourceInfo{ID: resourceID, DriverID: resource.Driver}
+	item.Resource = ResourceInfo{ID: resourceID, DriverID: resource.Driver, LocationID: resource.Location, RelPath: resource.Path, DisplayPath: recipe.FriendlyLocationPath(rec, resource.Location, resource.Path, roots)}
 	item.Selector = SelectorInfo{Kind: "native-export", Summary: resource.NativeOperation}
 	item.DesiredURI = setting.DesiredURI
 	item.DesiredRelPath = filepath.ToSlash(setting.DesiredRelPath)

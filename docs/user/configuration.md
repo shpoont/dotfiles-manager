@@ -136,8 +136,10 @@ state unless a reviewed recipe explicitly supports that data.
 Recipes define named locations such as:
 
 - `home` — paths under `$HOME`, for example `home:.gitconfig`;
-- `config` — XDG-style config paths, for example `config:starship.toml` or
-  `config:nvim`;
+- `config` — the recipe's configured config root. The bundled Starship,
+  Neovim, and tmux XDG-style examples default this root to the HOME-relative
+  path `~/.config`, for example `config:starship.toml` renders as
+  `~/.config/starship.toml` and `config:nvim` renders as `~/.config/nvim`;
 - `recipe-defined` — used by low-level custom resources.
 
 A resource combines a named location, a path, a driver, and sometimes a
@@ -149,8 +151,11 @@ resource=user-email driver=ini-file location=home:.gitconfig selector=[user] ema
 
 Named locations are intentionally explicit because some programs support
 non-default config locations. Current bundled recipes document when non-default
-locations are not supported, for example `STARSHIP_CONFIG`, `ZDOTDIR`, or
-`NVIM_APPNAME` exclusions.
+locations are not supported by their default discovery, for example
+`STARSHIP_CONFIG`, `ZDOTDIR`, `NVIM_APPNAME`, or process `XDG_CONFIG_HOME`
+alternatives. A non-default live root must be represented by an explicit named
+location override; setting `XDG_CONFIG_HOME` in the manager process does not
+silently broaden bundled writes or discovery.
 
 ## Internal URI style
 

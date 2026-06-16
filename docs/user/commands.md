@@ -546,12 +546,15 @@ For example, `--user-id leon` writes
 `desired/user/leon/targets/starship/settings.yaml`.
 
 This slice manages only the four root-level TOML keys above. It does not yet
-auto-discover `STARSHIP_CONFIG` non-default locations, manage shell init,
-install Starship, or manage full-file Starship configuration with comments,
-palettes, modules, presets, custom commands, or formatting. TOML selected-key
-apply may canonicalize/reformat the file and may not preserve comments. Use a
-whole-file recipe resource when you want byte-preserving file management instead
-of selected TOML-key management.
+auto-discover `STARSHIP_CONFIG` or process `XDG_CONFIG_HOME` non-default
+locations, manage shell init, install Starship, or manage full-file Starship
+configuration with comments, palettes, modules, presets, custom commands, or
+formatting. The bundled default live path is the HOME-relative
+`~/.config/starship.toml`; a non-default live root requires an explicit named
+location override and is not inferred from the manager process environment.
+TOML selected-key apply may canonicalize/reformat the file and may not preserve
+comments. Use a whole-file recipe resource when you want byte-preserving file
+management instead of selected TOML-key management.
 
 ## v2 selected settings: Zsh startup file example
 
@@ -946,9 +949,11 @@ Missing-state behavior is explicit:
 
 The bundled recipe deliberately does **not** manage Neovim installation, plugin
 installation, package-manager actions, runtime RPC, non-default `NVIM_APPNAME`
-or `XDG_CONFIG_HOME` locations, semantic Lua/Vimscript validation, or secret
-scanning. A missing config tree is **not** treated as proof that Neovim is not
-installed.
+or process `XDG_CONFIG_HOME` locations, semantic Lua/Vimscript validation, or
+secret scanning. The bundled default live path is the HOME-relative
+`~/.config/nvim`; a non-default live root requires an explicit named location
+override and is not inferred from the manager process environment. A missing
+config tree is **not** treated as proof that Neovim is not installed.
 
 ## v2 selected whole-file and file-tree resources
 

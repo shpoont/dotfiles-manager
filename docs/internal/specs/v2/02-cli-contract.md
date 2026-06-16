@@ -1592,9 +1592,12 @@ not use broad secret/token/temp/backup excludes such as `**/*secret*`,
 `**/*token*`, `**/tmp/**`, or `**/backup/**`.
 
 The bundled Nvim recipe must not install Neovim, install/update plugins, run
-package-manager actions, use runtime RPC, discover `NVIM_APPNAME` or
+package-manager actions, use runtime RPC, discover `NVIM_APPNAME` or process
 `XDG_CONFIG_HOME` alternatives, execute or lint Lua/Vimscript, or perform secret
-scanning.
+scanning. Its bundled `config` location default is the HOME-relative
+`~/.config`, so `nvim:config` resolves to `~/.config/nvim` unless an explicit
+named location override is supplied. Setting `XDG_CONFIG_HOME` in the manager
+process must not change bundled default discovery or silently broaden writes.
 
 ### Command-neutral status with no baseline
 

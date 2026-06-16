@@ -48,7 +48,7 @@ selections:
 	require.NotContains(t, text, "desired://")
 	require.NotContains(t, text, "resource=")
 	verbose := VerboseText(report)
-	require.Contains(t, verbose, "location=home:.gitconfig")
+	require.Contains(t, verbose, "location=$HOME/.gitconfig")
 	require.Contains(t, verbose, "desired=desired://user/leon/targets/git/settings#user.email")
 
 	payload, err := JSON(report)
@@ -77,7 +77,7 @@ profile stack: default [global]
 managed settings:
   git:user.email User email
     scope=user (Me on all my machines) subject=leon resolved=true sourceLayer=global
-    resource=user-email driver=ini-file location=home:.gitconfig selector=[user] email
+    resource=user-email driver=ini-file location=$HOME/.gitconfig selector=[user] email
     desired=desired://user/leon/targets/git/settings#user.email status=not-saved
     next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email | dotfiles-manager sync git:user.email
 summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, VerboseText(report))
@@ -105,7 +105,7 @@ summary status=ok targets=1 settings=1 unresolved=0 blocked=0 failed=0`, Verbose
       "desiredUri": "desired://user/leon/targets/git/settings#user.email",
       "desiredRelPath": "desired/user/leon/targets/git/settings.yaml",
       "desiredState": {"status": "not-saved", "saved": false},
-      "resource": {"id": "user-email", "driverId": "ini-file", "locationId": "home", "path": ".gitconfig"},
+      "resource": {"id": "user-email", "driverId": "ini-file", "locationId": "home", "path": ".gitconfig", "displayPath": "$HOME/.gitconfig"},
       "selectorSummary": "[user] email",
       "nextActions": [
         "dotfiles-manager status git:user.email",

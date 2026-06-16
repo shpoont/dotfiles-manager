@@ -2403,6 +2403,12 @@ func TestRecipePathAndLocationHelpers(t *testing.T) {
 	_, err = ExpandLocationDefault("bad\x00")
 	require.Error(t, err)
 
+	starship := BundledStarshipRecipe()
+	require.Equal(t, "~/.config/starship.toml", FriendlyLocationPath(starship, "config", "starship.toml", nil))
+	require.Equal(t, filepath.ToSlash(filepath.Join(root, "xdg-config", "starship.toml")), FriendlyLocationPath(starship, "config", "starship.toml", map[string]string{"config": filepath.Join(root, "xdg-config")}))
+	require.Equal(t, "$HOME/.gitconfig", FriendlyLocationPath(BundledGitRecipe(), "home", ".gitconfig", nil))
+	require.Equal(t, "chosen by the custom recipe", FriendlyLocationPath(rec, "recipe-defined", "ignored", nil))
+
 	_, err = LoadLocal("", CustomFilesTarget)
 	require.Error(t, err)
 	_, err = LoadLocal(root, "../escape")
