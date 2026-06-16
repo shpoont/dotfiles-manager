@@ -1042,6 +1042,35 @@ File-tree restore is also whole-tree restore from the backup payload. Always run
 `restore <run-id> --dry-run` first: confirming restore can remove managed live
 paths that are absent from the backup tree being restored.
 
+## v2 guided sync: experimental advanced shortcut
+
+The stable v2 happy path is explicit and preview-first:
+
+```bash
+dotfiles-manager status --user-id leon git:user.email
+dotfiles-manager save --dry-run --user-id leon git:user.email
+dotfiles-manager save --yes --user-id leon git:user.email
+dotfiles-manager diff --user-id leon git:user.email
+dotfiles-manager apply --dry-run --user-id leon git:user.email
+dotfiles-manager apply --yes --user-id leon git:user.email
+```
+
+`sync [ref]` remains available as an experimental advanced guided shortcut for
+explicit `save`, `apply`, or `skip` choices. It is not part of the stable happy
+path, it is not a blind merge, and it was not part of the current RC dogfood
+loop.
+
+Advanced examples:
+
+```bash
+dotfiles-manager sync --json --user-id leon git:user.email
+dotfiles-manager sync --choice git:user.email=save --yes --user-id leon git:user.email
+```
+
+File-tree apply choices are deferred in `sync`: use explicit
+`apply --dry-run` / `apply --yes` for file-tree resources so removals are shown
+before confirmation and in `items[].fileTree.operations[]`.
+
 ## `[path]` scoping
 
 `[path]` can be absolute, `~`-based, or relative.

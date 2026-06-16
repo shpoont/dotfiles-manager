@@ -21,7 +21,11 @@ This spec defines the draft v2 command surface, global flags, prompt behavior,
 JSON result envelope, and exit-code model.
 
 The CLI should keep the normal path simple: add targets, inspect status, save
-current changes, apply desired state, and use guided sync only for choices.
+current changes, preview diffs, and apply desired state with explicit
+preview/confirmation commands. `sync` remains available as an optional
+advanced/experimental guided shortcut, but it is not part of the stable
+user-facing happy path until it receives separate dogfood and human-first output
+coverage.
 
 ## Status and authority
 
@@ -73,12 +77,14 @@ The MVP command set is:
 | `diff [ref]` | Show readable diffs or opaque metadata. | no |
 | `save [ref]` | Save or promote changed selected settings to desired artifacts. | repo |
 | `apply [ref]` | Apply desired artifacts to live state after preview/backup. | live |
-| `sync` | Guided save/apply/skip choices. | chosen |
+| `sync` | Advanced/experimental guided save/apply/skip shortcut; not stable happy path. | chosen |
 | `backup list` | List local backups. | no |
 | `restore <run-id>` | Restore from backup after preview. | live |
 | `migrate` | Generate v2 config from v1 config after preview. | config |
 
-`sync` must never mean blind automatic two-way merge.
+The stable user-facing happy path is explicit `status`, `save --dry-run`,
+`save --yes`, `diff`, `apply --dry-run`, and `apply --yes`. `sync` must never
+mean blind automatic two-way merge.
 
 ### `init` first-time bootstrap contract
 
@@ -269,7 +275,6 @@ add:
       nextActions:
         - dotfiles-manager status git:user.email
         - dotfiles-manager save --dry-run git:user.email
-        - dotfiles-manager sync git:user.email
   missingChoices: []
 diagnostics: []
 error: null
@@ -351,7 +356,6 @@ list:
       nextActions:
         - dotfiles-manager status git:user.email
         - dotfiles-manager save --dry-run git:user.email
-        - dotfiles-manager sync git:user.email
 diagnostics: []
 error: null
 ```
@@ -366,7 +370,13 @@ and next actions.
 
 ### `sync [ref]` guided-choice contract
 
-The first implemented `sync` tranche is a v2-only guided flow:
+Decision for #202: `sync` remains available, but it is not part of the stable
+user-facing happy path until it receives separate dogfood and human-first output
+coverage. The stable path remains explicit `status`, `save --dry-run`,
+`save --yes`, `diff`, `apply --dry-run`, and `apply --yes`.
+
+The first implemented `sync` tranche is a v2-only advanced/experimental guided
+shortcut:
 
 ```text
 dotfiles-manager sync [ref] [--choice <setting-ref=save|apply|skip>]... [--yes] [--non-interactive] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
@@ -378,6 +388,13 @@ recommend, allowed choices, selected choice, resource/selector summary, and
 diagnostics or blockers. Planning output alone must not mutate desired
 artifacts, live files, backups, ledgers, app state, native state, or trust
 records.
+
+Because guided sync does not yet expose the selected file-tree removal metadata
+required at `items[].fileTree.operations[]`, file-tree `apply` choices are
+deferred in `sync`. Planning must warn users and remove `apply` from allowed
+choices for file-tree items. Explicit `apply --dry-run` / `apply --yes` remains
+the supported path for file-tree apply because those commands show pending and
+completed removals before confirmation.
 
 Interactive text mode prompts for explicit `save`, `apply`, or `skip` choices
 only for actionable changed, no-baseline, conflict, missing, or opaque-changed
@@ -1662,7 +1679,10 @@ Partial results must identify succeeded, skipped, and failed items separately.
 - Snapshot tests cover text and `--json` output for every normal command.
 - Exit-code tests cover all codes listed above.
 - Prompt tests cover interactive, `--yes`, and `--non-interactive` behavior.
-- `sync` tests prove no blind two-way merge occurs.
+- `sync` tests prove no blind two-way merge occurs, help/docs identify it as
+  advanced/experimental rather than stable happy path, and file-tree `apply`
+  choices are deferred until guided sync can show removal operations before
+  confirmation.
 - JSON output is stable enough for CI and future tooling.
 - `recipe explain` snapshots cover text and JSON support, limitations,
   diagnostics, read-only behavior, and redaction boundaries.

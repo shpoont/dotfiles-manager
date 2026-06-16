@@ -74,7 +74,6 @@ dotfiles-manager status [target-or-setting]      # show what changed
 dotfiles-manager diff [target-or-setting]        # show readable changes
 dotfiles-manager save [target-or-setting]        # current machine -> repo
 dotfiles-manager apply [target-or-setting]       # repo -> current machine
-dotfiles-manager sync                            # guided save/apply flow
 ```
 
 Use `save` and `apply` as the primary v2 verbs. They are clearer than
@@ -84,8 +83,11 @@ Compatibility aliases can exist later, but the product story should say:
 ```text
 save  = save this machine's settings into the repo
 apply = apply saved repo settings onto this machine
-sync  = guided conflict-aware choice between save/apply/skip
 ```
+
+`sync` can remain as an advanced/experimental guided save/apply/skip shortcut,
+but it is not part of the stable happy path until it receives separate dogfood
+and human-first output coverage.
 
 The default mental model should be:
 
@@ -760,12 +762,12 @@ dotfiles-manager diff
 dotfiles-manager save git
 dotfiles-manager apply --dry-run
 dotfiles-manager apply
-dotfiles-manager sync
 ```
 
 Advanced and authoring commands should be separate from the normal path:
 
 ```bash
+dotfiles-manager sync --json                         # advanced/experimental
 dotfiles-manager app create mytool
 dotfiles-manager app edit mytool
 dotfiles-manager app validate mytool

@@ -71,10 +71,10 @@ profile layer: global
 discovery: installed binary=installed config=config-missing platform=unknown
   git:user.email action=add scope=user (Me on all my machines)
     resource=user-email driver=ini-file location=home:.gitconfig selector=[user] email
-    next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email | dotfiles-manager sync git:user.email
+    next: dotfiles-manager status git:user.email | dotfiles-manager save --dry-run git:user.email
   git:user.name action=add scope=user (Me on all my machines)
     resource=user-name driver=ini-file location=home:.gitconfig selector=[user] name
-    next: dotfiles-manager status git:user.name | dotfiles-manager save --dry-run git:user.name | dotfiles-manager sync git:user.name
+    next: dotfiles-manager status git:user.name | dotfiles-manager save --dry-run git:user.name
 summary status=changed planned=2 written=2 unchanged=0 blocked=0 failed=0`, VerboseText(report))
 
 	payload, err := JSON(report)
@@ -105,8 +105,7 @@ summary status=changed planned=2 written=2 unchanged=0 blocked=0 failed=0`, Verb
         "selectorSummary": "[user] email",
         "nextActions": [
           "dotfiles-manager status git:user.email",
-          "dotfiles-manager save --dry-run git:user.email",
-          "dotfiles-manager sync git:user.email"
+          "dotfiles-manager save --dry-run git:user.email"
         ]
       },
       {
@@ -121,8 +120,7 @@ summary status=changed planned=2 written=2 unchanged=0 blocked=0 failed=0`, Verb
         "selectorSummary": "[user] name",
         "nextActions": [
           "dotfiles-manager status git:user.name",
-          "dotfiles-manager save --dry-run git:user.name",
-          "dotfiles-manager sync git:user.name"
+          "dotfiles-manager save --dry-run git:user.name"
         ]
       }
     ],

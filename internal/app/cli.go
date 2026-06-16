@@ -293,8 +293,22 @@ func newSyncCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "sync [ref]",
-		Short: "Guided save/apply/skip flow for selected v2 settings",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Experimental guided save/apply/skip flow for advanced v2 users",
+		Long: `Experimental guided save/apply/skip flow for selected v2 settings.
+
+Stable v2 happy path:
+  dotfiles-manager status [ref]
+  dotfiles-manager save --dry-run [ref]
+  dotfiles-manager save --yes [ref]
+  dotfiles-manager diff [ref]
+  dotfiles-manager apply --dry-run [ref]
+  dotfiles-manager apply --yes [ref]
+
+Use sync only as an advanced guided shortcut for explicit save/apply/skip
+choices. It is not a blind merge and is not the recommended stable path.
+File-tree apply choices are deferred here; use explicit apply --dry-run/--yes
+so removals are shown before confirmation.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGuidedSyncRootCommand(cmd, opts, firstArg(args), guidedSyncCommandOptions{
 				JSONOutput:     jsonOutput,
