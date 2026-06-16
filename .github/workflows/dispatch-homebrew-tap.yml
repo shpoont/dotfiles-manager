@@ -28,6 +28,12 @@ jobs:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
       PROVIDED_SHA256: ${{ inputs.source_sha256 }}
     steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
       - name: Validate tag
         run: |
           set -euo pipefail
@@ -45,6 +51,13 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
+          commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
+          commit_date="$(git show -s --format=%cI "${commit}")"
+          build_date="$(date -u -d "${commit_date}" '+%Y-%m-%dT%H:%M:%SZ')"
+          channel="stable"
+          if [[ "${version}" == *-* ]]; then
+            channel="prerelease"
+          fi
 
           if [[ -n "${PROVIDED_SHA256:-}" ]]; then
             sha256="${PROVIDED_SHA256}"
@@ -57,9 +70,20 @@ jobs:
             echo "::error::Computed or provided SHA256 is invalid: ${sha256}"
             exit 1
           fi
+          if [[ ! "${commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Resolved release commit is invalid: ${commit}"
+            exit 1
+          fi
+          if [[ ! "${build_date}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+            echo "::error::Resolved release date is invalid: ${build_date}"
+            exit 1
+          fi
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+          echo "date=${build_date}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
 
       - name: Ensure dispatch token exists
         env:
@@ -77,6 +101,10 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
           VERSION: ${{ steps.source.outputs.version }}
           SHA256: ${{ steps.source.outputs.sha256 }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+          SOURCE_DATE: ${{ steps.source.outputs.date }}
+          CHANNEL: ${{ steps.source.outputs.channel }}
+          PROVENANCE: homebrew-source
         run: |
           set -euo pipefail
           gh api repos/shpoont/homebrew-tap/dispatches \
@@ -87,7 +115,11 @@ jobs:
             "client_payload": {
               "tag": "${RELEASE_TAG}",
               "version": "${VERSION}",
-              "source_sha256": "${SHA256}"
+              "source_sha256": "${SHA256}",
+              "source_commit": "${SOURCE_COMMIT}",
+              "source_date": "${SOURCE_DATE}",
+              "channel": "${CHANNEL}",
+              "provenance": "${PROVENANCE}"
             }
           }
           JSON
