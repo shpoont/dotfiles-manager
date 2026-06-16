@@ -184,7 +184,7 @@ nativeOperations:
 func TestExplainFromRecipeSummarizesNativeOperationsWithoutArgv(t *testing.T) {
 	t.Parallel()
 
-	explain := explainFromRecipe(nativeOperationTestRecipe(), RecipeSourceLocal, "recipe://local/native-test", TrustStatusReviewRequired)
+	explain := explainFromRecipe(nativeOperationTestRecipe(), RecipeSourceLocal, "recipe://local/native-test", TrustStatusReviewRequired, nil)
 	require.Len(t, explain.NativeOperations, 1)
 	op := explain.NativeOperations[0]
 	require.Equal(t, "export-settings", op.ID)

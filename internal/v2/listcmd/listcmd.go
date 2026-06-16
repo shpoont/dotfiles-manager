@@ -124,10 +124,11 @@ type SubjectInfo struct {
 }
 
 type ResourceInfo struct {
-	ID         string `json:"id,omitempty"`
-	DriverID   string `json:"driverId,omitempty"`
-	LocationID string `json:"locationId,omitempty"`
-	Path       string `json:"path,omitempty"`
+	ID          string `json:"id,omitempty"`
+	DriverID    string `json:"driverId,omitempty"`
+	LocationID  string `json:"locationId,omitempty"`
+	Path        string `json:"path,omitempty"`
+	DisplayPath string `json:"displayPath,omitempty"`
 }
 
 type Diagnostic struct {
@@ -291,7 +292,7 @@ func technicalText(report *Report) string {
 			}
 			resourceLine := fmt.Sprintf("    resource=%s driver=%s", dash(setting.Resource.ID), dash(setting.Resource.DriverID))
 			if setting.Resource.LocationID != "" || setting.Resource.Path != "" {
-				resourceLine += fmt.Sprintf(" location=%s:%s", dash(setting.Resource.LocationID), dash(setting.Resource.Path))
+				resourceLine += fmt.Sprintf(" location=%s", dash(listResourceLocation(setting.Resource)))
 			}
 			if setting.SelectorSummary != "" {
 				resourceLine += " selector=" + setting.SelectorSummary
@@ -316,6 +317,16 @@ func technicalText(report *Report) string {
 	}
 	lines = append(lines, fmt.Sprintf("summary status=%s targets=%d settings=%d unresolved=%d blocked=%d failed=%d", report.Summary.Status, report.Summary.Targets, report.Summary.Settings, report.Summary.Unresolved, report.Summary.Blocked, report.Summary.Failed))
 	return strings.Join(lines, "\n")
+}
+
+func listResourceLocation(resource ResourceInfo) string {
+	if strings.TrimSpace(resource.DisplayPath) != "" {
+		return resource.DisplayPath
+	}
+	if resource.LocationID != "" || resource.Path != "" {
+		return dash(resource.LocationID) + ":" + dash(resource.Path)
+	}
+	return "-"
 }
 
 func friendlyListErrorText(report *Report) string {
@@ -832,7 +843,7 @@ func metadataFor(repoRoot string, targetID string, settingID string) (metadata, 
 		out.setting = SettingInfo{ID: setting.ID, Label: setting.Label}
 		out.artifactForm = setting.ArtifactForm
 		resource := resources[setting.ResourceID]
-		out.resource = ResourceInfo{ID: setting.ResourceID, DriverID: setting.Driver, LocationID: resource.LocationID, Path: resource.Path}
+		out.resource = ResourceInfo{ID: setting.ResourceID, DriverID: setting.Driver, LocationID: resource.LocationID, Path: resource.Path, DisplayPath: resource.DisplayPath}
 		if out.resource.DriverID == "" {
 			out.resource.DriverID = resource.DriverID
 		}

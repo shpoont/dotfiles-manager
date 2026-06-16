@@ -109,7 +109,7 @@ func TestRecipeExplainGitTextAndCustomFilesText(t *testing.T) {
 	require.Contains(t, out, "target: starship")
 	require.Contains(t, out, "starship:add_newline")
 	require.Contains(t, out, "selector=add_newline")
-	require.Contains(t, out, "do not manage: STARSHIP_CONFIG non-default locations")
+	require.Contains(t, out, "do not manage: STARSHIP_CONFIG or process XDG_CONFIG_HOME non-default locations")
 	require.NotContains(t, out, "secret@example.com")
 
 	cmd = NewRootCmd()

@@ -30,8 +30,9 @@ const (
 )
 
 type ExplainOptions struct {
-	Target   string
-	RepoRoot string
+	Target        string
+	RepoRoot      string
+	LocationRoots map[string]string
 }
 
 type ExplainReport struct {
@@ -107,17 +108,19 @@ type ExplainSetting struct {
 }
 
 type ExplainResource struct {
-	ID            string           `json:"id"`
-	LocationID    string           `json:"locationId"`
-	Path          string           `json:"path"`
-	Selector      *ExplainSelector `json:"selector,omitempty"`
-	DriverID      string           `json:"driverId"`
-	SupportedOps  []string         `json:"supportedOperations"`
-	BackupRestore string           `json:"backupRestore"`
-	Normalization string           `json:"normalization"`
-	DiffMode      string           `json:"diffMode"`
-	Include       []string         `json:"include,omitempty"`
-	Exclude       []string         `json:"exclude,omitempty"`
+	ID              string           `json:"id"`
+	LocationID      string           `json:"locationId"`
+	LocationDefault string           `json:"locationDefault,omitempty"`
+	Path            string           `json:"path"`
+	DisplayPath     string           `json:"displayPath,omitempty"`
+	Selector        *ExplainSelector `json:"selector,omitempty"`
+	DriverID        string           `json:"driverId"`
+	SupportedOps    []string         `json:"supportedOperations"`
+	BackupRestore   string           `json:"backupRestore"`
+	Normalization   string           `json:"normalization"`
+	DiffMode        string           `json:"diffMode"`
+	Include         []string         `json:"include,omitempty"`
+	Exclude         []string         `json:"exclude,omitempty"`
 }
 
 type ExplainSelector struct {
@@ -221,7 +224,7 @@ func Explain(opts ExplainOptions) (*ExplainReport, error) {
 	}
 
 	if bundledTarget, ok := LookupBundledTarget(target); ok {
-		bundled, _ := bundledExplain(bundledTarget.ID)
+		bundled, _ := bundledExplain(bundledTarget.ID, opts.LocationRoots)
 		report.RecipeExplain = bundled
 		report.RecipeExplain.Diagnostics = appendLocalRecipeCollisionDiagnostics(report.RecipeExplain.Diagnostics, repoRoot, bundledTarget)
 		return finishExplainReport(report), nil
@@ -251,7 +254,7 @@ func Explain(opts ExplainOptions) (*ExplainReport, error) {
 		explainErr := &ExplainError{Code: ExplainCodeInvalidRecipe, Message: fmt.Sprintf("local recipe target mismatch: expected %s, got %s", target, rec.Target), Exit: 2, Details: map[string]any{"target": target, "recipeTarget": rec.Target, "path": safeRelOrBase(repoRoot, localPath)}}
 		return errorExplainReport(report, explainErr, target, safeRelOrBase(repoRoot, localPath)), explainErr
 	}
-	report.RecipeExplain = explainFromRecipe(rec, "local", "recipe://local/"+target, "untrusted")
+	report.RecipeExplain = explainFromRecipe(rec, "local", "recipe://local/"+target, "untrusted", opts.LocationRoots)
 	return finishExplainReport(report), nil
 }
 
@@ -487,7 +490,11 @@ func friendlyResourceLocation(resource ExplainResource) string {
 	case "home":
 		location = "$HOME/" + strings.TrimPrefix(resource.Path, "/")
 	case "config":
-		location = "$XDG_CONFIG_HOME/" + strings.TrimPrefix(resource.Path, "/")
+		if strings.TrimSpace(resource.DisplayPath) != "" {
+			location = resource.DisplayPath
+		} else {
+			location = friendlyRootJoin(fallback("config", resource.LocationDefault), resource.Path)
+		}
 	case "recipe-defined":
 		location = "chosen by the custom recipe"
 	case "":
@@ -692,7 +699,8 @@ func normalizeExplainRepoRoot(repoRoot string) (string, error) {
 	return filepath.Abs(trimmed)
 }
 
-func bundledExplain(target string) (RecipeExplain, bool) {
+func bundledExplain(target string, locationRoots ...map[string]string) (RecipeExplain, bool) {
+	overrides := firstLocationRoots(locationRoots)
 	bundledTarget, ok := LookupBundledTarget(target)
 	if !ok {
 		return RecipeExplain{}, false
@@ -704,30 +712,56 @@ func bundledExplain(target string) (RecipeExplain, bool) {
 		return explain, true
 	case GitTarget:
 		explain := bundledGitExplain()
+		annotateExplainResourceLocations(&explain, BundledGitRecipe(), overrides)
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
 	case StarshipTarget:
 		explain := bundledStarshipExplain()
+		annotateExplainResourceLocations(&explain, BundledStarshipRecipe(), overrides)
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
 	case NvimTarget:
 		explain := bundledNvimExplain()
+		annotateExplainResourceLocations(&explain, BundledNvimRecipe(), overrides)
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
 	case SSHTarget:
 		explain := bundledSSHExplain()
+		annotateExplainResourceLocations(&explain, BundledSSHRecipe(), overrides)
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
 	case TmuxTarget:
 		explain := bundledTmuxExplain()
+		annotateExplainResourceLocations(&explain, BundledTmuxRecipe(), overrides)
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
 	case ZshTarget:
 		explain := bundledZshExplain()
+		annotateExplainResourceLocations(&explain, BundledZshRecipe(), overrides)
 		applyBundledTargetMetadata(&explain, bundledTarget)
 		return explain, true
 	default:
 		return RecipeExplain{}, false
+	}
+}
+
+func firstLocationRoots(roots []map[string]string) map[string]string {
+	if len(roots) == 0 || roots[0] == nil {
+		return nil
+	}
+	return roots[0]
+}
+
+func annotateExplainResourceLocations(explain *RecipeExplain, rec *Recipe, locationRoots map[string]string) {
+	if explain == nil || rec == nil {
+		return
+	}
+	for idx := range explain.Resources {
+		resource := &explain.Resources[idx]
+		if location, ok := rec.Locations[resource.LocationID]; ok {
+			resource.LocationDefault = location.Default
+		}
+		resource.DisplayPath = FriendlyLocationPath(rec, resource.LocationID, resource.Path, locationRoots)
 	}
 }
 
@@ -809,7 +843,7 @@ func bundledStarshipExplain() RecipeExplain {
 			RedactionSummary: "metadata-only explanation; selected Starship scalar values are low sensitivity but live and desired values are not emitted by normal output",
 			LifecycleSummary: "Starship reads configuration during prompt rendering; the manager does not stop or restart applications for these selected keys",
 			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
-			DoNotManage:      []string{"full starship.toml files with comments or formatting", "custom modules and command output", "palettes, presets, prompts, and arbitrary Starship modules", "STARSHIP_CONFIG non-default locations", "shell initialization and Starship installation", "cache, logs, and secret-bearing custom command configuration"},
+			DoNotManage:      []string{"full starship.toml files with comments or formatting", "custom modules and command output", "palettes, presets, prompts, and arbitrary Starship modules", "STARSHIP_CONFIG or process XDG_CONFIG_HOME non-default locations unless an explicit location override is configured", "shell initialization and Starship installation", "cache, logs, and secret-bearing custom command configuration"},
 		},
 	}
 	for _, id := range starshipSettingIDs() {
@@ -862,7 +896,7 @@ func bundledNvimExplain() RecipeExplain {
 			TrustSummary:     "bundled recipe metadata is trusted by the manager release",
 			DoNotManage: []string{
 				"Neovim installation, plugin installation, package-manager actions, or runtime RPC",
-				"non-default NVIM_APPNAME, XDG_CONFIG_HOME, or platform-specific locations outside ~/.config/nvim",
+				"non-default NVIM_APPNAME, process XDG_CONFIG_HOME, or platform-specific locations outside ~/.config/nvim unless an explicit location override is configured",
 				"shada, swap, undo, view, session, cache, and generated state",
 				"plugin clones and generated dependency directories such as pack/**, plugged/**, bundle/**, node_modules, .deps, and .rocks",
 				"key material such as .pem, .key, .p12, .pfx, id_rsa, and id_ed25519 files",
@@ -1129,7 +1163,7 @@ func zshSelectionPolicyLimitation(id string) []string {
 	return []string{"opt-in startup file; future add-default support should not select this by default"}
 }
 
-func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus string) RecipeExplain {
+func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus string, locationRoots map[string]string) RecipeExplain {
 	explain := RecipeExplain{
 		Target:           ExplainTarget{Ref: rec.Target, DisplayName: rec.DisplayName, SupportLevel: rec.SupportLevel, Capability: rec.Capability, PlatformSupport: "unknown"},
 		Recipe:           ExplainRecipeSource{Source: source, RecipeRef: recipeRef, TrustStatus: trustStatus, Version: fmt.Sprintf("%d", rec.SchemaVersion)},
@@ -1145,7 +1179,7 @@ func explainFromRecipe(rec *Recipe, source string, recipeRef string, trustStatus
 	}
 	for _, resourceID := range sortedKeys(rec.Resources) {
 		resource := rec.Resources[resourceID]
-		explain.Resources = append(explain.Resources, explainResource(resourceID, resource))
+		explain.Resources = append(explain.Resources, explainResource(resourceID, resource, rec, locationRoots))
 	}
 	for _, operationID := range sortedKeys(rec.NativeOperations) {
 		explain.NativeOperations = append(explain.NativeOperations, explainNativeOperation(operationID, rec.NativeOperations[operationID]))
@@ -1197,8 +1231,14 @@ func streamPolicySummary(policy NativeStreamPolicy) string {
 	}
 }
 
-func explainResource(resourceID string, resource Resource) ExplainResource {
-	explained := ExplainResource{ID: resourceID, LocationID: resource.Location, Path: resource.Path, DriverID: resource.Driver, SupportedOps: []string{"metadata explanation"}, BackupRestore: "unknown", Normalization: "unknown", DiffMode: "unknown", Include: append([]string(nil), resource.Include...), Exclude: append([]string(nil), resource.Exclude...)}
+func explainResource(resourceID string, resource Resource, rec *Recipe, locationRoots map[string]string) ExplainResource {
+	locationDefault := ""
+	if rec != nil {
+		if location, ok := rec.Locations[resource.Location]; ok {
+			locationDefault = location.Default
+		}
+	}
+	explained := ExplainResource{ID: resourceID, LocationID: resource.Location, LocationDefault: locationDefault, Path: resource.Path, DisplayPath: FriendlyLocationPath(rec, resource.Location, resource.Path, locationRoots), DriverID: resource.Driver, SupportedOps: []string{"metadata explanation"}, BackupRestore: "unknown", Normalization: "unknown", DiffMode: "unknown", Include: append([]string(nil), resource.Include...), Exclude: append([]string(nil), resource.Exclude...)}
 	switch resource.Driver {
 	case FileDriverID:
 		explained.BackupRestore = "supported for selected file resources and custom.files"

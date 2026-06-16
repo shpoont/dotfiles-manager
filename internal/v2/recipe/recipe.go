@@ -2107,6 +2107,56 @@ func ExpandLocationDefault(value string) (string, error) {
 	return trimmed, nil
 }
 
+// FriendlyLocationPath returns a user-facing location label for a resource path.
+// It mirrors LocationRoot semantics without resolving HOME-relative defaults to
+// absolute filesystem paths for normal bundled defaults. Explicit overrides are
+// shown as the chosen root because they are user-supplied non-default locations.
+func FriendlyLocationPath(rec *Recipe, locationID string, resourcePath string, overrides map[string]string) string {
+	locationID = strings.TrimSpace(locationID)
+	resourcePath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(resourcePath)), "/")
+	if locationID == "" {
+		return resourcePath
+	}
+	if locationID == "recipe-defined" {
+		return "chosen by the custom recipe"
+	}
+	if override := strings.TrimSpace(overrides[locationID]); override != "" {
+		return friendlyRootJoin(friendlyDisplayRoot(override, locationID, true), resourcePath)
+	}
+	if rec != nil {
+		if location, ok := rec.Locations[locationID]; ok {
+			return friendlyRootJoin(friendlyDisplayRoot(location.Default, locationID, false), resourcePath)
+		}
+	}
+	if resourcePath != "" {
+		return locationID + "/" + resourcePath
+	}
+	return locationID
+}
+
+func friendlyDisplayRoot(root string, locationID string, override bool) string {
+	trimmed := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(root)), "/")
+	if trimmed == "" {
+		return strings.TrimSpace(locationID)
+	}
+	if !override && trimmed == "~" {
+		return "$HOME"
+	}
+	return trimmed
+}
+
+func friendlyRootJoin(root string, resourcePath string) string {
+	root = strings.TrimRight(filepath.ToSlash(strings.TrimSpace(root)), "/")
+	resourcePath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(resourcePath)), "/")
+	if root == "" {
+		return resourcePath
+	}
+	if resourcePath == "" {
+		return root
+	}
+	return root + "/" + resourcePath
+}
+
 func ValidatePublicID(kind string, value string) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed != value {

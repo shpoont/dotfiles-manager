@@ -272,9 +272,12 @@ func TestDiscoverJSONTextAndUnknownTargetAreStable(t *testing.T) {
 	home := t.TempDir()
 	writeDiscoveryFile(t, filepath.Join(home, ".gitconfig"))
 	report, err := Discover(DiscoverOptions{
-		Target:        GitTarget,
-		GOOS:          "darwin",
-		LocationRoots: map[string]string{"home": home},
+		Target: GitTarget,
+		GOOS:   "darwin",
+		UserHomeExpand: func(value string) (string, error) {
+			require.Equal(t, "~", value)
+			return home, nil
+		},
 		CommandLookup: installedCommands("git"),
 	})
 	require.NoError(t, err)
@@ -408,4 +411,73 @@ func writeDiscoveryFile(t *testing.T, path string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte("fixture content must not be read\n"), 0o644))
+}
+
+func TestDiscoverConfigLocationContractUsesHomeConfigNotProcessXDG(t *testing.T) {
+	home := t.TempDir()
+	xdgConfig := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+
+	writeDiscoveryFile(t, filepath.Join(xdgConfig, "starship.toml"))
+	require.NoError(t, os.MkdirAll(filepath.Join(xdgConfig, "nvim"), 0o755))
+
+	starshipXDGOnly, err := Discover(DiscoverOptions{Target: StarshipTarget, GOOS: "darwin", CommandLookup: missingCommands()})
+	require.NoError(t, err)
+	starshipTarget := requireDiscoveredTarget(t, starshipXDGOnly, StarshipTarget)
+	require.Equal(t, DiscoverConfigMissing, starshipTarget.ConfigState)
+	require.Len(t, starshipTarget.ConfigProbes, 1)
+	require.Equal(t, "~/.config", starshipTarget.ConfigProbes[0].LocationDefault)
+	require.Equal(t, "~/.config/starship.toml", starshipTarget.ConfigProbes[0].DisplayPath)
+	starshipText := DiscoverText(starshipXDGOnly)
+	require.Contains(t, starshipText, "~/.config/starship.toml — missing")
+	require.NotContains(t, starshipText, "$XDG_CONFIG_HOME")
+
+	nvimXDGOnly, err := Discover(DiscoverOptions{Target: NvimTarget, GOOS: "darwin", CommandLookup: missingCommands()})
+	require.NoError(t, err)
+	nvimTarget := requireDiscoveredTarget(t, nvimXDGOnly, NvimTarget)
+	require.Equal(t, DiscoverConfigMissing, nvimTarget.ConfigState)
+	require.Len(t, nvimTarget.ConfigProbes, 1)
+	require.Equal(t, "~/.config", nvimTarget.ConfigProbes[0].LocationDefault)
+	require.Equal(t, "~/.config/nvim", nvimTarget.ConfigProbes[0].DisplayPath)
+	nvimText := DiscoverText(nvimXDGOnly)
+	require.Contains(t, nvimText, "~/.config/nvim — missing")
+	require.NotContains(t, nvimText, "$XDG_CONFIG_HOME")
+
+	writeDiscoveryFile(t, filepath.Join(home, ".config", "starship.toml"))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".config", "nvim"), 0o755))
+
+	starshipHomeConfig, err := Discover(DiscoverOptions{Target: StarshipTarget, GOOS: "darwin", CommandLookup: missingCommands()})
+	require.NoError(t, err)
+	starshipTarget = requireDiscoveredTarget(t, starshipHomeConfig, StarshipTarget)
+	require.Equal(t, DiscoverConfigPresent, starshipTarget.ConfigState)
+	require.Equal(t, "~/.config/starship.toml", starshipTarget.ConfigProbes[0].DisplayPath)
+	require.Contains(t, DiscoverText(starshipHomeConfig), "~/.config/starship.toml — present")
+
+	nvimHomeConfig, err := Discover(DiscoverOptions{Target: NvimTarget, GOOS: "darwin", CommandLookup: missingCommands()})
+	require.NoError(t, err)
+	nvimTarget = requireDiscoveredTarget(t, nvimHomeConfig, NvimTarget)
+	require.Equal(t, DiscoverConfigPresent, nvimTarget.ConfigState)
+	require.Equal(t, "~/.config/nvim", nvimTarget.ConfigProbes[0].DisplayPath)
+	require.Contains(t, DiscoverText(nvimHomeConfig), "~/.config/nvim — present")
+}
+
+func TestDiscoverConfigLocationOverrideIsExplicit(t *testing.T) {
+	override := t.TempDir()
+	writeDiscoveryFile(t, filepath.Join(override, "starship.toml"))
+	require.NoError(t, os.MkdirAll(filepath.Join(override, "nvim"), 0o755))
+
+	starship, err := Discover(DiscoverOptions{Target: StarshipTarget, GOOS: "darwin", LocationRoots: map[string]string{"config": override}, CommandLookup: missingCommands()})
+	require.NoError(t, err)
+	starshipTarget := requireDiscoveredTarget(t, starship, StarshipTarget)
+	require.Equal(t, DiscoverConfigPresent, starshipTarget.ConfigState)
+	require.Equal(t, filepath.ToSlash(filepath.Join(override, "starship.toml")), starshipTarget.ConfigProbes[0].DisplayPath)
+	require.Contains(t, DiscoverText(starship), filepath.ToSlash(filepath.Join(override, "starship.toml"))+" — present")
+
+	nvim, err := Discover(DiscoverOptions{Target: NvimTarget, GOOS: "darwin", LocationRoots: map[string]string{"config": override}, CommandLookup: missingCommands()})
+	require.NoError(t, err)
+	nvimTarget := requireDiscoveredTarget(t, nvim, NvimTarget)
+	require.Equal(t, DiscoverConfigPresent, nvimTarget.ConfigState)
+	require.Equal(t, filepath.ToSlash(filepath.Join(override, "nvim")), nvimTarget.ConfigProbes[0].DisplayPath)
+	require.Contains(t, DiscoverText(nvim), filepath.ToSlash(filepath.Join(override, "nvim"))+" — present")
 }

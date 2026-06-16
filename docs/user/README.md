@@ -38,11 +38,11 @@ evidence; see the internal engineering docs for gate details.
 | Surface | Current support | Stores desired data as | Important exclusions |
 | --- | --- | --- | --- |
 | Git | Selected non-credential identity values: `git:user.email`, `git:user.name` in `~/.gitconfig` | `desired/<scope>/<subject>/targets/git/settings.yaml` | credentials, signing keys, includes, aliases, repository-local `.git/config` |
-| Starship | Selected root TOML values: `add_newline`, `command_timeout`, `follow_symlinks`, `scan_timeout` | `desired/<scope>/<subject>/targets/starship/settings.yaml` | full-file formatting/comments, modules, custom command output, non-default `STARSHIP_CONFIG` |
+| Starship | Selected root TOML values: `add_newline`, `command_timeout`, `follow_symlinks`, `scan_timeout` in `~/.config/starship.toml` | `desired/<scope>/<subject>/targets/starship/settings.yaml` | full-file formatting/comments, modules, custom command output, non-default `STARSHIP_CONFIG` or process `XDG_CONFIG_HOME` without explicit location override |
 | Zsh | Selected startup files: `.zshrc`, `.zprofile`, `.zlogin`, `.zlogout` | `desired/<scope>/<subject>/targets/zsh/artifacts/...` | `.zshenv`, history, sessions, plugin-manager state, caches, shell restart/re-source |
 | tmux | Explicit user config files: `~/.tmux.conf` or `~/.config/tmux/tmux.conf` | `desired/<scope>/<subject>/targets/tmux/artifacts/...` | sessions, sockets, plugins, generated state, `tmux source-file`, deciding active config |
 | SSH | Primary user config file `~/.ssh/config` only | `desired/<scope>/<subject>/targets/ssh/artifacts/config` | private/public keys, certificates, known_hosts, authorized_keys, agents, includes, chmod repair |
-| Neovim | Default config tree `~/.config/nvim` on Linux/macOS | `desired/<scope>/<subject>/targets/nvim/artifacts/config/` | plugins, generated state, caches, swap/undo/session files, non-default `NVIM_APPNAME` |
+| Neovim | Default config tree `~/.config/nvim` on Linux/macOS | `desired/<scope>/<subject>/targets/nvim/artifacts/config/` | plugins, generated state, caches, swap/undo/session files, non-default `NVIM_APPNAME` or process `XDG_CONFIG_HOME` without explicit location override |
 | Local app authoring | Draft and validate local recipes plus synthetic roundtrip fixtures | `recipes/local/<target-id>/...` and fixture trees | no public recipe marketplace; native export/import and arbitrary scripts are not promoted by default |
 | Legacy v1 file sync | Existing `.dotfiles-manager.yaml` `status`/`diff`/`deploy`/`import` compatibility | v1 `source` directories | v1 is file sync, not the v2 selected-settings model |
 
