@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1593,6 +1594,69 @@ func TestBuildFileTreeResourceCommandsUseMetadataOnlyDesiredArtifacts(t *testing
 	}
 }
 
+func TestBuildFileTreeApplyExposesRemovalOperationsWithoutRawContents(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "tree.app", "config", fileTreeRecipeBody("tree.app", fixtureLiveRootPlaceholder))
+	writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "init.lua"), "raw-live-tree\n")
+	writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "lua", "extra.lua"), "raw-extra-live-tree\n")
+	writeFileTreeResourceDesired(t, fixture, "tree.app", "config", "init.lua", "raw-desired-tree\n")
+	fixture.trustRecipe()
+
+	report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tree.app:config", UserID: "leon", DryRun: true})
+	require.NoError(t, err)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.NotNil(t, item.FileTree)
+	require.NotEmpty(t, item.FileTree.Operations)
+	require.Contains(t, item.FileTree.Operations, FileTreeOperation{Action: FileTreeOperationActionRemove, Path: "lua/extra.lua", Kind: FileTreeOperationKindFile, State: FileTreeOperationStatePlanned})
+	require.Contains(t, item.FileTree.Operations, FileTreeOperation{Action: FileTreeOperationActionUpdate, Path: "init.lua", Kind: FileTreeOperationKindFile, State: FileTreeOperationStatePlanned})
+
+	payload := mustJSON(t, report)
+	require.Contains(t, payload, `"fileTree"`)
+	require.Contains(t, payload, `"operations"`)
+	require.Contains(t, payload, `"path": "lua/extra.lua"`)
+	require.NotContains(t, payload, "raw-live-tree")
+	require.NotContains(t, payload, "raw-extra-live-tree")
+	require.NotContains(t, payload, "raw-desired-tree")
+
+	text := Text(report)
+	require.Contains(t, text, "Will remove live paths not present in saved desired state")
+	require.Contains(t, text, "lua/extra.lua")
+	require.NotContains(t, text, "raw-live-tree")
+	require.NotContains(t, text, "raw-extra-live-tree")
+	require.NotContains(t, text, "raw-desired-tree")
+}
+
+func TestBuildFileTreeApplyJSONKeepsFullOperationListWhenTextIsCapped(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupFixtureWithRecipe(t, "tree.app", "config", fileTreeRecipeBody("tree.app", fixtureLiveRootPlaceholder))
+	writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "init.lua"), "raw-live-tree\n")
+	writeFileTreeResourceDesired(t, fixture, "tree.app", "config", "init.lua", "raw-desired-tree\n")
+	for i := 0; i < fileTreeRemovalTextLimit+5; i++ {
+		writeFile(t, filepath.Join(fixture.liveRoot, "nvim", "old", fmt.Sprintf("%02d.lua", i)), fmt.Sprintf("raw-extra-%02d\n", i))
+	}
+	fixture.trustRecipe()
+
+	report, err := Build(Options{Command: CommandApply, RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot, Ref: "tree.app:config", UserID: "leon", DryRun: true})
+	require.NoError(t, err)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.NotNil(t, item.FileTree)
+	removals := fileTreeRemoveOperations(item)
+	require.GreaterOrEqual(t, len(removals), fileTreeRemovalTextLimit+5)
+	require.Contains(t, removals, FileTreeOperation{Action: FileTreeOperationActionRemove, Path: "old/24.lua", Kind: FileTreeOperationKindFile, State: FileTreeOperationStatePlanned})
+
+	payload := mustJSON(t, report)
+	require.Contains(t, payload, `"path": "old/24.lua"`)
+	text := Text(report)
+	require.Contains(t, text, "and 6 more; use --json to see the full fileTree.operations list")
+	require.NotContains(t, text, "old/24.lua")
+	require.NotContains(t, payload, "raw-extra-24")
+	require.NotContains(t, text, "raw-extra-24")
+}
+
 func TestBuildBundledNvimUsesConfigArtifactDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -1628,6 +1692,41 @@ func TestBuildBundledNvimUsesConfigArtifactDirectory(t *testing.T) {
 	require.Equal(t, PlannedActionWouldPromote, item.PlannedAction)
 	require.NotContains(t, mustJSON(t, report), "raw-nvim-config")
 	require.NotContains(t, mustJSON(t, report), "ignored-cache")
+}
+
+func TestBuildBundledNvimApplyExposesExtraLiveFileRemoval(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	liveConfigRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, recipe.NvimTarget, "config")
+	writeFile(t, filepath.Join(liveConfigRoot, "nvim", "init.lua"), "raw-live-nvim\n")
+	writeFile(t, filepath.Join(liveConfigRoot, "nvim", "lua", "extra.lua"), "raw-extra-nvim\n")
+	writeFile(t, filepath.Join(repoRoot, "desired", "user", "leon", "targets", "nvim", "artifacts", "config", "init.lua"), "raw-desired-nvim\n")
+
+	report, err := Build(Options{
+		Command:   CommandApply,
+		RepoRoot:  repoRoot,
+		StateRoot: stateRoot,
+		Ref:       "nvim:config",
+		UserID:    "leon",
+		DryRun:    true,
+		LocationRoots: map[string]map[string]string{
+			recipe.NvimTarget: {"config": liveConfigRoot},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, "nvim:config", item.SettingRef)
+	require.NotNil(t, item.FileTree)
+	require.Contains(t, item.FileTree.Operations, FileTreeOperation{Action: FileTreeOperationActionRemove, Path: "lua/extra.lua", Kind: FileTreeOperationKindFile, State: FileTreeOperationStatePlanned})
+	require.Contains(t, Text(report), "lua/extra.lua")
+	require.Contains(t, Text(report), "Will remove live paths not present in saved desired state")
+	require.NotContains(t, mustJSON(t, report), "raw-live-nvim")
+	require.NotContains(t, mustJSON(t, report), "raw-extra-nvim")
+	require.NotContains(t, mustJSON(t, report), "raw-desired-nvim")
 }
 
 func TestBuildFileTreeResourceMissingStatesFollowNoDeletePolicy(t *testing.T) {
@@ -1887,6 +1986,27 @@ func TestSelectedPreviewTextHelperBranches(t *testing.T) {
 	require.Contains(t, multiText, "blocked message")
 	require.Contains(t, multiText, "not previously applied by this tool")
 	require.Contains(t, multiText, "No files changed")
+
+	multiApply := baseReport(CommandApply, true, nil)
+	multiApply.Items = []Item{
+		{TargetRef: "tree.app", SettingRef: "tree.app:config", PlannedAction: PlannedActionWouldApply, FileTree: &FileTreeInfo{Operations: []FileTreeOperation{{Action: FileTreeOperationActionRemove, Path: "old.lua", Kind: FileTreeOperationKindFile, State: FileTreeOperationStatePlanned}}}},
+		{TargetRef: "git", SettingRef: "git:user.email", State: v2status.StateUnchanged},
+	}
+	multiApplyText := Text(multiApply)
+	require.Contains(t, multiApplyText, "Will remove 1 live path not present in saved desired state")
+	require.Contains(t, multiApplyText, "focused dry-run or --json")
+
+	manyRemovals := make([]FileTreeOperation, 0, fileTreeRemovalTextLimit+1)
+	for i := 0; i < fileTreeRemovalTextLimit+1; i++ {
+		manyRemovals = append(manyRemovals, FileTreeOperation{Action: FileTreeOperationActionRemove, Path: fmt.Sprintf("old/%02d.lua", i), Kind: FileTreeOperationKindFile, State: FileTreeOperationStatePlanned})
+	}
+	capped := baseReport(CommandApply, true, nil)
+	capped.Items = []Item{{TargetRef: "tree.app", SettingRef: "tree.app:config", PlannedAction: PlannedActionWouldApply, FileTree: &FileTreeInfo{Operations: manyRemovals}}}
+	cappedText := Text(capped)
+	require.Contains(t, cappedText, "old/00.lua")
+	require.Contains(t, cappedText, "old/19.lua")
+	require.NotContains(t, cappedText, "old/20.lua")
+	require.Contains(t, cappedText, "and 1 more; use --json to see the full fileTree.operations list")
 
 	applyNoBackup := baseReport(CommandApply, false, nil)
 	applyNoBackup.Summary = Summary{Status: SummaryChanged, Changed: 1, Applied: 1}

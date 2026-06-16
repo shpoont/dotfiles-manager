@@ -339,6 +339,33 @@ func TestFileResourceRestoreCLI(t *testing.T) {
 	require.Equal(t, "old file\n", string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.txt"))))
 }
 
+func TestFileTreeRestoreTextWarnsWholeTreeBehavior(t *testing.T) {
+	fixture := setupCLIV2FileTreeResourceFixture(t)
+	setCWD(t, fixture.repoRoot)
+	liveTree := filepath.Join(fixture.liveRoot, "profiles")
+	desiredTree := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.tree", "artifacts", "config")
+	writeCLIFile(t, filepath.Join(liveTree, "init.lua"), "old tree\n")
+	writeCLIFile(t, filepath.Join(desiredTree, "init.lua"), "new tree\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.tree:config"})
+	require.NoError(t, err)
+	runID := payload["runId"].(string)
+	require.NotContains(t, stdout, "old tree")
+	require.NotContains(t, stdout, "new tree")
+	require.Equal(t, "new tree\n", string(mustReadCLIFile(t, filepath.Join(liveTree, "init.lua"))))
+
+	writeCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"), "extra after apply\n")
+	restoreStdout, _, err := runSelectedPreviewTextCLI(t, []string{"restore", runID, "--dry-run", "--user-id", "leon"})
+	require.NoError(t, err)
+	require.Contains(t, restoreStdout, "Whole file-tree restore")
+	require.Contains(t, restoreStdout, "may remove live paths absent from the backup payload")
+	require.Contains(t, restoreStdout, filepath.Join(liveTree))
+	require.NotContains(t, restoreStdout, "old tree")
+	require.NotContains(t, restoreStdout, "new tree")
+	require.NotContains(t, restoreStdout, "extra after apply")
+	require.Equal(t, "extra after apply\n", string(mustReadCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"))))
+}
+
 func TestRestoreBundledGitEmailTempHomeSmoke(t *testing.T) {
 	fixture := setupCLIV2BundledGitFixture(t)
 	setCWD(t, fixture.repoRoot)

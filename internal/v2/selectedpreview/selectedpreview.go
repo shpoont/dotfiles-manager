@@ -133,6 +133,7 @@ type Item struct {
 	DryRun         bool                     `json:"dryRun"`
 	Mutated        bool                     `json:"mutated"`
 	Mutation       *MutationInfo            `json:"mutation,omitempty"`
+	FileTree       *FileTreeInfo            `json:"fileTree,omitempty"`
 	NativeExport   *NativeExportInfo        `json:"nativeExport,omitempty"`
 	Lifecycle      []lifecycle.ActionRecord `json:"lifecycle,omitempty"`
 	Diagnostics    []Diagnostic             `json:"diagnostics"`
@@ -223,6 +224,31 @@ type MutationRefs struct {
 	Ledger        string `json:"ledger,omitempty"`
 	Backup        string `json:"backup,omitempty"`
 	BackupPayload string `json:"backupPayload,omitempty"`
+}
+
+const (
+	FileTreeOperationActionCreate = "create"
+	FileTreeOperationActionUpdate = "update"
+	FileTreeOperationActionRemove = "remove"
+
+	FileTreeOperationKindFile      = "file"
+	FileTreeOperationKindDirectory = "directory"
+
+	FileTreeOperationStatePlanned = "planned"
+	FileTreeOperationStateApplied = "applied"
+)
+
+const fileTreeRemovalTextLimit = 20
+
+type FileTreeInfo struct {
+	Operations []FileTreeOperation `json:"operations,omitempty"`
+}
+
+type FileTreeOperation struct {
+	Action string `json:"action"`
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	State  string `json:"state"`
 }
 
 type NativeExportInfo struct {
@@ -428,6 +454,9 @@ func singleItemDefaultText(report *Report, item Item) []string {
 		}
 		lines = append(lines, livePathLines(item)...)
 		lines = append(lines, "")
+		if removalLines := fileTreeRemovalDefaultLines(report, item); len(removalLines) > 0 {
+			lines = append(lines, removalLines...)
+		}
 		if backup := backupSummaryLine(report, item); backup != "" {
 			lines = append(lines, "Backup:", "  "+backup, "")
 		}
@@ -476,6 +505,9 @@ func multiItemDefaultText(report *Report) []string {
 			}
 			if item.NoBaseline {
 				lines = append(lines, "    Review: not previously applied by this tool; review before confirming.")
+			}
+			if removalLine := fileTreeRemovalSummaryLine(report, item); removalLine != "" {
+				lines = append(lines, "    "+removalLine)
 			}
 		}
 		lines = append(lines, "")
@@ -809,6 +841,81 @@ func backupSummaryLine(report *Report, item Item) string {
 		return "Local backup recorded for restore as backup run " + item.Mutation.RunID + "."
 	}
 	return "Local backup recorded for restore."
+}
+
+func fileTreeRemovalDefaultLines(report *Report, item Item) []string {
+	if report == nil || report.Command != CommandApply {
+		return nil
+	}
+	removals := fileTreeRemoveOperations(item)
+	if len(removals) == 0 {
+		return nil
+	}
+	heading := "Will remove live paths not present in saved desired state:"
+	if fileTreeRemovalsApplied(report, item) {
+		heading = "Removed live paths not present in saved desired state:"
+	}
+	lines := []string{"File-tree removals:", "  " + heading}
+	limit := fileTreeRemovalTextLimit
+	if limit <= 0 || limit > len(removals) {
+		limit = len(removals)
+	}
+	for _, operation := range removals[:limit] {
+		lines = append(lines, fmt.Sprintf("  - %s (%s)", operation.Path, operation.Kind))
+	}
+	if omitted := len(removals) - limit; omitted > 0 {
+		lines = append(lines, fmt.Sprintf("  ... and %d more; use --json to see the full fileTree.operations list.", omitted))
+	}
+	return append(lines, "")
+}
+
+func fileTreeRemovalSummaryLine(report *Report, item Item) string {
+	if report == nil || report.Command != CommandApply {
+		return ""
+	}
+	removals := fileTreeRemoveOperations(item)
+	if len(removals) == 0 {
+		return ""
+	}
+	if fileTreeRemovalsApplied(report, item) {
+		return fmt.Sprintf("Removed %d live %s not present in saved desired state; use --json for full fileTree.operations.", len(removals), pluralizePath(len(removals)))
+	}
+	return fmt.Sprintf("Will remove %d live %s not present in saved desired state; run a focused dry-run or --json for full paths.", len(removals), pluralizePath(len(removals)))
+}
+
+func fileTreeRemoveOperations(item Item) []FileTreeOperation {
+	if item.FileTree == nil || len(item.FileTree.Operations) == 0 {
+		return nil
+	}
+	removals := make([]FileTreeOperation, 0)
+	for _, operation := range item.FileTree.Operations {
+		if operation.Action == FileTreeOperationActionRemove {
+			removals = append(removals, operation)
+		}
+	}
+	return removals
+}
+
+func fileTreeRemovalsApplied(report *Report, item Item) bool {
+	if report == nil || report.DryRun || item.Mutation == nil {
+		return false
+	}
+	if item.Mutation.Result != "verified" || !item.Mutated {
+		return false
+	}
+	for _, operation := range fileTreeRemoveOperations(item) {
+		if operation.State != FileTreeOperationStateApplied {
+			return false
+		}
+	}
+	return true
+}
+
+func pluralizePath(count int) string {
+	if count == 1 {
+		return "path"
+	}
+	return "paths"
 }
 
 func noBaselineReviewLines(report *Report, item Item) []string {
@@ -1778,6 +1885,11 @@ func buildFileTreeResourceItem(command string, item Item, plan *customfiles.Plan
 	item.Desired.Kind = "file-tree"
 	item.Desired.Snapshot = fromTreeState(desiredState)
 	item.Preview = &PreviewInfo{ChangeKind: string(plan.TreePreview.Change.Kind), Intent: fileTreeResourceIntent(command, current, desiredState)}
+	if command == CommandApply {
+		if operations := fileTreeOperationsFromPreview(plan.TreePreview, FileTreeOperationStatePlanned); len(operations) > 0 {
+			item.FileTree = &FileTreeInfo{Operations: operations}
+		}
+	}
 	if command == CommandDiff {
 		diffKind := string(plan.TreePreview.Change.Kind)
 		if !desiredState.Exists {
@@ -1797,6 +1909,84 @@ func buildFileTreeResourceItem(command string, item Item, plan *customfiles.Plan
 		item.Message = "Existing live file tree can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
 	}
 	return item
+}
+
+func fileTreeOperationsFromPreview(preview filetreedriver.Preview, state string) []FileTreeOperation {
+	if len(preview.Change.Entries) == 0 {
+		return nil
+	}
+	operations := make([]FileTreeOperation, 0, len(preview.Change.Entries))
+	for _, entry := range preview.Change.Entries {
+		operation, ok := fileTreeOperationFromEntry(entry, state)
+		if ok {
+			operations = append(operations, operation)
+		}
+	}
+	return operations
+}
+
+func fileTreeOperationFromEntry(entry filetreedriver.EntryDiff, state string) (FileTreeOperation, bool) {
+	path := filepath.ToSlash(strings.TrimSpace(entry.Path))
+	if !safeFileTreeOperationPath(path) {
+		return FileTreeOperation{}, false
+	}
+	operation := FileTreeOperation{Path: path, State: defaultString(state, FileTreeOperationStatePlanned)}
+	switch entry.Kind {
+	case filedriver.ChangeCreate:
+		operation.Action = FileTreeOperationActionCreate
+		operation.Kind = fileTreeOperationKind(entry.After.Kind)
+	case filedriver.ChangeUpdate:
+		operation.Action = FileTreeOperationActionUpdate
+		operation.Kind = fileTreeOperationKind(entry.After.Kind)
+		if operation.Kind == "" {
+			operation.Kind = fileTreeOperationKind(entry.Before.Kind)
+		}
+	case filedriver.ChangeDelete:
+		operation.Action = FileTreeOperationActionRemove
+		operation.Kind = fileTreeOperationKind(entry.Before.Kind)
+	default:
+		return FileTreeOperation{}, false
+	}
+	if operation.Kind == "" {
+		return FileTreeOperation{}, false
+	}
+	return operation, true
+}
+
+func safeFileTreeOperationPath(path string) bool {
+	if path == "" || strings.HasPrefix(path, "/") {
+		return false
+	}
+	for _, part := range strings.Split(path, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func fileTreeOperationKind(kind filetreedriver.EntryKind) string {
+	switch kind {
+	case filetreedriver.EntryFile:
+		return FileTreeOperationKindFile
+	case filetreedriver.EntryDir:
+		return FileTreeOperationKindDirectory
+	default:
+		return ""
+	}
+}
+
+func SetFileTreeOperationState(item *Item, state string) {
+	if item == nil || item.FileTree == nil {
+		return
+	}
+	normalized := strings.TrimSpace(state)
+	if normalized == "" {
+		normalized = FileTreeOperationStatePlanned
+	}
+	for idx := range item.FileTree.Operations {
+		item.FileTree.Operations[idx].State = normalized
+	}
 }
 
 func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string, command string, trustContext recipe.WriteSafetyContext, defaultsRunner macosdefaultsdriver.Runner) Item {

@@ -919,6 +919,73 @@ func TestV2FileResourceStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	require.NotContains(t, stdout, currentBody)
 }
 
+func TestV2FileTreeApplyReportsRemovalPathsBeforeAndAfterConfirmation(t *testing.T) {
+	fixture := setupCLIV2FileTreeResourceFixture(t)
+	setCWD(t, fixture.repoRoot)
+	liveTree := filepath.Join(fixture.liveRoot, "profiles")
+	desiredTree := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.tree", "artifacts", "config")
+	currentBody := "CURRENT-TREE-CONTENT\n"
+	desiredBody := "DESIRED-TREE-CONTENT\n"
+	extraBody := "EXTRA-LIVE-TREE-CONTENT\n"
+	writeCLIFile(t, filepath.Join(liveTree, "init.lua"), currentBody)
+	writeCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"), extraBody)
+	writeCLIFile(t, filepath.Join(desiredTree, "init.lua"), desiredBody)
+
+	stdout, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--dry-run", "--user-id", "leon", "test.tree:config"})
+	require.NoError(t, err)
+	require.Contains(t, stdout, "Will remove live paths not present in saved desired state")
+	require.Contains(t, stdout, "lua/extra.lua")
+	require.Equal(t, extraBody, string(mustReadCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"))))
+	require.NotContains(t, stdout, currentBody)
+	require.NotContains(t, stdout, desiredBody)
+	require.NotContains(t, stdout, extraBody)
+
+	payload, jsonStdout, err := runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "test.tree:config"})
+	require.NoError(t, err)
+	items := payload["items"].([]any)
+	item := items[0].(map[string]any)
+	fileTree := item["fileTree"].(map[string]any)
+	operations := fileTree["operations"].([]any)
+	requireFileTreeOperation(t, operations, "remove", "lua/extra.lua", "file", "planned")
+	requireFileTreeOperation(t, operations, "update", "init.lua", "file", "planned")
+	require.NotContains(t, jsonStdout, currentBody)
+	require.NotContains(t, jsonStdout, desiredBody)
+	require.NotContains(t, jsonStdout, extraBody)
+
+	stdout, _, err = runSelectedPreviewTextCLI(t, []string{"apply", "--yes", "--user-id", "leon", "test.tree:config"})
+	require.NoError(t, err)
+	require.Contains(t, stdout, "Removed live paths not present in saved desired state")
+	require.Contains(t, stdout, "lua/extra.lua")
+	require.NoFileExists(t, filepath.Join(liveTree, "lua", "extra.lua"))
+	require.Equal(t, desiredBody, string(mustReadCLIFile(t, filepath.Join(liveTree, "init.lua"))))
+	require.NotContains(t, stdout, currentBody)
+	require.NotContains(t, stdout, desiredBody)
+	require.NotContains(t, stdout, extraBody)
+}
+
+func TestV2FileTreeApplyJSONReportsAppliedRemovalOperations(t *testing.T) {
+	fixture := setupCLIV2FileTreeResourceFixture(t)
+	setCWD(t, fixture.repoRoot)
+	liveTree := filepath.Join(fixture.liveRoot, "profiles")
+	desiredTree := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.tree", "artifacts", "config")
+	writeCLIFile(t, filepath.Join(liveTree, "init.lua"), "CURRENT-TREE-CONTENT\n")
+	writeCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"), "EXTRA-LIVE-TREE-CONTENT\n")
+	writeCLIFile(t, filepath.Join(desiredTree, "init.lua"), "DESIRED-TREE-CONTENT\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.tree:config"})
+	require.NoError(t, err)
+	items := payload["items"].([]any)
+	item := items[0].(map[string]any)
+	fileTree := item["fileTree"].(map[string]any)
+	operations := fileTree["operations"].([]any)
+	requireFileTreeOperation(t, operations, "remove", "lua/extra.lua", "file", "applied")
+	requireFileTreeOperation(t, operations, "update", "init.lua", "file", "applied")
+	require.NoFileExists(t, filepath.Join(liveTree, "lua", "extra.lua"))
+	require.NotContains(t, stdout, "CURRENT-TREE-CONTENT")
+	require.NotContains(t, stdout, "DESIRED-TREE-CONTENT")
+	require.NotContains(t, stdout, "EXTRA-LIVE-TREE-CONTENT")
+}
+
 func TestV2FileResourceMissingFilesBlockDeleteSemantics(t *testing.T) {
 	t.Run("missing live blocks save and preserves desired", func(t *testing.T) {
 		fixture := setupCLIV2FileResourceFixture(t, false)
@@ -1181,6 +1248,55 @@ resources:
 	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, liveRoot: liveRoot, homeDir: homeDir}
 }
 
+func setupCLIV2FileTreeResourceFixture(t *testing.T) cliV2SelectedPreviewFixture {
+	t.Helper()
+	homeDir := setTempHome(t)
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	writeCLIFile(t, filepath.Join(repoRoot, "dotfiles-manager.v2.yaml"), "schema: dotfiles-manager.v2.root-config\nschemaVersion: 1\nactiveProfileStack: default\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "stacks", "default.yaml"), "schema: dotfiles-manager.v2.profile-stack\nschemaVersion: 1\nprofileStack: [global]\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "profiles", "layers", "global.yaml"), "schema: dotfiles-manager.v2.profile-layer\nschemaVersion: 1\nselections:\n  test.tree:\n    settings:\n      config:\n        scope: user\n        artifact: artifacts/config\n")
+	writeCLIFile(t, filepath.Join(repoRoot, "recipes", "local", "test.tree", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: test.tree
+displayName: Test tree
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: `+liveRoot+`
+settings:
+  config:
+    label: Config tree
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: file-tree
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    scopeDefault: user
+    resource: config-tree
+resources:
+  config-tree:
+    driver: file-tree
+    location: config
+    path: profiles
+    capability: read-write
+    sensitivity: personal
+    redaction: redacted-for-display
+    lifecycle: allowed
+    include:
+      - "**"
+`)
+	rec, err := v2recipe.LoadLocal(repoRoot, "test.tree")
+	require.NoError(t, err)
+	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
+	require.NoError(t, err)
+	_, err = v2recipe.RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+	require.NoError(t, err)
+	return cliV2SelectedPreviewFixture{repoRoot: repoRoot, liveRoot: liveRoot, homeDir: homeDir}
+}
+
 func cliSelectedPreviewRecipeBody(liveRoot string) string {
 	return `schema: dotfiles-manager.v2.recipe
 schemaVersion: 1
@@ -1259,6 +1375,17 @@ func requireCLIDiagnosticCode(t *testing.T, item map[string]any, code string) {
 		}
 	}
 	require.Failf(t, "missing diagnostic", "wanted %s in %#v", code, diagnostics)
+}
+
+func requireFileTreeOperation(t *testing.T, operations []any, action string, path string, kind string, state string) {
+	t.Helper()
+	for _, raw := range operations {
+		operation := raw.(map[string]any)
+		if operation["action"] == action && operation["path"] == path && operation["kind"] == kind && operation["state"] == state {
+			return
+		}
+	}
+	require.Failf(t, "missing file-tree operation", "wanted action=%s path=%s kind=%s state=%s in %#v", action, path, kind, state, operations)
 }
 
 func requireNoCLIDiagnosticCode(t *testing.T, item map[string]any, code string) {

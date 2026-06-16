@@ -952,6 +952,19 @@ Missing-state behavior is explicit:
 - `apply --yes` may create `~/.config/nvim`, records an absent-tree backup, and
   verifies the result.
 
+File-tree apply reconciles the whole managed backing tree, not only one semantic
+setting. If a managed live path exists under `~/.config/nvim` but is absent from
+the saved desired artifact, `apply --dry-run` reports that pending removal before
+confirmation. Text output shows up to 20 removal paths and then points to
+`--json`; JSON output includes the full untruncated list in
+`items[].fileTree.operations[]` with slash-relative paths, metadata-only entry
+kinds, and `planned` / `applied` state. File contents are still hidden.
+
+Restore is also a whole-tree operation for file-tree backups. Preview restore
+before confirming: restoring a file-tree backup writes the backed-up managed tree
+state for that resource and can remove managed live paths that are not present in
+the backup payload.
+
 The bundled recipe deliberately does **not** manage Neovim installation, plugin
 installation, package-manager actions, runtime RPC, non-default `NVIM_APPNAME`
 or process `XDG_CONFIG_HOME` locations, semantic Lua/Vimscript validation, or
@@ -998,7 +1011,9 @@ dotfiles-manager apply --yes --user-id leon test.files:config
 
 `save --yes` copies the current live file bytes or managed tree entries into the
 desired artifact after preview. `apply --yes` backs up the live file/tree, writes
-the desired artifact to the live path, and verifies the result.
+the desired artifact to the live path, and verifies the result. For file-tree
+resources, apply reconciles the whole managed backing tree: live managed paths
+that are absent from the desired artifact are removed after backup.
 
 Diff and normal command output are metadata-only for file and file-tree resources
 in this slice: they show refs, paths, existence, size/count/hash metadata, change
@@ -1006,12 +1021,26 @@ kind, and backup/ledger refs, but they do not print raw file contents. The
 desired artifact itself contains the raw bytes because that is the state to apply
 later.
 
+For file-tree `apply`, text output makes removals explicit before confirmation:
+it shows up to 20 removal paths and says when more paths are omitted. Use
+`--json` to see the full, untruncated `items[].fileTree.operations[]` list. Each
+operation path is slash-relative to the managed file-tree root; operation entries
+contain action (`create`, `update`, `remove`), kind (`file`, `directory`), and
+state (`planned`, `applied`) only, never file contents or hashes.
+The current file-tree driver supports only regular files and directories;
+symlinks and other non-regular entries fail closed before operation entries are
+emitted.
+
 Delete/tombstone behavior is intentionally not supported yet. A missing live file
 or tree blocks `save`; it does not remove an existing desired artifact. A missing
 desired artifact blocks `apply`; it does not delete the live file/tree. Selected
 single-file apply still requires an existing live file so the pre-mutation backup
 has a concrete file. Selected file-tree apply may create a missing live tree when
 the named location root exists; the backup records the tree as absent.
+
+File-tree restore is also whole-tree restore from the backup payload. Always run
+`restore <run-id> --dry-run` first: confirming restore can remove managed live
+paths that are absent from the backup tree being restored.
 
 ## `[path]` scoping
 
