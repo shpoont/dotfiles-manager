@@ -71,6 +71,40 @@ for the same `target:setting`. Commands can add extra layers with repeated
 `--profile <layer>` flags, so one machine can use multiple profile layers such
 as global + work + machine-local overrides.
 
+## Validation and unsupported shapes
+
+The v2 configuration files are intentionally small. These keys are the user-facing
+shape to expect today:
+
+| File | Required keys | Important values | Validation notes |
+| --- | --- | --- | --- |
+| `dotfiles-manager.v2.yaml` | `schema`, `schemaVersion`, `activeProfileStack` | `schema: dotfiles-manager.v2.root-config`, `schemaVersion: 1`, stack name such as `default` | The active stack must exist under `profiles/stacks/`. |
+| `profiles/stacks/<name>.yaml` | `schema`, `schemaVersion`, `profileStack` | `schema: dotfiles-manager.v2.profile-stack`, `schemaVersion: 1`, ordered list of layer names | Each layer must exist under `profiles/layers/`. Later layers override earlier matching selections. |
+| `profiles/layers/<name>.yaml` | `schema`, `schemaVersion`, `selections` | `schema: dotfiles-manager.v2.profile-layer`, `schemaVersion: 1`, target/setting selections | Selection scopes must be one of `shared`, `user`, `machine`, or `machine-user`. |
+| `desired/<scope>/.../settings.yaml` | `schema`, `schemaVersion`, `values` | `schema: dotfiles-manager.v2.desired-settings`, `schemaVersion: 1`, selected values | Desired files can contain actual managed values. Do not hand-edit unless you understand the target recipe. |
+
+Validation happens when commands load the repository or act on a selected target.
+A validation failure exits non-zero and should be fixed before running mutating
+commands. Useful safe checks are:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml list
+dotfiles-manager --config dotfiles-manager.v2.yaml add <target> --dry-run
+dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run <target:setting>
+dotfiles-manager app validate <target-id>
+```
+
+Unsupported shapes are rejected rather than guessed. In particular:
+
+- v2 does not search parent directories for legacy `.dotfiles-manager.yaml`;
+- unknown scopes are invalid;
+- missing profile stacks/layers are invalid;
+- non-default app config locations need explicit recipe/named-location support;
+- desired artifacts should not be edited into ad hoc layouts that the recipe does
+  not own;
+- secrets and runtime/generated data remain unsupported unless a reviewed recipe
+  explicitly says that exact item is supported.
+
 ## Scopes
 
 Scopes choose the desired-state subject. They do not decide the live file path;
@@ -87,9 +121,9 @@ Examples:
 
 ```text
 desired://shared/-/targets/git/settings#shared.aliases
-desired://user/leon/targets/git/settings#user.email
+desired://user/alice/targets/git/settings#user.email
 desired://machine/mbp-2026/targets/git/settings#host.name
-desired://machine-user/mbp-2026/leon/targets/git/settings#local.theme
+desired://machine-user/mbp-2026/alice/targets/git/settings#local.theme
 ```
 
 ## Desired data plane
@@ -162,7 +196,7 @@ silently broaden bundled writes or discovery.
 User-facing output may show internal URI schemes:
 
 - `desired://...` points to desired repository artifacts;
-- `state://...` points to local state artifacts such as backups or ledger runs;
+- `state://...` points to local state artifacts such as backups or run records;
 - `recipe://...` identifies bundled or local recipe metadata.
 
 These URIs are stable references in reports, not filesystem paths by themselves.
@@ -192,7 +226,7 @@ ledger/ledger.jsonl
 ledger/runs/<run-id>.json
 ```
 
-Normal backup and ledger metadata is redacted/metadata-oriented. Backup payloads
+Normal backup and run metadata is redacted/metadata-oriented. Backup payloads
 may contain the actual pre-apply managed bytes so restore can put them back.
 Treat the local state root as sensitive.
 

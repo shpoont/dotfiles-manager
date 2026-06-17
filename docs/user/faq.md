@@ -17,7 +17,7 @@ desired/user/docs-user/targets/git/settings.yaml
 ```
 
 Whole-file and file-tree resources store managed bytes under `artifacts/...`.
-Normal command output, previews, backup metadata, and ledger metadata redact raw
+Normal command output, previews, backup metadata, and run metadata redact raw
 values, but desired artifacts and backup payloads may contain the actual managed
 bytes.
 
@@ -65,7 +65,7 @@ macOS: ~/Library/Application Support/dotfiles-manager/v2/<repo-state-id>/
 Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<repo-state-id>/
 ```
 
-It contains identity files, backup metadata/payloads, and ledger/run records.
+It contains identity files, backup metadata/payloads, and run records.
 Commands display state references as `state://...` URIs.
 
 ## How do I recover after a failed or wrong apply?
@@ -195,6 +195,20 @@ Default paths:
 - Linux: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/dotfiles-manager.log`
 
 Use `--log-file <path>` to override the log location.
+
+## How do I report bugs or security issues safely?
+
+For ordinary bugs and documentation feedback, open a GitHub issue with a small,
+redacted reproduction. Include the command, version, operating system, and the
+smallest synthetic config or fixture that shows the problem. Do not paste
+secrets, private keys, tokens, private config payloads, full backups, or
+unreduced logs into public issues.
+
+For security-sensitive reports, follow [`../../SECURITY.md`](../../SECURITY.md).
+If GitHub private vulnerability reporting is available on the repository's
+Security page, use that private form. If it is not available, open only a minimal
+public issue asking for a private security contact path and leave sensitive
+details out of the public issue.
 
 ## How do I check CLI version?
 

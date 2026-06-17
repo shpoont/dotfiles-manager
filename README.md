@@ -20,10 +20,11 @@ install -> init -> recipe discover/explain -> add -> status -> save --dry-run ->
 save --yes -> diff/status -> apply --dry-run -> apply --yes -> backup/restore
 ```
 
-Start with the safe temporary-home quickstart before touching real dotfiles:
+Start with the end-user manual and safe temporary-home quickstart before touching real dotfiles:
 
-- [`docs/user/install-and-release.md`](./docs/user/install-and-release.md)
+- [`docs/user/manual.md`](./docs/user/manual.md)
 - [`docs/user/getting-started.md`](./docs/user/getting-started.md)
+- [`docs/user/install-and-release.md`](./docs/user/install-and-release.md)
 
 ## Current supported surface
 
@@ -94,9 +95,18 @@ Continue with the full workflow in
 ## Documentation map
 
 - [`docs/README.md`](./docs/README.md) — full docs map.
-- [`docs/user/README.md`](./docs/user/README.md) — user-facing v2 docs.
+- [`docs/user/README.md`](./docs/user/README.md) — user-facing docs map.
+- [`docs/user/manual.md`](./docs/user/manual.md) — end-user concepts, workflows, safety, and use cases.
 - [`docs/user/configuration.md`](./docs/user/configuration.md) — profiles,
   scopes, desired artifacts, and local state.
 - [`docs/user/commands.md`](./docs/user/commands.md) — command reference.
 - [`docs/internal/README.md`](./docs/internal/README.md) — canonical internal
   specs/contracts/engineering docs.
+## Support and security
+
+For normal bugs and documentation feedback, open a GitHub issue with the smallest
+redacted reproduction you can share. Do not paste secrets, private keys, tokens,
+private config payloads, full backups, or unreduced logs into public issues.
+
+For security-sensitive reports, follow [`SECURITY.md`](./SECURITY.md).
+

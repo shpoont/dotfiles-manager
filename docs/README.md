@@ -18,7 +18,7 @@ This directory is organized by **audience** first, then by **scope/detail level*
 4. **Engineering execution** (`internal/engineering/`)
    - Technical requirements, testing strategy, acceptance criteria, CI/CD requirements.
 5. **Process/governance** (`internal/process/`)
-   - Documentation governance, ownership, and change workflow.
+   - Documentation governance, ownership, quality profile, and change workflow.
 
 ## Canonical source rules
 
@@ -32,5 +32,6 @@ This directory is organized by **audience** first, then by **scope/detail level*
 
 For practical navigation:
 - Start at `internal/README.md` for implementation work.
-- Start at `user/README.md` for end-user usage docs.
+- Start at `user/README.md` for the end-user docs map.
+- Start at `user/manual.md` for end-user concepts, workflows, safety, and use cases.
 - Start at `user/install-and-release.md` for install paths and release-readiness notes.

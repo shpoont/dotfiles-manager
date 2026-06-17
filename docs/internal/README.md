@@ -63,6 +63,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 ## 6) Process
 
 - `process/documentation-governance.md` — documentation ownership/change policy
+- `process/documentation-quality-profile.md` — project-specific application
+  of the reusable documentation quality standard
 
 ## Canonicality
 

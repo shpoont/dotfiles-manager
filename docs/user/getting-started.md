@@ -120,8 +120,8 @@ HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
   apply --yes --user-id docs-user git:user.email
 ```
 
-When `apply --yes` writes live state, it records local backup and ledger
-evidence under the v2 local state root. Normal output prints a `run=` id and one
+When `apply --yes` writes live state, it records local backup and run-history
+records under the v2 local state root. Normal output prints a `run=` id and one
 or more `state://backups/...` references without printing the raw email value.
 
 ### Inspect backups and preview recovery

@@ -73,6 +73,28 @@ If `init`, `add`, `save`, and `apply` are not present, the installed binary is
 not the v2-capable binary described by these docs. Build from the current source
 checkout or install a newer release.
 
+## Uninstall or stop using dotfiles-manager
+
+`dotfiles-manager` does not run a background service. To stop using it:
+
+1. Stop running the CLI.
+2. Keep or archive your settings repository if you want the saved desired state
+   for later. Delete it only after reviewing that it contains no values you still
+   need.
+3. Remove the binary installed by your chosen install method:
+   - source checkout: delete `./bin/dotfiles-manager` or the checkout directory;
+   - Homebrew: run `brew uninstall dotfiles-manager`;
+   - Go install: remove the installed `dotfiles-manager` binary from your
+     `GOBIN`/`GOPATH/bin`.
+4. Optionally remove local v2 state and logs after you no longer need backups:
+   - macOS state/logs: `~/Library/Application Support/dotfiles-manager/` and
+     `~/Library/Logs/dotfiles-manager/`;
+   - Linux state/logs: `${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/`.
+
+Removing the binary does not undo live config changes that were already applied.
+Use `backup list`, `backup show <run-id>`, and `restore <run-id> --dry-run`
+before deleting local state if you may need to recover a previous config.
+
 ## Release and contributor checks
 
 Before maintainers publish a release, the implementation should pass normal CI
