@@ -1,0 +1,15 @@
+Sync checked 1 setting in Test Tree.
+
+Sync not run: no safe writes are available.
+
+Skipped:
+Test Tree
+  - test.tree:config
+    Skipped: folder setting needs a detailed file-by-file review before sync can change it.
+    Direction: no safe direction
+    Values hidden for safety.
+
+Summary:
+  Changed: 0
+  Skipped: 1
+  Failed: 0

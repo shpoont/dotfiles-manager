@@ -1,0 +1,30 @@
+Sync plan accepted.
+Will sync 2 settings:
+- git:user.email: live settings -> stored settings
+- starship:config: stored settings -> live settings
+Proceed with sync? [y/N] y
+
+Sync stopped after a failure.
+
+Changed:
+Git
+  - git:user.email
+    Synced: live settings -> stored settings
+
+Failed:
+Starship
+  - starship:config
+    Failed: live settings could not be written.
+    Direction: stored settings -> live settings
+
+Not attempted:
+Zsh
+  - zsh:aliases
+    Not attempted because an earlier write failed.
+    Direction: live settings -> stored settings
+
+Summary:
+  Changed: 1
+  Skipped: 0
+  Failed: 1
+  Not attempted: 1

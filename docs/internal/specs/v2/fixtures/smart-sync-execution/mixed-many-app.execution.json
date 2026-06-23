@@ -1,0 +1,108 @@
+{
+  "schema": "dotfiles-manager.sync-execution.v2",
+  "schemaVersion": 1,
+  "command": "sync",
+  "runId": "smart-sync-execution-fixture",
+  "profileStack": [
+    "global"
+  ],
+  "selection": {
+    "kind": "all-apps"
+  },
+  "confirmation": {
+    "required": true,
+    "confirmed": true,
+    "source": "prompt"
+  },
+  "summary": {
+    "status": "complete",
+    "changed": 2,
+    "skipped": 2,
+    "failed": 0,
+    "notAttempted": 0,
+    "writesToStoredSettings": 1,
+    "writesToLiveSettings": 1,
+    "needsChoice": 1,
+    "blocked": 1
+  },
+  "items": [
+    {
+      "targetRef": "git",
+      "settingRef": "git:user.email",
+      "scope": "user",
+      "subject": "leon",
+      "state": "changed-in-live-settings",
+      "decision": "write",
+      "direction": "live_to_stored",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "result": "changed",
+      "reasonCode": "one-sided-live-change",
+      "message": "Synced live settings -> stored settings.",
+      "evidenceId": "fixture-live-email-v1",
+      "valuesRedacted": true,
+      "underlyingRunId": "smart-sync-20260623T120000Z-git-user.email-live_to_stored"
+    },
+    {
+      "targetRef": "starship",
+      "settingRef": "starship:config",
+      "scope": "user",
+      "subject": "leon",
+      "state": "changed-in-stored-settings",
+      "decision": "write",
+      "direction": "stored_to_live",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "result": "changed",
+      "reasonCode": "one-sided-stored-change",
+      "message": "Synced stored settings -> live settings.",
+      "evidenceId": "fixture-starship-config-v1",
+      "valuesRedacted": true,
+      "underlyingRunId": "smart-sync-20260623T120000Z-starship-config-stored_to_live"
+    },
+    {
+      "targetRef": "zsh",
+      "settingRef": "zsh:zshrc",
+      "scope": "user",
+      "subject": "leon",
+      "state": "conflict",
+      "decision": "needs_choice",
+      "direction": "both_sides_changed",
+      "wouldWrite": false,
+      "choiceRequired": true,
+      "allowedChoices": [
+        "choose_live_settings",
+        "choose_stored_settings",
+        "skip"
+      ],
+      "executableBySync": false,
+      "result": "skipped",
+      "reasonCode": "both-sides-changed",
+      "message": "Live settings and stored settings both changed.",
+      "evidenceId": "fixture-zsh-conflict-v1",
+      "valuesRedacted": true
+    },
+    {
+      "targetRef": "raycast",
+      "settingRef": "raycast:preferences",
+      "scope": "user",
+      "subject": "leon",
+      "state": "blocked",
+      "decision": "blocked",
+      "direction": "unknown",
+      "wouldWrite": false,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": false,
+      "result": "skipped",
+      "reasonCode": "app-not-available",
+      "message": "Raycast is not installed on this computer, so its settings cannot be checked safely.",
+      "evidenceId": "fixture-raycast-missing-v1",
+      "valuesRedacted": true
+    }
+  ]
+}

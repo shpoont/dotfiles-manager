@@ -15,6 +15,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filetreedriver"
+	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	"github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeapply"
@@ -1440,7 +1441,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		}
 		appendWriteSafetyWarnings(&item, command, rec, setting, resourceID, resource.Driver, runtime.Source, trustContext)
 
-		return applyLifecyclePreview(buildFileResourceItem(repoRoot, command, item, rec, setting, locationRoots), rec, setting, resourceID, command, opts)
+		return applyLifecyclePreview(buildFileResourceItem(repoRoot, stateRoot, command, item, rec, setting, locationRoots), rec, setting, resourceID, command, opts)
 	}
 	if !isSelectedValueDriver(resource.Driver) {
 		item.Diagnostics = append(item.Diagnostics, Diagnostic{Code: "selectedpreview.driver.unsupported", Severity: SeverityError, Message: fmt.Sprintf("driver %s is not a selected-value driver", resource.Driver), Ref: item.SettingRef, ResourceID: resourceID, DriverID: resource.Driver})
@@ -1524,7 +1525,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		return finishBlocked(item, v2status.StateBlockedSafety, "Selected-value driver preview is blocked.")
 	}
 	applyPlanToItem(&item, plan)
-	deriveItemState(&item, command, read.Intent)
+	deriveItemState(&item, command, read.Intent, opts.StateRoot)
 	item.PlannedAction = plannedAction(command, item)
 	if command == CommandDiff {
 		item.Diff = diffInfo(item.Preview.ChangeKind)
@@ -1631,7 +1632,7 @@ func lifecycleNativeOperationID(rec *recipe.Recipe, resourceID string, command s
 	return strings.TrimSpace(resource.NativeImportOperation)
 }
 
-func buildFileResourceItem(repoRoot string, command string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string) Item {
+func buildFileResourceItem(repoRoot string, stateRoot string, command string, item Item, rec *recipe.Recipe, setting resolution.ResolvedSetting, roots map[string]string) Item {
 	profile := &resolution.ResolvedProfile{RepoRoot: repoRoot, Settings: []resolution.ResolvedSetting{setting}}
 	req := customfiles.Request{Profile: profile, Recipe: rec, SettingRef: setting.Ref(), LocationRoots: roots}
 
@@ -1651,7 +1652,7 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 		return finishBlocked(item, v2status.StateBlockedSafety, "File-resource planning is blocked; no files will be mutated.")
 	}
 	if plan.Resource.Driver == recipe.FileTreeDriverID {
-		return buildFileTreeResourceItem(command, item, plan)
+		return buildFileTreeResourceItem(stateRoot, command, item, plan)
 	}
 
 	item.DesiredURI = plan.Setting.DesiredURI
@@ -1678,7 +1679,7 @@ func buildFileResourceItem(repoRoot string, command string, item Item, rec *reci
 		item.Diff = fileDiffInfo(diffKind)
 	}
 
-	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedFileState(desiredState), Current: normalizedFileState(current)})
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedFileState(desiredState), Current: normalizedFileState(current), LastApplied: lastAppliedState(stateRoot, item)})
 	item.State = stateItem.State
 	item.NoBaseline = stateItem.NoBaseline
 	item.Message = stateItem.Message
@@ -1827,7 +1828,7 @@ func buildNativeExportItem(repoRoot string, stateRoot string, command string, it
 		}
 		item.Diff = nativeExportDiffInfo(diffKind)
 	}
-	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedNativeState(nativeexport.Snapshot(desiredRead.Metadata)), Current: normalizedNativeState(export.Metadata.Payload)})
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedNativeState(nativeexport.Snapshot(desiredRead.Metadata)), Current: normalizedNativeState(export.Metadata.Payload), LastApplied: lastAppliedState(stateRoot, item)})
 	item.State = stateItem.State
 	item.NoBaseline = stateItem.NoBaseline
 	item.Message = stateItem.Message
@@ -1868,7 +1869,7 @@ func hydrateFileResourceReadState(item Item, req customfiles.Request) Item {
 	return item
 }
 
-func buildFileTreeResourceItem(command string, item Item, plan *customfiles.Plan) Item {
+func buildFileTreeResourceItem(stateRoot string, command string, item Item, plan *customfiles.Plan) Item {
 	item.DesiredURI = plan.Setting.DesiredURI
 	item.DesiredRelPath = filepath.ToSlash(plan.Setting.DesiredRelPath)
 	item.Resource.Path = plan.TreePreview.Path
@@ -1898,7 +1899,7 @@ func buildFileTreeResourceItem(command string, item Item, plan *customfiles.Plan
 		item.Diff = treeDiffInfo(diffKind)
 	}
 
-	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedTreeState(desiredState), Current: normalizedTreeState(current)})
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: normalizedTreeState(desiredState), Current: normalizedTreeState(current), LastApplied: lastAppliedState(stateRoot, item)})
 	item.State = stateItem.State
 	item.NoBaseline = stateItem.NoBaseline
 	item.Message = stateItem.Message
@@ -2182,7 +2183,7 @@ func desiredValueFromSelected(value selectedvalue.Desired) (desired.SelectedValu
 	}
 }
 
-func deriveItemState(item *Item, command string, desiredIntent string) {
+func deriveItemState(item *Item, command string, desiredIntent string, stateRoot string) {
 	desiredState := normalizedSnapshot(item.Desired.Snapshot)
 	currentState := normalizedSnapshot(item.Current)
 	if desiredIntent == desired.IntentDelete {
@@ -2191,7 +2192,7 @@ func deriveItemState(item *Item, command string, desiredIntent string) {
 			currentState = deleteSentinel(item.Desired.Snapshot.Normalizer)
 		}
 	}
-	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: desiredState, Current: currentState})
+	stateItem := v2status.DeriveItem(v2status.Input{Context: statusContext(command), TargetRef: item.TargetRef, SettingRef: item.SettingRef, Desired: desiredState, Current: currentState, LastApplied: lastAppliedState(stateRoot, *item)})
 	item.State = stateItem.State
 	item.NoBaseline = stateItem.NoBaseline
 	item.Message = stateItem.Message
@@ -2207,6 +2208,35 @@ func statusContext(command string) v2status.Context {
 	default:
 		return v2status.ContextStatus
 	}
+}
+
+func lastAppliedState(stateRoot string, item Item) *v2status.NormalizedState {
+	if strings.TrimSpace(stateRoot) == "" || strings.TrimSpace(item.SettingRef) == "" {
+		return nil
+	}
+	store, err := v2ledger.NewStore(stateRoot)
+	if err != nil {
+		return nil
+	}
+	ledgerItem, ok, err := store.LatestVerifiedItem(v2ledger.VerifiedItemLookup{
+		TargetRef:      item.TargetRef,
+		SettingRef:     item.SettingRef,
+		ResourceID:     item.Resource.ID,
+		Driver:         item.Resource.DriverID,
+		DesiredURI:     item.DesiredURI,
+		DesiredRelPath: item.DesiredRelPath,
+		LivePath:       item.Resource.Path,
+	})
+	if err != nil || !ok {
+		return nil
+	}
+	state := v2status.NormalizedState{
+		Exists:        ledgerItem.VerifiedState.Exists,
+		Hash:          ledgerItem.VerifiedState.Hash,
+		Normalizer:    ledgerItem.VerifiedState.Normalizer,
+		DriverVersion: ledgerItem.VerifiedState.DriverVersion,
+	}
+	return &state
 }
 
 func normalizedSnapshot(snapshot Snapshot) v2status.NormalizedState {

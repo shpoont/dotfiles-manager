@@ -1,0 +1,7 @@
+Sync not run: settings changed since the plan was checked.
+Run status again to review the current state before syncing.
+
+Summary:
+  Changed: 0
+  Skipped: 0
+  Failed: 0

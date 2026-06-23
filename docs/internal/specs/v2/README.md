@@ -68,6 +68,7 @@ Required constraints:
 | `11-mvp-acceptance-tests.md` | Draft requiring reset review | Must be reworked so backup/restore, migration, and legacy v1 tests are not v2 acceptance blockers. |
 | `12-status-diff-read-only-contract.md` | Active behavior spec | Source of truth for read-only `status` and `diff` output, examples, and golden-fixture expectations from #221. |
 | `13-smart-sync-planning-contract.md` | Active behavior spec | Source of truth for smart-sync planning and conflict UX from #222; no write execution authority. |
+| `14-smart-sync-execution-contract.md` | Active behavior spec | Source of truth for mutating smart-sync execution, confirmation, refusal, and execution reporting from #223. |
 | `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
@@ -102,7 +103,10 @@ are reconciled with the active behavior specs in this index.
 - #221 specifically owns only the read-only `status` and `diff` behavior
   contract in `12-status-diff-read-only-contract.md`.
 - #222 owns only smart-sync planning and conflict UX in
-  `13-smart-sync-planning-contract.md`; #223 owns write execution.
+  `13-smart-sync-planning-contract.md`.
+- #223 owns only mutating smart-sync execution and confirmation UX in
+  `14-smart-sync-execution-contract.md`; #224/#225 remain responsible for
+  broader UX and directional alias policy.
 - #212 owns backup/restore removal or quarantine.
 - #213 and #226 own legacy v1 public-surface policy.
 - #214 and #227-#229 own catalogs/taps.

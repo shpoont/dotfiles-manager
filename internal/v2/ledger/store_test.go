@@ -921,3 +921,91 @@ func TestWriteSelectedValueBackupValidationAndKeyBranches(t *testing.T) {
 	require.Equal(t, "item--", selectedValueItemKey("", ""))
 	require.Equal(t, "item-.-", selectedValueItemKey(".", ""))
 }
+
+func TestLatestVerifiedItemRequiresMatchingLookupIdentity(t *testing.T) {
+	stateRoot := t.TempDir()
+	store, err := NewStore(stateRoot)
+	require.NoError(t, err)
+
+	record := NormalizeRunRecord(RunRecord{
+		RunID:      "run-lookup",
+		StartedAt:  "2026-06-23T00:00:00Z",
+		FinishedAt: "2026-06-23T00:00:01Z",
+		Command:    "save",
+		Items: []ItemRecord{{
+			TargetRef:      "git",
+			SettingRef:     "git:user.email",
+			Operation:      "save",
+			ResourceID:     "config-email",
+			Driver:         "yaml-file",
+			DriverVersion:  "yaml-file.driver.v1",
+			DesiredURI:     "desired://user/leon/targets/git/settings.yaml",
+			DesiredRelPath: "desired/user/leon/targets/git/settings.yaml",
+			LivePath:       "/home/leon/.gitconfig",
+			DesiredPath:    "/settings/desired/user/leon/targets/git/settings.yaml",
+			VerifiedState:  NormalizedState{Exists: true, Hash: "hash", Normalizer: "norm", DriverVersion: "yaml-file.driver.v1"},
+			Verification:   Verification{Verified: true, Result: "verified"},
+			Result:         ItemResultVerified,
+		}},
+	})
+	_, err = store.CommitRun(record)
+	require.NoError(t, err)
+
+	lookup := VerifiedItemLookup{
+		TargetRef:      "git",
+		SettingRef:     "git:user.email",
+		ResourceID:     "config-email",
+		Driver:         "yaml-file",
+		DriverVersion:  "yaml-file.driver.v1",
+		DesiredURI:     "desired://user/leon/targets/git/settings.yaml",
+		DesiredRelPath: "desired/user/leon/targets/git/settings.yaml",
+		LivePath:       "/home/leon/.gitconfig",
+		DesiredPath:    "/settings/desired/user/leon/targets/git/settings.yaml",
+	}
+	item, ok, err := store.LatestVerifiedItem(lookup)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "hash", item.VerifiedState.Hash)
+
+	mismatches := map[string]func(VerifiedItemLookup) VerifiedItemLookup{
+		"target ref": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.TargetRef = "starship"
+			return lookup
+		},
+		"resource id": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.ResourceID = "other-resource"
+			return lookup
+		},
+		"driver": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.Driver = "file"
+			return lookup
+		},
+		"driver version": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.DriverVersion = "yaml-file.driver.v2"
+			return lookup
+		},
+		"desired uri": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.DesiredURI = "desired://user/other/targets/git/settings.yaml"
+			return lookup
+		},
+		"desired rel path": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.DesiredRelPath = "desired/user/other/targets/git/settings.yaml"
+			return lookup
+		},
+		"live path": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.LivePath = "/home/other/.gitconfig"
+			return lookup
+		},
+		"desired path": func(lookup VerifiedItemLookup) VerifiedItemLookup {
+			lookup.DesiredPath = "/settings/desired/user/other/targets/git/settings.yaml"
+			return lookup
+		},
+	}
+	for name, mutate := range mismatches {
+		t.Run(name, func(t *testing.T) {
+			_, ok, err := store.LatestVerifiedItem(mutate(lookup))
+			require.NoError(t, err)
+			require.False(t, ok)
+		})
+	}
+}

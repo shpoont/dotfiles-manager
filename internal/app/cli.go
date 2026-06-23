@@ -16,7 +16,6 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2appauthor "github.com/shpoont/dotfiles-manager/internal/v2/appauthor"
-	v2guidedsync "github.com/shpoont/dotfiles-manager/internal/v2/guidedsync"
 	v2initcmd "github.com/shpoont/dotfiles-manager/internal/v2/initcmd"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
@@ -26,6 +25,7 @@ import (
 	v2resolution "github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	v2selectedlive "github.com/shpoont/dotfiles-manager/internal/v2/selectedlive"
 	v2selectedpreview "github.com/shpoont/dotfiles-manager/internal/v2/selectedpreview"
+	v2syncexec "github.com/shpoont/dotfiles-manager/internal/v2/syncexec"
 	"github.com/spf13/cobra"
 )
 
@@ -288,42 +288,35 @@ func newSyncCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var yes bool
 	var nonInteractive bool
-	var choiceFlags []string
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "sync [ref]",
-		Short: "Experimental guided save/apply/skip flow for advanced v2 users",
-		Long: `Experimental guided save/apply/skip flow for selected v2 settings.
+		Short: "Sync safe v2 settings changes between live settings and stored settings",
+		Long: `Sync safe v2 settings changes between live settings and stored settings.
 
-Stable v2 happy path:
-  dotfiles-manager status [ref]
-  dotfiles-manager save --dry-run [ref]
-  dotfiles-manager save --yes [ref]
-  dotfiles-manager diff [ref]
-  dotfiles-manager apply --dry-run [ref]
-  dotfiles-manager apply --yes [ref]
+The command first checks the current state, then runs only the one-sided changes
+that are safe now:
+  live settings -> stored settings
+  stored settings -> live settings
 
-Use sync only as an advanced guided shortcut for explicit save/apply/skip
-choices. It is not a blind merge and is not the recommended stable path.
-File-tree apply choices are deferred here; use explicit apply --dry-run/--yes
-so removals are shown before confirmation.`,
+Conflicts and first-time settings need an explicit choice before they can be
+changed by sync. Values are hidden by default. The settings folder is just local
+storage; Git is optional.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGuidedSyncRootCommand(cmd, opts, firstArg(args), guidedSyncCommandOptions{
+			return runSyncRootCommand(cmd, opts, firstArg(args), syncExecutionCommandOptions{
 				JSONOutput:     jsonOutput,
 				Yes:            yes,
 				NonInteractive: nonInteractive,
-				ChoiceFlags:    append([]string(nil), choiceFlags...),
 				V2:             selectedPreviewOptionsFromFlags(cmd, v2Flags),
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
-	cmd.Flags().BoolVar(&yes, "yes", false, "Execute explicit non-interactive choices without prompting")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if execution needs missing choices")
-	cmd.Flags().StringArrayVar(&choiceFlags, "choice", nil, "Guided choice in setting-ref=save|apply|skip form (repeatable)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm the planned sync without prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; refuse writes unless --yes is also set")
 	addSelectedPreviewFlags(cmd, v2Flags)
 	return cmd
 }
@@ -675,18 +668,17 @@ type selectedPreviewCommandOptions struct {
 	UsedFlagNames []string
 }
 
-type guidedSyncCommandOptions struct {
+type syncExecutionCommandOptions struct {
 	JSONOutput     bool
 	Yes            bool
 	NonInteractive bool
-	ChoiceFlags    []string
 	V2             selectedPreviewCommandOptions
 }
 
 func addSelectedPreviewFlags(cmd *cobra.Command, flags *selectedPreviewFlagOptions) {
-	cmd.Flags().StringVar(&flags.machineID, "machine-id", "", "v2 machine identity for selected-value preview")
-	cmd.Flags().StringVar(&flags.userID, "user-id", "", "v2 user identity for selected-value preview")
-	cmd.Flags().StringArrayVar(&flags.profiles, "profile", nil, "additional v2 profile layer for selected-value preview (repeatable)")
+	cmd.Flags().StringVar(&flags.machineID, "machine-id", "", "v2 machine identity for settings profile")
+	cmd.Flags().StringVar(&flags.userID, "user-id", "", "v2 user identity for settings profile")
+	cmd.Flags().StringArrayVar(&flags.profiles, "profile", nil, "additional v2 profile layer for settings profile (repeatable)")
 }
 
 func selectedPreviewOptionsFromFlags(cmd *cobra.Command, flags *selectedPreviewFlagOptions) selectedPreviewCommandOptions {
@@ -1011,44 +1003,34 @@ func runSelectedPreviewRootCommand(cmd *cobra.Command, opts *rootOptions, comman
 	return err
 }
 
-func runGuidedSyncRootCommand(cmd *cobra.Command, opts *rootOptions, ref string, syncOpts guidedSyncCommandOptions) error {
+func runSyncRootCommand(cmd *cobra.Command, opts *rootOptions, ref string, syncOpts syncExecutionCommandOptions) error {
 	repoRoot, err := selectedPreviewRepoRootFor(opts, "sync")
 	if err != nil {
-		report := v2guidedsync.ErrorReport("guidedsync.root.notFound", err.Error(), nil)
-		_ = emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
-		return &v2guidedsync.Error{Code: "guidedsync.root.notFound", Message: err.Error(), Exit: 2}
+		report := v2syncexec.ErrorReport("syncexec.root.notFound", err.Error(), nil)
+		_ = emitSyncExecutionReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
+		return &v2syncexec.Error{Code: "syncexec.root.notFound", Message: err.Error(), Exit: 2}
 	}
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
-		report := v2guidedsync.ErrorReport("guidedsync.stateRoot.default", err.Error(), nil)
-		_ = emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
-		return &v2guidedsync.Error{Code: "guidedsync.stateRoot.default", Message: err.Error(), Exit: 2}
+		report := v2syncexec.ErrorReport("syncexec.stateRoot.default", err.Error(), nil)
+		_ = emitSyncExecutionReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
+		return &v2syncexec.Error{Code: "syncexec.stateRoot.default", Message: err.Error(), Exit: 2}
 	}
-	choices := make([]v2guidedsync.Choice, 0, len(syncOpts.ChoiceFlags))
-	for _, raw := range syncOpts.ChoiceFlags {
-		choice, parseErr := v2guidedsync.ParseChoice(raw)
-		if parseErr != nil {
-			report := v2guidedsync.ErrorReport(v2guidedsync.CodeChoiceInvalid, parseErr.Error(), nil)
-			_ = emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput)
-			return parseErr
-		}
-		choices = append(choices, choice)
-	}
-	report, err := v2guidedsync.Run(v2guidedsync.Options{
+	report, err := v2syncexec.Run(v2syncexec.Options{
+		ConfigPath:     selectedPreviewCommandConfigPath(opts),
 		RepoRoot:       repoRoot,
 		StateRoot:      stateRoot,
 		Ref:            ref,
 		MachineID:      syncOpts.V2.MachineID,
 		UserID:         syncOpts.V2.UserID,
 		ExtraLayers:    syncOpts.V2.Profiles,
-		Choices:        choices,
 		Confirmed:      syncOpts.Yes,
 		NonInteractive: syncOpts.NonInteractive,
 		JSONMode:       syncOpts.JSONOutput,
 		In:             cmd.InOrStdin(),
 		PromptOut:      cmd.OutOrStdout(),
 	})
-	if emitErr := emitGuidedSyncReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput); emitErr != nil {
+	if emitErr := emitSyncExecutionReport(cmd.OutOrStdout(), report, syncOpts.JSONOutput); emitErr != nil {
 		return emitErr
 	}
 	return err
@@ -1261,16 +1243,16 @@ func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Repor
 	return err
 }
 
-func emitGuidedSyncReport(stdout io.Writer, report *v2guidedsync.Report, jsonOutput bool) error {
+func emitSyncExecutionReport(stdout io.Writer, report *v2syncexec.Report, jsonOutput bool) error {
 	if jsonOutput {
-		payload, err := v2guidedsync.JSON(report)
+		payload, err := v2syncexec.JSON(report)
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprint(stdout, payload)
 		return err
 	}
-	_, err := fmt.Fprintln(stdout, v2guidedsync.Text(report))
+	_, err := fmt.Fprintln(stdout, v2syncexec.Text(report))
 	return err
 }
 

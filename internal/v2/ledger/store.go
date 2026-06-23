@@ -8,6 +8,7 @@
 package ledger
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -225,6 +226,116 @@ func (s *Store) CommitRun(record RunRecord) ([]LedgerEntry, error) {
 		return nil, err
 	}
 	return entries, nil
+}
+
+// VerifiedItemLookup identifies the exact previously verified write identity
+// that may be used as a smart-sync baseline.
+//
+// Callers should pass every resolved identity field they know. Scope, subject,
+// machine, profile/layer selection, and settings-folder identity must already
+// be encoded by the resolved desired URI/path and live path supplied here. A
+// field left empty is intentionally treated as "not constrained", so mutation
+// planning callers should prefer being specific over relying on setting ref
+// alone.
+type VerifiedItemLookup struct {
+	TargetRef      string
+	SettingRef     string
+	ResourceID     string
+	Driver         string
+	DriverVersion  string
+	DesiredURI     string
+	DesiredRelPath string
+	LivePath       string
+	DesiredPath    string
+}
+
+func (s *Store) LatestVerifiedItem(lookup VerifiedItemLookup) (ItemRecord, bool, error) {
+	if s == nil {
+		return ItemRecord{}, false, fmt.Errorf("ledger store is required")
+	}
+	lookup = normalizeVerifiedItemLookup(lookup)
+	if lookup.SettingRef == "" {
+		return ItemRecord{}, false, fmt.Errorf("setting ref is required")
+	}
+	path := filepath.Join(s.root, "ledger", "ledger.jsonl")
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return ItemRecord{}, false, nil
+	}
+	if err != nil {
+		return ItemRecord{}, false, fmt.Errorf("open ledger %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	var latest ItemRecord
+	found := false
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var entry LedgerEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			return ItemRecord{}, false, fmt.Errorf("parse ledger entry %s: %w", path, err)
+		}
+		entry = NormalizeLedgerEntries([]LedgerEntry{entry})[0]
+		if !latestVerifiedItemMatches(entry.Item, lookup) {
+			continue
+		}
+		latest = entry.Item
+		found = true
+	}
+	if err := scanner.Err(); err != nil {
+		return ItemRecord{}, false, fmt.Errorf("read ledger %s: %w", path, err)
+	}
+	return latest, found, nil
+}
+
+func normalizeVerifiedItemLookup(lookup VerifiedItemLookup) VerifiedItemLookup {
+	lookup.TargetRef = strings.TrimSpace(lookup.TargetRef)
+	lookup.SettingRef = strings.TrimSpace(lookup.SettingRef)
+	lookup.ResourceID = strings.TrimSpace(lookup.ResourceID)
+	lookup.Driver = strings.TrimSpace(lookup.Driver)
+	lookup.DriverVersion = strings.TrimSpace(lookup.DriverVersion)
+	lookup.DesiredURI = strings.TrimSpace(lookup.DesiredURI)
+	lookup.DesiredRelPath = filepath.ToSlash(strings.TrimSpace(lookup.DesiredRelPath))
+	lookup.LivePath = strings.TrimSpace(lookup.LivePath)
+	lookup.DesiredPath = strings.TrimSpace(lookup.DesiredPath)
+	return lookup
+}
+
+func latestVerifiedItemMatches(item ItemRecord, lookup VerifiedItemLookup) bool {
+	item = NormalizeItemRecord(item)
+	if item.SettingRef != lookup.SettingRef || !item.Verification.Verified || item.Result != ItemResultVerified {
+		return false
+	}
+	if lookup.TargetRef != "" && item.TargetRef != lookup.TargetRef {
+		return false
+	}
+	if lookup.ResourceID != "" && item.ResourceID != lookup.ResourceID {
+		return false
+	}
+	if lookup.Driver != "" && item.Driver != lookup.Driver {
+		return false
+	}
+	if lookup.DriverVersion != "" && item.DriverVersion != lookup.DriverVersion {
+		return false
+	}
+	if lookup.DesiredURI != "" && item.DesiredURI != lookup.DesiredURI {
+		return false
+	}
+	if lookup.DesiredRelPath != "" && filepath.ToSlash(item.DesiredRelPath) != lookup.DesiredRelPath {
+		return false
+	}
+	if lookup.LivePath != "" && item.LivePath != lookup.LivePath {
+		return false
+	}
+	if lookup.DesiredPath != "" && item.DesiredPath != lookup.DesiredPath {
+		return false
+	}
+	return true
 }
 
 func (s *Store) ListBackups() ([]BackupMetadata, error) {

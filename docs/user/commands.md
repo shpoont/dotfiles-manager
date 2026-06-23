@@ -1042,34 +1042,39 @@ File-tree restore is also whole-tree restore from the backup payload. Always run
 `restore <run-id> --dry-run` first: confirming restore can remove managed live
 paths that are absent from the backup tree being restored.
 
-## v2 guided sync: experimental advanced shortcut
+## v2 sync: safe settings execution
 
-The stable v2 happy path is explicit and preview-first:
+`sync [ref]` checks the current state and runs only safe one-sided settings changes.
+It is the normal mutating command for copying accepted changes between live
+settings and stored settings.
+
+A safe one-sided change means one side changed and the other side still matches
+the previous trusted baseline:
+
+- `live settings -> stored settings` when the app's live settings changed;
+- `stored settings -> live settings` when the stored settings changed.
+
+Examples:
 
 ```bash
 dotfiles-manager status --user-id leon git:user.email
-dotfiles-manager save --dry-run --user-id leon git:user.email
-dotfiles-manager save --yes --user-id leon git:user.email
 dotfiles-manager diff --user-id leon git:user.email
-dotfiles-manager apply --dry-run --user-id leon git:user.email
-dotfiles-manager apply --yes --user-id leon git:user.email
+dotfiles-manager sync --user-id leon git:user.email
+dotfiles-manager sync --yes --user-id leon git:user.email
+dotfiles-manager sync --non-interactive --yes --json --user-id leon git:user.email
 ```
 
-`sync [ref]` remains available as an experimental advanced guided shortcut for
-explicit `save`, `apply`, or `skip` choices. It is not part of the stable happy
-path, it is not a blind merge, and it was not part of the current RC dogfood
-loop.
+Interactive `sync` prompts once for the whole accepted write set. The default
+answer is no. Use `--yes` only after reviewing the current status or diff.
+`--non-interactive` without `--yes` refuses any write and reports that
+confirmation is required.
 
-Advanced examples:
+Conflicts and first-time settings are not changed automatically. `sync` reports
+that a choice is needed, leaves values hidden, and does not guess which side
+should win.
 
-```bash
-dotfiles-manager sync --json --user-id leon git:user.email
-dotfiles-manager sync --choice git:user.email=save --yes --user-id leon git:user.email
-```
-
-File-tree apply choices are deferred in `sync`: use explicit
-`apply --dry-run` / `apply --yes` for file-tree resources so removals are shown
-before confirmation and in `items[].fileTree.operations[]`.
+The settings folder is local storage. It can be versioned and shared with Git,
+but Git is not required for `sync`.
 
 ## `[path]` scoping
 
