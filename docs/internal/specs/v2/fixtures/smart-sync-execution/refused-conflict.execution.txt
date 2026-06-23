@@ -1,0 +1,16 @@
+Sync plan checked 1 setting in Git.
+
+Sync not run: conflict needs a choice.
+
+Needs choice:
+Git
+  - git:user.email
+    Conflict: live settings and stored settings both changed.
+    Direction: both sides changed
+    Needs choice: choose live settings, choose stored settings, or skip before sync can continue.
+    Values hidden for safety.
+
+Summary:
+  Changed: 0
+  Skipped: 0
+  Failed: 0

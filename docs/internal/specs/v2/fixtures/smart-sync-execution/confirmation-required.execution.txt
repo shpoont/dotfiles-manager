@@ -1,0 +1,12 @@
+Sync plan accepted.
+Will sync 2 settings:
+- git:user.email: live settings -> stored settings
+- starship:config: stored settings -> live settings
+
+Sync not run: confirmation required.
+Run again with --yes after reviewing the plan, or run without --non-interactive to confirm at the prompt.
+
+Summary:
+  Changed: 0
+  Skipped: 0
+  Failed: 0

@@ -1,0 +1,17 @@
+Sync plan accepted.
+Will sync 1 setting:
+- git:user.email: live settings -> stored settings
+Proceed with sync? [y/N] y
+
+Sync complete.
+
+Changed:
+Git
+  - git:user.email
+    Synced: live settings -> stored settings
+    Values hidden for safety.
+
+Summary:
+  Changed: 1
+  Skipped: 0
+  Failed: 0

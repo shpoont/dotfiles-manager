@@ -2276,7 +2276,7 @@ func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
 	requireDiagnostic(t, readItem, "plan.safe")
 
 	deleteItem := Item{TargetRef: "test.app", SettingRef: "test.app:identity.email", Current: Snapshot{}, Desired: DesiredInfo{Snapshot: Snapshot{Normalizer: "yaml-file.selected-scalar.v1"}}}
-	deriveItemState(&deleteItem, CommandApply, desired.IntentDelete)
+	deriveItemState(&deleteItem, CommandApply, desired.IntentDelete, "")
 	require.Equal(t, v2status.StateUnchanged, deleteItem.State)
 	require.Equal(t, v2status.ContextSave, statusContext(CommandSave))
 	require.Equal(t, v2status.ContextApply, statusContext(CommandApply))

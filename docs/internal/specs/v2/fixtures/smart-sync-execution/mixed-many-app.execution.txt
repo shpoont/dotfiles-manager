@@ -1,0 +1,34 @@
+Sync plan accepted.
+Will sync 2 settings:
+- git:user.email: live settings -> stored settings
+- starship:config: stored settings -> live settings
+Proceed with sync? [y/N] y
+
+Sync complete.
+
+Changed:
+Git
+  - git:user.email
+    Synced: live settings -> stored settings
+    Values hidden for safety.
+
+Starship
+  - starship:config
+    Synced: stored settings -> live settings
+    Values hidden for safety.
+
+Skipped:
+Zsh
+  - zsh:zshrc
+    Skipped: conflict needs a choice.
+    Direction: both sides changed
+
+Raycast
+  - raycast:preferences
+    Skipped: app not available on this computer.
+    Direction: not planned
+
+Summary:
+  Changed: 2
+  Skipped: 2
+  Failed: 0

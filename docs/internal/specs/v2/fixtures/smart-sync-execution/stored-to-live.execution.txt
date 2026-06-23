@@ -1,0 +1,17 @@
+Sync plan accepted.
+Will sync 1 setting:
+- starship:config: stored settings -> live settings
+Proceed with sync? [y/N] y
+
+Sync complete.
+
+Changed:
+Starship
+  - starship:config
+    Synced: stored settings -> live settings
+    Values hidden for safety.
+
+Summary:
+  Changed: 1
+  Skipped: 0
+  Failed: 0

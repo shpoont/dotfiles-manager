@@ -253,9 +253,9 @@ func TestV2BundledGitSelectedSettingReadableTranscript(t *testing.T) {
 	diffOut, _, err := runSelectedPreviewTextCLI(t, []string{"diff", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
 	require.Contains(t, diffOut, "Git user email differs from saved desired state.")
-	require.Contains(t, diffOut, "Reason:\n  Live value differs from saved desired state.")
+	require.Contains(t, diffOut, "Reason:\n  Live value differs from saved desired state. The last apply recorded by this tool matches the saved desired value.")
 	require.NotContains(t, diffOut, "This setting has not previously been applied by this tool; review before confirming.")
-	require.Contains(t, diffOut, "Review note:\n  This setting has not previously been applied by this tool.\n  Review the paths before confirming an apply.")
+	require.NotContains(t, diffOut, "Review note:")
 	require.Contains(t, diffOut, "No files changed.")
 	require.Contains(t, diffOut, "dotfiles-manager --config dotfiles-manager.v2.yaml apply --dry-run --user-id leon git:user.email")
 	requireReadableDefaultOutput(t, diffOut)
@@ -272,8 +272,6 @@ func TestV2BundledGitSelectedSettingReadableTranscript(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, applyYesOut, "Updated Git user email.")
 	require.Contains(t, applyYesOut, "Live files changed after backup.")
-	require.Contains(t, applyYesOut, "This was the first apply recorded by this tool for this setting.")
-	require.Contains(t, applyYesOut, "A backup was created before writing.")
 	require.Contains(t, applyYesOut, "Local backup recorded for restore as backup run ")
 	require.Contains(t, applyYesOut, "dotfiles-manager --config dotfiles-manager.v2.yaml restore ")
 	require.Contains(t, applyYesOut, " --dry-run --user-id leon")
@@ -987,51 +985,6 @@ func TestV2FileTreeApplyJSONReportsAppliedRemovalOperations(t *testing.T) {
 	require.NotContains(t, stdout, "EXTRA-LIVE-TREE-CONTENT")
 }
 
-func TestV2GuidedSyncRejectsFileTreeApplyChoiceUntilRemovalPreviewIsExposed(t *testing.T) {
-	fixture := setupCLIV2FileTreeResourceFixture(t)
-	setCWD(t, fixture.repoRoot)
-	liveTree := filepath.Join(fixture.liveRoot, "profiles")
-	desiredTree := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.tree", "artifacts", "config")
-	writeCLIFile(t, filepath.Join(liveTree, "init.lua"), "CURRENT-TREE-CONTENT\n")
-	writeCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"), "EXTRA-LIVE-TREE-CONTENT\n")
-	writeCLIFile(t, filepath.Join(desiredTree, "init.lua"), "DESIRED-TREE-CONTENT\n")
-
-	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "--choice", "test.tree:config=apply", "--yes", "test.tree:config"})
-	require.Error(t, err)
-	require.Equal(t, "dotfiles-manager.v2.guided-sync", payload["schema"])
-	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
-	require.Equal(t, "guidedsync.choice.notAllowed", payload["error"].(map[string]any)["code"])
-	items := payload["items"].([]any)
-	item := items[0].(map[string]any)
-	require.NotContains(t, item["allowedChoices"].([]any), "apply")
-	requireCLIDiagnosticCode(t, item, "guidedsync.fileTreeApply.deferred")
-	require.Equal(t, "CURRENT-TREE-CONTENT\n", string(mustReadCLIFile(t, filepath.Join(liveTree, "init.lua"))))
-	require.Equal(t, "EXTRA-LIVE-TREE-CONTENT\n", string(mustReadCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"))))
-	require.NotContains(t, stdout, "CURRENT-TREE-CONTENT")
-	require.NotContains(t, stdout, "DESIRED-TREE-CONTENT")
-	require.NotContains(t, stdout, "EXTRA-LIVE-TREE-CONTENT")
-}
-
-func TestV2GuidedSyncTextPlanWarnsFileTreeApplyIsDeferred(t *testing.T) {
-	fixture := setupCLIV2FileTreeResourceFixture(t)
-	setCWD(t, fixture.repoRoot)
-	liveTree := filepath.Join(fixture.liveRoot, "profiles")
-	desiredTree := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.tree", "artifacts", "config")
-	writeCLIFile(t, filepath.Join(liveTree, "init.lua"), "CURRENT-TREE-CONTENT\n")
-	writeCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"), "EXTRA-LIVE-TREE-CONTENT\n")
-	writeCLIFile(t, filepath.Join(desiredTree, "init.lua"), "DESIRED-TREE-CONTENT\n")
-
-	stdout, stderr, err := runSelectedPreviewTextCLI(t, []string{"sync", "--non-interactive", "--user-id", "leon", "test.tree:config"})
-	require.NoError(t, err)
-	require.Empty(t, stderr)
-	require.Contains(t, stdout, "File-tree apply is deferred in sync")
-	require.Contains(t, stdout, "warning[guidedsync.fileTreeApply.deferred]")
-	require.Contains(t, stdout, "use explicit apply --dry-run")
-	require.NotContains(t, stdout, "CURRENT-TREE-CONTENT")
-	require.NotContains(t, stdout, "DESIRED-TREE-CONTENT")
-	require.NotContains(t, stdout, "EXTRA-LIVE-TREE-CONTENT")
-}
-
 func TestV2FileResourceMissingFilesBlockDeleteSemantics(t *testing.T) {
 	t.Run("missing live blocks save and preserves desired", func(t *testing.T) {
 		fixture := setupCLIV2FileResourceFixture(t, false)
@@ -1089,120 +1042,264 @@ func TestV2FileResourceExplicitArtifactBinding(t *testing.T) {
 	require.NotContains(t, stdout, "EXPLICIT-BINDING-LIVE")
 }
 
-func TestV2GuidedSyncJSONPlanAndChoiceRequiresYes(t *testing.T) {
+func TestV2SyncJSONLiveToStoredRequiresYesAndMutates(t *testing.T) {
 	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
 	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.yaml")
 	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	_, _, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	writeCLIFile(t, livePath, "user:\n  email: changed-live@example.com\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	require.Equal(t, "confirmation-required", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "syncexec.confirmationRequired", payload["error"].(map[string]any)["code"])
+	require.NotContains(t, string(mustReadCLIFile(t, desiredPath)), "changed-live@example.com")
+	require.NotContains(t, stdout, "Proceed with sync?")
+	require.NotContains(t, stdout, "changed-live@example.com")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"sync", "--non-interactive", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	require.Equal(t, "confirmation-required", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "syncexec.confirmationRequired", payload["error"].(map[string]any)["code"])
+	require.NotContains(t, string(mustReadCLIFile(t, desiredPath)), "changed-live@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"sync", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	require.Equal(t, "sync", payload["command"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "complete", summary["status"])
+	require.Equal(t, float64(1), summary["changed"])
+	require.Equal(t, float64(1), summary["writesToStoredSettings"])
+	items := payload["items"].([]any)
+	item := items[0].(map[string]any)
+	require.Equal(t, "write", item["decision"])
+	require.Equal(t, "live_to_stored", item["direction"])
+	require.Equal(t, "changed", item["result"])
+	require.NotContains(t, item, "backupRefs")
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "changed-live@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+}
+
+func TestV2SyncJSONNoWritesDoesNotRequireYes(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+
+	_, _, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
 
 	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.NoError(t, err)
-	require.Equal(t, "dotfiles-manager.v2.guided-sync", payload["schema"])
-	require.Equal(t, "sync", payload["command"])
-	summary := payload["summary"].(map[string]any)
-	require.Equal(t, "needs-choice", summary["status"])
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	require.Equal(t, "no-changes", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, float64(0), payload["summary"].(map[string]any)["changed"])
+	require.Equal(t, false, payload["confirmation"].(map[string]any)["required"])
+	require.NotContains(t, stdout, "Proceed with sync?")
+}
+
+func TestV2SyncNonInteractiveTextRequiresYesWithoutMutation(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.yaml")
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	_, _, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	writeCLIFile(t, livePath, "user:\n  email: changed-live@example.com\n")
+
+	stdout, stderr, err := runSyncTextCLI(t, []string{"sync", "--non-interactive", "--user-id", "leon", "test.app:identity.email"}, "")
+	require.Error(t, err)
+	require.Empty(t, stderr)
+	require.Contains(t, stdout, "Sync not run: confirmation required.")
+	require.Contains(t, stdout, "Run again with --yes")
+	require.NotContains(t, stdout, "Proceed with sync?")
+	require.NotContains(t, string(mustReadCLIFile(t, desiredPath)), "changed-live@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+}
+
+func TestV2SyncInteractiveEOFRequiresConfirmationWithoutMutation(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.yaml")
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	_, _, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	writeCLIFile(t, livePath, "user:\n  email: changed-live@example.com\n")
+
+	stdout, stderr, err := runSyncTextCLI(t, []string{"sync", "--user-id", "leon", "test.app:identity.email"}, "")
+	require.Error(t, err)
+	require.Empty(t, stderr)
+	require.Contains(t, stdout, "Proceed with sync? [y/N]")
+	require.Contains(t, stdout, "Sync not run: confirmation required.")
+	require.NotContains(t, string(mustReadCLIFile(t, desiredPath)), "changed-live@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+}
+
+func TestV2SyncJSONDoesNotExposeInternalDiagnostics(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, false, true)
+	setCWD(t, fixture.repoRoot)
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--non-interactive", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
 	items := payload["items"].([]any)
 	require.Len(t, items, 1)
 	item := items[0].(map[string]any)
-	require.Equal(t, "test.app:identity.email", item["settingRef"])
-	require.Equal(t, "planned", item["outcome"])
-	require.ElementsMatch(t, []any{"save", "apply", "skip"}, item["allowedChoices"].([]any))
-	require.NotContains(t, stdout, "current@example.com")
-	require.NotContains(t, stdout, "desired@example.com")
-
-	payload, stdout, err = runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "--choice", "test.app:identity.email=save", "test.app:identity.email"})
-	require.Error(t, err)
-	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
-	require.Equal(t, "guidedsync.confirmationRequired", payload["error"].(map[string]any)["code"])
-	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "desired@example.com")
-	require.NotContains(t, stdout, "current@example.com")
+	require.NotContains(t, item, "diagnostics")
+	for _, forbidden := range []string{"driverId", "resourceId", "selectedpreview.", "desired://"} {
+		require.NotContains(t, stdout, forbidden)
+	}
 }
 
-func TestV2GuidedSyncCLIChoiceYesSavesSelectedValue(t *testing.T) {
-	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+func TestV2SyncJSONStoredToLiveMutatesWithoutExposingBackupRefs(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, false)
 	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.yaml")
 	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
 
-	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--json", "--user-id", "leon", "--choice", "test.app:identity.email=save", "--yes", "test.app:identity.email"})
+	_, _, err := runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.NoError(t, err)
-	require.Equal(t, "changed", payload["summary"].(map[string]any)["status"])
+	writeCLIFile(t, desiredPath, "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  identity.email:\n    intent: set\n    kind: string\n    value: changed-stored@example.com\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "complete", summary["status"])
+	require.Equal(t, float64(1), summary["changed"])
+	require.Equal(t, float64(1), summary["writesToLiveSettings"])
 	item := payload["items"].([]any)[0].(map[string]any)
-	require.Equal(t, "executed", item["outcome"])
-	require.Equal(t, "save", item["selectedChoice"])
-	require.NotEmpty(t, item["underlyingRunId"])
-	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
-	require.NotContains(t, stdout, "current@example.com")
+	require.Equal(t, "stored_to_live", item["direction"])
+	require.Equal(t, "changed", item["result"])
+	require.NotContains(t, item, "backupRefs")
+	require.Contains(t, string(mustReadCLIFile(t, livePath)), "changed-stored@example.com")
+	require.NotContains(t, stdout, "changed-stored@example.com")
 }
 
-func TestV2GuidedSyncInteractivePromptSavesWithoutYes(t *testing.T) {
-	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+func TestV2SyncRefusesFileTreeStoredToLiveUntilDetailedReview(t *testing.T) {
+	fixture := setupCLIV2FileTreeResourceFixture(t)
 	setCWD(t, fixture.repoRoot)
+	liveTree := filepath.Join(fixture.liveRoot, "profiles")
+	desiredTree := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.tree", "artifacts", "config")
+	currentBody := "CURRENT-TREE-CONTENT\n"
+	changedDesiredBody := "CHANGED-DESIRED-TREE-CONTENT\n"
+	extraLiveBody := "EXTRA-LIVE-TREE-CONTENT\n"
+	writeCLIFile(t, filepath.Join(liveTree, "init.lua"), currentBody)
+	writeCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"), extraLiveBody)
+
+	_, _, err := runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.tree:config"})
+	require.NoError(t, err)
+	writeCLIFile(t, filepath.Join(desiredTree, "init.lua"), changedDesiredBody)
+	os.Remove(filepath.Join(desiredTree, "lua", "extra.lua"))
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--yes", "--json", "--user-id", "leon", "test.tree:config"})
+	require.Error(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	require.Equal(t, "blocked", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "syncexec.blocked", payload["error"].(map[string]any)["code"])
+	items := payload["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	require.Equal(t, "folder-tree-review-required", item["reasonCode"])
+	require.Equal(t, false, item["executableBySync"])
+	require.Equal(t, "skipped", item["result"])
+	require.Contains(t, item["message"], "folder setting needs a detailed file-by-file review")
+	require.Equal(t, currentBody, string(mustReadCLIFile(t, filepath.Join(liveTree, "init.lua"))))
+	require.Equal(t, extraLiveBody, string(mustReadCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"))))
+	require.NotContains(t, stdout, currentBody)
+	require.NotContains(t, stdout, changedDesiredBody)
+	require.NotContains(t, stdout, extraLiveBody)
+}
+
+func TestV2SyncRefusesConflictWithoutMutation(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, false)
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.yaml")
 	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
 
-	stdout, stderr, err := runSyncTextCLI(t, []string{"sync", "--user-id", "leon", "test.app:identity.email"}, "save\n")
+	_, _, err := runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	writeCLIFile(t, livePath, "user:\n  email: changed-live@example.com\n")
+	writeCLIFile(t, desiredPath, "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  identity.email:\n    intent: set\n    kind: string\n    value: changed-stored@example.com\n")
+
+	payload, stdout, err := runSelectedPreviewCLI(t, []string{"sync", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.Error(t, err)
+	require.Equal(t, "dotfiles-manager.sync-execution.v2", payload["schema"])
+	require.Equal(t, "needs-choice", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, "syncexec.choiceRequired", payload["error"].(map[string]any)["code"])
+	item := payload["items"].([]any)[0].(map[string]any)
+	require.Equal(t, "needs_choice", item["decision"])
+	require.Equal(t, "both_sides_changed", item["direction"])
+	require.Equal(t, "skipped", item["result"])
+	require.Contains(t, string(mustReadCLIFile(t, livePath)), "changed-live@example.com")
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "changed-stored@example.com")
+	require.NotContains(t, stdout, "changed-live@example.com")
+	require.NotContains(t, stdout, "changed-stored@example.com")
+}
+
+func TestV2SyncInteractivePromptExecutesAcceptedWriteSet(t *testing.T) {
+	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
+	setCWD(t, fixture.repoRoot)
+	livePath := filepath.Join(fixture.liveRoot, "config.yaml")
+	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
+
+	_, _, err := runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	require.NoError(t, err)
+	writeCLIFile(t, livePath, "user:\n  email: prompt-live@example.com\n")
+
+	stdout, stderr, err := runSyncTextCLI(t, []string{"sync", "--user-id", "leon", "test.app:identity.email"}, "yes\n")
 	require.NoError(t, err)
 	require.Empty(t, stderr)
-	require.Contains(t, stdout, "Choosing save/apply will mutate this item")
-	require.Contains(t, stdout, "outcome=executed")
-	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
-	require.NotContains(t, stdout, "current@example.com")
-	require.NotContains(t, stdout, "desired@example.com")
+	require.Contains(t, stdout, "Sync plan accepted.")
+	require.Contains(t, stdout, "Will sync 1 setting:")
+	require.Contains(t, stdout, "test.app:identity.email: live settings -> stored settings")
+	require.Contains(t, stdout, "Proceed with sync? [y/N]")
+	require.Contains(t, stdout, "Sync complete.")
+	require.Contains(t, stdout, "Changed: 1")
+	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "prompt-live@example.com")
+	require.NotContains(t, stdout, "prompt-live@example.com")
 }
 
-func TestV2GuidedSyncInteractiveInvalidPromptFailsBeforeWrites(t *testing.T) {
-	fixture := setupCLIV2SelectedPreviewFixture(t, true, true)
-	setCWD(t, fixture.repoRoot)
-	desiredPath := filepath.Join(fixture.repoRoot, "desired", "user", "leon", "targets", "test.app", "settings.yaml")
-
-	stdout, _, err := runSyncTextCLI(t, []string{"sync", "--user-id", "leon", "test.app:identity.email"}, "later\n")
-	require.Error(t, err)
-	require.Contains(t, stdout, "guidedsync.choice.invalid")
-	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "desired@example.com")
-}
-
-func TestV2GuidedSyncHelpMarksExperimentalAndPointsToStablePath(t *testing.T) {
+func TestV2SyncHelpUsesResetVocabulary(t *testing.T) {
 	rootStdout, rootStderr, err := runSelectedPreviewTextCLI(t, []string{"--help"})
 	require.NoError(t, err)
 	require.Empty(t, rootStderr)
-	require.Contains(t, rootStdout, "Experimental guided save/apply/skip flow for advanced v2 users")
+	require.Contains(t, rootStdout, "Sync safe v2 settings changes between live settings and stored settings")
 
 	syncStdout, syncStderr, err := runSelectedPreviewTextCLI(t, []string{"sync", "--help"})
 	require.NoError(t, err)
 	require.Empty(t, syncStderr)
-	require.Contains(t, syncStdout, "Experimental guided save/apply/skip flow")
-	require.Contains(t, syncStdout, "Stable v2 happy path")
-	require.Contains(t, syncStdout, "dotfiles-manager status [ref]")
-	require.Contains(t, syncStdout, "dotfiles-manager save --dry-run [ref]")
-	require.Contains(t, syncStdout, "dotfiles-manager apply --dry-run [ref]")
-	require.Contains(t, syncStdout, "not a blind merge")
-	require.Contains(t, syncStdout, "File-tree apply choices are deferred")
+	require.Contains(t, syncStdout, "live settings -> stored settings")
+	require.Contains(t, syncStdout, "stored settings -> live settings")
+	require.Contains(t, syncStdout, "settings folder")
+	for _, forbidden := range []string{"guided", "save/apply", "--choice", "repository", "backup", "restore", "migration", "desired://", "driver", "resource"} {
+		require.NotContains(t, strings.ToLower(syncStdout), forbidden)
+	}
 }
 
-func TestV2GuidedSyncDocsMarkExperimentalNotStableHappyPath(t *testing.T) {
+func TestV2SyncDocsDescribeAcceptedExecutionPath(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 
 	commandsDoc := string(mustReadCLIFile(t, filepath.Join(repoRoot, "docs", "user", "commands.md")))
-	require.Contains(t, commandsDoc, "## v2 guided sync: experimental advanced shortcut")
-	require.Contains(t, commandsDoc, "`sync [ref]` remains available as an experimental advanced guided shortcut")
-	require.Contains(t, commandsDoc, "not part of the stable happy")
-	require.Contains(t, commandsDoc, "path, it is not a blind merge")
-	require.Contains(t, commandsDoc, "File-tree apply choices are deferred")
-
-	specDoc := string(mustReadCLIFile(t, filepath.Join(repoRoot, "docs", "internal", "specs", "v2", "02-cli-contract.md")))
-	require.Contains(t, specDoc, "Decision for #202")
-	require.Contains(t, specDoc, "not part of the stable")
-	require.Contains(t, specDoc, "user-facing happy path")
-	require.Contains(t, specDoc, "file-tree `apply` choices are")
-	require.Contains(t, specDoc, "deferred in `sync`")
-
-	for _, rel := range []string{
-		filepath.Join("docs", "user", "README.md"),
-		filepath.Join("docs", "user", "getting-started.md"),
-	} {
-		doc := string(mustReadCLIFile(t, filepath.Join(repoRoot, rel)))
-		require.NotContains(t, doc, "dotfiles-manager sync", rel)
-		require.NotContains(t, doc, "guided sync", rel)
+	require.Contains(t, commandsDoc, "## v2 sync: safe settings execution")
+	syncSection := commandsDoc[strings.Index(commandsDoc, "## v2 sync: safe settings execution"):]
+	if nextHeading := strings.Index(syncSection[len("## v2 sync: safe settings execution"):], "\n## "); nextHeading >= 0 {
+		syncSection = syncSection[:len("## v2 sync: safe settings execution")+nextHeading]
+	}
+	require.Contains(t, commandsDoc, "`sync [ref]` checks the current state and runs only safe one-sided settings changes")
+	require.Contains(t, syncSection, "live settings -> stored settings")
+	require.Contains(t, syncSection, "stored settings -> live settings")
+	for _, forbidden := range []string{"guided sync", "--choice", "backup", "restore", "migration", "desired://", "driver", "resource"} {
+		require.NotContains(t, strings.ToLower(syncSection), forbidden)
 	}
 }
 
