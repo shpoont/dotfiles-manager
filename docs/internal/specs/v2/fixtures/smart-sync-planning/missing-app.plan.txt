@@ -1,0 +1,19 @@
+Sync plan checked 1 app.
+
+Skipped:
+
+Raycast
+  - raycast:preferences
+    Skipped: app not available.
+    Direction: not planned
+    Reason: live settings could not be inspected on this computer.
+    No write was planned.
+
+Summary:
+  Planned writes to stored settings: 0
+  Planned writes to live settings: 0
+  Needs choice: 0
+  Skipped: 1
+  Blocked: 0
+
+Planning-only command: no files were changed.
