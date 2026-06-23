@@ -63,7 +63,7 @@ The product should let a user:
 | Issue | Type | Tier | Current role | Dependencies / notes |
 | --- | --- | --- | --- | --- |
 | #209 | Project charter / parent | Project-level Tier 1 | Keep active until reset accepted | Must link this execution record. |
-| #217 | Enabler scaffold | Tier 1 | Install standards adoption scaffold | Close after scaffold PR is validated and accepted. |
+| #217 | Enabler scaffold | Tier 1 | Standards scaffold accepted for merge | Close after PR #218 is merged and tracker closure is recorded. |
 | #210 | Delivery-design | Tier 1 | Freeze product model and vocabulary | Blocks #211, #216, and most user-facing work. |
 | #211 | Parent delivery area | Tier 2 overall | Split before implementation | Sync writes are mutating and need stronger evidence. |
 | #212 | Scope cleanup | Tier 0/Tier 1 | Remove backup/restore from product surface | Requires decision: remove, hide, or legacy/internal. |
@@ -103,15 +103,41 @@ Before starting any work item:
 | Current branch before scaffold was superseded docs branch | `git status --branch` showed `codex/v2-end-user-docs-207` | 2026-06-23 | Historical state only. |
 | Product reset excludes backup/restore, mandatory Git repo, and v1 migration | User decision captured in current reset issues and chat context | 2026-06-23 | Must be promoted into issue contracts/specs. |
 | Phase 1 scaffold has a tracking issue | GitHub issue #217 | 2026-06-23 | Must be linked to PR when PR exists. |
+| Phase 1 scaffold passed validation | PR #218 checks, local scaffold checks, and Pro review conversation | 2026-06-23 | Validates process scaffold only, not current v2 product behavior. |
+| Project Owner accepted the Phase 1 source-of-truth decision | User confirmation: "We are good to go" after explicit acceptance prompt | 2026-06-23 | Acceptance is for #209 + this file as source of truth and PR #218 merge approval. |
 
-## Next gate
+## Phase 1 acceptance state
 
 Phase 1 scaffold acceptance:
 
-- [ ] Transformation plan exists.
-- [ ] Execution record exists.
-- [ ] Tailoring rules exist.
-- [ ] Issue and PR templates exist.
-- [ ] #209 links the execution record.
-- [ ] A standards-adoption issue tracks this scaffold.
-- [ ] Project Owner accepts #209 + this file as the v2 reset source of truth.
+- [x] Transformation plan exists.
+- [x] Execution record exists.
+- [x] Tailoring rules exist.
+- [x] Issue and PR templates exist.
+- [x] #209 links the execution record through the source-of-truth decision.
+- [x] A standards-adoption issue tracks this scaffold.
+- [x] Pro validation says the scaffold is acceptable for Phase 1.
+- [x] Project Owner accepts #209 + this file as the v2 reset source of truth.
+
+Acceptance decision:
+
+- Date: 2026-06-23
+- Acceptor: Project Owner
+- Decision: accept #209 as the v2 reset project charter and this file as the
+  repo-editable v2 reset execution record.
+- Scope: Phase 1 process scaffold only.
+- Explicit limit: this acceptance does not validate current v2 runtime behavior;
+  Phase 2 must audit current code, docs, tests, and tracker state against the
+  reset model before product implementation continues.
+
+## Next gate
+
+Phase 2 reset audit:
+
+- [ ] Inspect current v2 code, docs, tests, and tracker state from current
+      `main`.
+- [ ] Identify old-model concepts and mandatory-Git assumptions.
+- [ ] Classify each finding as keep, rename, remove, hide, defer, or owner
+      decision.
+- [ ] Propose issue updates or splits for #210-#216.
+- [ ] Record audit evidence with exact commit, commands, and file references.
