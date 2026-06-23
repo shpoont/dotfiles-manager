@@ -63,8 +63,9 @@ The product should let a user:
 | Issue | Type | Tier | Current role | Dependencies / notes |
 | --- | --- | --- | --- | --- |
 | #209 | Project charter / parent | Project-level Tier 1 | Keep active until reset accepted | Must link this execution record. |
-| #217 | Enabler scaffold | Tier 1 | Standards scaffold accepted for merge | Close after PR #218 is merged and tracker closure is recorded. |
-| #210 | Delivery-design | Tier 1 | Freeze product model and vocabulary | Blocks #211, #216, and most user-facing work. |
+| #217 | Enabler scaffold | Tier 1 | Complete | PR #218 merged; closure recorded in GitHub. |
+| #219 | Discovery / audit | Tier 1 | Active Phase 2 reset audit | Produces implementation/docs/tracker audit before product work resumes. |
+| #210 | Delivery-design | Tier 1 | Freeze product model and vocabulary | Blocks #211, #216, and most user-facing work after #219 acceptance. |
 | #211 | Parent delivery area | Tier 2 overall | Split before implementation | Sync writes are mutating and need stronger evidence. |
 | #212 | Scope cleanup | Tier 0/Tier 1 | Remove backup/restore from product surface | Requires decision: remove, hide, or legacy/internal. |
 | #213 | Scope cleanup | Tier 0/Tier 1 | Remove v1 migration from v2 roadmap | Keep small; close with docs/spec/tracker evidence. |
@@ -105,6 +106,9 @@ Before starting any work item:
 | Phase 1 scaffold has a tracking issue | GitHub issue #217 | 2026-06-23 | Must be linked to PR when PR exists. |
 | Phase 1 scaffold passed validation | PR #218 checks, local scaffold checks, and Pro review conversation | 2026-06-23 | Validates process scaffold only, not current v2 product behavior. |
 | Project Owner accepted the Phase 1 source-of-truth decision | User confirmation: "We are good to go" after explicit acceptance prompt | 2026-06-23 | Acceptance is for #209 + this file as source of truth and PR #218 merge approval. |
+| Phase 1 scaffold was merged | PR #218 squash merge `1bbb484eb958d5477937da675da76482a43a8845` | 2026-06-23 | Merge validates process scaffold only. |
+| Phase 2 audit artifact exists in draft | [`v2-reset-audit-issue-219.md`](v2-reset-audit-issue-219.md) | 2026-06-23 | Pending Project Owner acceptance and follow-up issue edits/splits. |
+| Phase 2 audit received Pro validation | ChatGPT Pro review conversation `https://chatgpt.com/c/6a3a5a21-6bc4-83eb-8449-e08b72d0d267` returned acceptable with no must-fix blockers | 2026-06-23 | Pro validation does not replace Project Owner acceptance or follow-up tracker updates. |
 
 ## Phase 1 acceptance state
 
@@ -134,10 +138,14 @@ Acceptance decision:
 
 Phase 2 reset audit:
 
-- [ ] Inspect current v2 code, docs, tests, and tracker state from current
+- [x] Inspect current v2 code, docs, tests, and tracker state from current
       `main`.
-- [ ] Identify old-model concepts and mandatory-Git assumptions.
-- [ ] Classify each finding as keep, rename, remove, hide, defer, or owner
+- [x] Identify old-model concepts and mandatory-Git assumptions.
+- [x] Classify each finding as keep, rename, remove, hide, defer, or owner
       decision.
-- [ ] Propose issue updates or splits for #210-#216.
-- [ ] Record audit evidence with exact commit, commands, and file references.
+- [x] Propose issue updates or splits for #210-#216.
+- [x] Record audit evidence with exact commit, commands, and file references.
+- [x] Validate audit with Pro.
+- [ ] Get Project Owner acceptance of audit classifications and Phase 3
+      sequence.
+- [ ] Apply or explicitly defer follow-up issue edits/splits.
