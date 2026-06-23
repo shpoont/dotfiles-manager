@@ -58,7 +58,7 @@ Required constraints:
 | `01-repository-layout.md` | Superseded | Historical prototype repository layout; do not use as active reset-v2 authority. |
 | `02-cli-contract.md` | Superseded draft pending #211 split | Contains useful examples but still encodes old command model; #221-#225 own the replacement status/diff/sync contracts. |
 | `03-profile-and-scope-resolution.md` | Draft reusable input | Keep profile/scope mechanics, but #210 vocabulary labels apply. |
-| `04-status-conflict-state-machine.md` | Draft reusable input | #221/#222 must review against sync-first UX before implementation. |
+| `04-status-conflict-state-machine.md` | Draft reusable input | State-derivation reference only; it still uses older public wording and is not normative for public reset-v2 output. |
 | `05-desired-artifacts-and-uris.md` | Draft reusable input | Keep internal artifact/URI mechanics; normal output must follow #210 internal URI policy. |
 | `06-recipe-schema.md` | Draft reusable input | Keep recipe/named-location concepts; catalog/trust updates belong to #214/#227. |
 | `07-driver-interface.md` | Draft reusable input | Keep deterministic driver model; native import/export remains reviewed recipe/driver capability. |
@@ -66,6 +66,7 @@ Required constraints:
 | `09-security-redaction-trust.md` | Draft reusable input | Must incorporate sensitive stored-settings wording from #210 before promotion. |
 | `10-v1-migration.md` | Superseded for active v2 roadmap | v1 migration is not active v2 scope; #213/#226 own legacy public-surface policy. |
 | `11-mvp-acceptance-tests.md` | Draft requiring reset review | Must be reworked so backup/restore, migration, and legacy v1 tests are not v2 acceptance blockers. |
+| `12-status-diff-read-only-contract.md` | Active behavior spec | Source of truth for read-only `status` and `diff` output, examples, and golden-fixture expectations from #221. |
 | `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
@@ -93,6 +94,8 @@ spec or explicitly include the accepted behavior contract.
 
 - #210 owns vocabulary/source-of-truth cleanup.
 - #211 and #221-#225 own status/diff/sync and `save`/`apply` policy.
+- #221 specifically owns only the read-only `status` and `diff` behavior
+  contract in `12-status-diff-read-only-contract.md`.
 - #212 owns backup/restore removal or quarantine.
 - #213 and #226 own legacy v1 public-surface policy.
 - #214 and #227-#229 own catalogs/taps.

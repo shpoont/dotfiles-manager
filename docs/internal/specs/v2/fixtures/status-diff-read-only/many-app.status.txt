@@ -1,0 +1,38 @@
+Status checked 6 settings across 3 apps.
+
+Summary:
+  Up to date: 1
+  Changed in live settings: 1
+  Changed in stored settings: 1
+  Conflicts: 1
+  Missing apps: 1
+  Missing stored settings: 1
+
+Git
+  - git:user.email: changed in live settings
+    Direction: live settings -> stored settings
+    Values hidden for safety.
+
+  - git:user.name: up to date
+    Values hidden for safety.
+
+Starship
+  - starship:config: changed in stored settings
+    Direction: stored settings -> live settings
+    Values hidden for safety.
+
+  - starship:prompt: no stored settings yet
+    Direction: live settings -> stored settings, if you choose to sync later
+    Live value exists and is hidden for safety.
+
+Raycast
+  - raycast:preferences: app not available
+    Direction: none
+    No live settings were read.
+
+Zsh
+  - zsh:zshrc: conflict
+    Direction: both sides changed; no safe direction was chosen
+    Values hidden for safety.
+
+Read-only command: no files were changed.

@@ -1,0 +1,16 @@
+Diff checked 1 setting in Zsh.
+
+Zsh
+  - zsh:zshrc: conflict
+    Comparing live settings with stored settings.
+    Direction: both sides changed; no safe direction was chosen.
+    Live settings: $HOME/.zshrc
+    Stored settings: for me in the settings folder
+    Values are hidden for safety. Metadata shows that both sides differ from the previous sync.
+
+Diff body:
+  The live settings changed after the previous sync.
+  The stored settings also changed after the previous sync.
+  A later sync plan must ask before any write.
+
+Read-only command: no files were changed.

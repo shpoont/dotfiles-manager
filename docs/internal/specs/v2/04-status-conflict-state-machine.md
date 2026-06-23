@@ -14,6 +14,11 @@ authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/REA
 
 # v2 status and conflict state machine
 
+> **Reset-v2 note:** this document is draft reference material only. It still
+> uses prototype-era `desired`/`current`, `save`, and `apply` wording. Public
+> reset-v2 `status` and `diff` output is governed by
+> `12-status-diff-read-only-contract.md`.
+
 ## Purpose
 
 This spec defines canonical item states, target-level aggregation, and conflict

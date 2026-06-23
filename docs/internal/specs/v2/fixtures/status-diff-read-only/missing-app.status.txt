@@ -1,0 +1,18 @@
+Status checked 1 app.
+
+Raycast
+  - raycast:preferences: app not available
+    Live settings: Raycast could not be found or inspected on this computer.
+    Stored settings: for me in the settings folder
+    Direction: none
+    No live settings were read.
+
+Summary:
+  Up to date: 0
+  Changed in live settings: 0
+  Changed in stored settings: 0
+  Conflicts: 0
+  Missing apps: 1
+  Missing stored settings: 0
+
+Read-only command: no files were changed.

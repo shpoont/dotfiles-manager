@@ -1,0 +1,17 @@
+Status checked 1 setting in Git.
+
+Git
+  - git:user.email: up to date
+    Live settings: $HOME/.gitconfig [user] email
+    Stored settings: for me in the settings folder
+    Values hidden for safety.
+
+Summary:
+  Up to date: 1
+  Changed in live settings: 0
+  Changed in stored settings: 0
+  Conflicts: 0
+  Missing apps: 0
+  Missing stored settings: 0
+
+Read-only command: no files were changed.
