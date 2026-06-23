@@ -1,7 +1,9 @@
 # Getting started with v2
 
 Start with the safe temporary-home workflow. It exercises the real v2 command
-surface without touching your real `~/.gitconfig`.
+surface without touching your real `~/.gitconfig`. The normal v2 workflow is
+`status -> diff -> sync`; `save` and `apply` appear only when you choose an
+explicit sync direction.
 
 If you have not installed the CLI yet, see
 [`install-and-release.md`](./install-and-release.md).
@@ -15,30 +17,32 @@ source build.
 DFM=${DFM:-dotfiles-manager}
 "$DFM" version
 "$DFM" init --help
+"$DFM" sync --help
 "$DFM" save --help
 "$DFM" apply --help
 ```
 
 ## 2) Safe quickstart using a temporary HOME
 
-This workflow creates a temporary repository and a temporary home directory. The
-only live file it mutates is the temporary `$DFM_HOME/.gitconfig`.
+This workflow creates a temporary settings folder and a temporary home
+directory. The only live file it mutates is the temporary
+`$DFM_HOME/.gitconfig`.
 
 ```bash
 DFM=${DFM:-dotfiles-manager}
 DFM_DEMO_ROOT=$(mktemp -d)
 DFM_HOME="$DFM_DEMO_ROOT/home"
-DFM_REPO="$DFM_DEMO_ROOT/repo"
-mkdir -p "$DFM_HOME" "$DFM_REPO"
+DFM_SETTINGS_FOLDER="$DFM_DEMO_ROOT/settings"
+mkdir -p "$DFM_HOME" "$DFM_SETTINGS_FOLDER"
 
 HOME="$DFM_HOME" git config --global user.email first@example.test
 HOME="$DFM_HOME" git config --global user.name "First User"
 
-cd "$DFM_REPO"
+cd "$DFM_SETTINGS_FOLDER"
 HOME="$DFM_HOME" "$DFM" init --machine-id docs-machine --user-id docs-user
 ```
 
-`init` creates the v2 repository scaffold:
+`init` creates the v2 settings-folder scaffold:
 
 ```text
 dotfiles-manager.v2.yaml
@@ -48,7 +52,7 @@ profiles/layers/global.yaml
 
 It also writes local identity state under the platform-specific v2 local state
 root described in [`configuration.md`](./configuration.md); it does not store
-identity under the repository by default.
+identity under the settings folder by default.
 
 ### Inspect available Git support
 
@@ -71,12 +75,20 @@ HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
   list --user-id docs-user
 ```
 
-The selected setting is `git:user.email`. With `--scope user`, desired state is
-resolved for the logical user id `docs-user`, not for one machine only.
+The selected setting is `git:user.email`. With `--scope user`, stored settings
+are resolved for the logical user id `docs-user`, not for one machine only.
 
-### Preview and save desired state
+### Preview the first sync into stored settings
 
-`save` copies the selected live value into desired state. Preview first:
+The normal mental model is sync between live settings and stored settings. For
+the very first copy, there are no stored settings yet, so choose an explicit
+direction with the `save` compatibility alias:
+
+```text
+save = sync live settings -> stored settings
+```
+
+Preview first:
 
 ```bash
 HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
@@ -86,26 +98,32 @@ HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
   save --dry-run --user-id docs-user git:user.email
 ```
 
-If the dry run reports `action=would-promote`, confirm the save:
+If the dry run says it would sync the live value to stored settings, confirm the
+save:
 
 ```bash
 HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
   save --yes --user-id docs-user git:user.email
 ```
 
-The desired value is now stored in the repository at:
+The value is now stored in the settings folder at:
 
 ```text
 desired/user/docs-user/targets/git/settings.yaml
 ```
 
 That file contains the actual email value because the manager needs an actual
-desired value to apply later. Normal command output keeps the raw value redacted.
+stored value to sync later. Normal command output keeps the raw value redacted.
 
-### Preview and apply desired state
+### Preview the opposite direction
 
-Change the temporary live Git config to create drift, then preview and apply the
-saved desired value back to the temporary live file:
+Change the temporary live Git config to create drift, then preview syncing the
+stored value back to the temporary live file. Use the `apply` compatibility
+alias when you want the explicit stored-settings-to-live-settings direction:
+
+```text
+apply = sync stored settings -> live settings
+```
 
 ```bash
 HOME="$DFM_HOME" git config --global user.email changed@example.test
@@ -120,37 +138,8 @@ HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
   apply --yes --user-id docs-user git:user.email
 ```
 
-When `apply --yes` writes live state, it records local backup and ledger
-evidence under the v2 local state root. Normal output prints a `run=` id and one
-or more `state://backups/...` references without printing the raw email value.
-
-### Inspect backups and preview recovery
-
-List backups:
-
-```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml backup list
-```
-
-Copy the first-column run id that looks like
-`selected-value-YYYYMMDDTHHMMSS.NNNNNNNNNZ`, then inspect it:
-
-```bash
-RUN_ID=selected-value-YYYYMMDDTHHMMSS.NNNNNNNNNZ
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml backup show "$RUN_ID"
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-  restore "$RUN_ID" --dry-run --user-id docs-user
-```
-
-Only after the dry run shows the expected live path and change, confirm restore:
-
-```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-  restore "$RUN_ID" --yes --user-id docs-user
-```
-
-For a selected value backed by a file, restore rolls back the whole backing file
-from the backup payload. It is not a semantic single-value rollback.
+When `apply --yes` writes live settings, normal output keeps the raw email value
+redacted.
 
 Clean up the demo when finished:
 
@@ -180,30 +169,31 @@ dotfiles-manager --config dotfiles-manager.v2.yaml \
   save --dry-run --user-id <your-user-id> git:user.email
 ```
 
-If the `save --dry-run` output is what you expect, confirm:
+If the `save --dry-run` output is what you expect, confirm the explicit
+live-settings-to-stored-settings sync:
 
 ```bash
 dotfiles-manager --config dotfiles-manager.v2.yaml \
   save --yes --user-id <your-user-id> git:user.email
 ```
 
-Before applying to real `~/.gitconfig`, preview first:
+Before syncing stored settings back to real `~/.gitconfig`, preview first:
 
 ```bash
 dotfiles-manager --config dotfiles-manager.v2.yaml \
   apply --dry-run --user-id <your-user-id> git:user.email
 ```
 
-Only confirm `apply --yes` when the desired path, live path, and selected ref
-are exactly what you intend:
+Only confirm `apply --yes` when the stored-settings path, live path, and
+selected ref are exactly what you intend:
 
 ```bash
 dotfiles-manager --config dotfiles-manager.v2.yaml \
   apply --yes --user-id <your-user-id> git:user.email
 ```
 
-If an apply changes the wrong live value, use `backup list`, `backup show`, and
-`restore <run-id> --dry-run` before confirming `restore <run-id> --yes`.
+The recommended day-to-day command is `sync`; use `save` or `apply` only when
+you need to force one explicit direction.
 
 ## 4) Next targets
 

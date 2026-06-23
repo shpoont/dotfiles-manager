@@ -46,7 +46,7 @@ selections:
 	text := Text(report)
 	require.Contains(t, text, "Selected settings")
 	require.Contains(t, text, "git:user.email — User email")
-	require.Contains(t, text, "Desired state: not saved yet")
+	require.Contains(t, text, "Stored settings: not stored yet")
 	require.NotContains(t, text, "desired://")
 	require.NotContains(t, text, "resource=")
 	verbose := VerboseText(report)
@@ -148,9 +148,9 @@ selections:
 	require.Equal(t, DesiredStateInfo{Status: DesiredStateNotSaved, Saved: false}, name.DesiredState)
 
 	text := Text(report)
-	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: saved")
-	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: not saved yet")
-	require.Contains(t, text, "Preview saving the current live value:\n  dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.name")
+	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: stored")
+	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: not stored yet")
+	require.Contains(t, text, "Preview explicit sync from live settings to stored settings:\n  dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.name")
 
 	payload, err := JSON(report)
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestRunReportsDesiredStateAllSavedAndNoneSavedInSharedSettingsArtifact(t *t
 			name:             "none saved",
 			values:           nil,
 			wantStatus:       map[string]string{"git:user.email": DesiredStateNotSaved, "git:user.name": DesiredStateNotSaved},
-			wantNextContains: "Preview saving the current live value:\n  dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email",
+			wantNextContains: "Preview explicit sync from live settings to stored settings:\n  dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email",
 		},
 	}
 
@@ -250,12 +250,12 @@ selections:
 		}
 		foundDesiredInvalid = true
 		require.Equal(t, SeverityWarning, diagnostic.Severity)
-		require.Contains(t, diagnostic.Message, "treating the setting as not saved")
+		require.Contains(t, diagnostic.Message, "treating the setting as not stored")
 		require.Equal(t, filepath.Join("desired", "user", "leon", "targets", "git", "settings.yaml"), diagnostic.Path)
 	}
 	require.True(t, foundDesiredInvalid)
-	require.Contains(t, Text(report), "zsh:zshrc — .zshrc\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: saved")
-	require.Contains(t, Text(report), "Warning:\n  desired state for git:user.email is invalid; treating the setting as not saved")
+	require.Contains(t, Text(report), "zsh:zshrc — .zshrc\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: stored")
+	require.Contains(t, Text(report), "Warning:\n  stored settings for git:user.email are invalid; treating the setting as not stored")
 }
 
 func TestRunKeepsReadOnlyListPartialWhenIdentityMissing(t *testing.T) {
@@ -581,8 +581,8 @@ func TestFriendlyListHelpersCoverFallbackBranches(t *testing.T) {
 	require.Equal(t, "Saved label", settingLabel(ManagedSetting{Setting: SettingInfo{ID: "user.email", Label: "Saved label"}, Ref: "git:user.email"}))
 	require.Equal(t, "user email", settingLabel(ManagedSetting{Setting: SettingInfo{ID: "user.email"}, Ref: "git:user.email"}))
 	require.Equal(t, "git:user.email", settingLabel(ManagedSetting{Ref: "git:user.email"}))
-	require.Equal(t, "saved", friendlyDesiredSaved(ManagedSetting{DesiredSaved: true}))
-	require.Equal(t, "not saved yet", friendlyDesiredSaved(ManagedSetting{}))
+	require.Equal(t, "stored", friendlyDesiredSaved(ManagedSetting{DesiredSaved: true}))
+	require.Equal(t, "not stored yet", friendlyDesiredSaved(ManagedSetting{}))
 
 	unresolved := ManagedSetting{Ref: "git:user.name", Subject: SubjectInfo{Resolved: false}}
 	resolved := ManagedSetting{Ref: "git:user.email", Subject: SubjectInfo{Resolved: true}}

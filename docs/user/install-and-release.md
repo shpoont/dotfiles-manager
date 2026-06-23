@@ -1,6 +1,6 @@
 # Install and release notes
 
-These docs describe the v2 local-settings-manager workflow in this repository.
+These docs describe the v2 local-settings-manager workflow for a local settings folder.
 After installing any binary, verify that the binary exposes the v2 commands you
 intend to use before following the quickstart.
 
@@ -17,9 +17,9 @@ release tool report the explicit development fallback
 
 ## Prerequisites
 
-- Git, for the Git-based quickstart and normal repository work.
+- Git, for the Git-based quickstart and optional settings-folder versioning/sharing.
 - Go 1.22 or newer when building from source.
-- A repository directory where desired settings will be stored.
+- A settings-folder directory where stored settings will be kept.
 
 ## Install from the current source checkout
 
@@ -34,6 +34,7 @@ go build -o ./bin/dotfiles-manager ./cmd/dotfiles-manager
 ./bin/dotfiles-manager version
 ./bin/dotfiles-manager init --help
 ./bin/dotfiles-manager add --help
+./bin/dotfiles-manager sync --help
 ./bin/dotfiles-manager save --help
 ./bin/dotfiles-manager apply --help
 ```
@@ -43,7 +44,7 @@ your shell `PATH` after you verify the build.
 
 ## Install a published release
 
-Published releases exist for this repository, and the Homebrew tap exists. A
+Published releases exist for this project, and the Homebrew tap exists. A
 published binary can lag the current documentation, so always verify the v2
 commands after installation.
 
@@ -54,6 +55,7 @@ brew install shpoont/tap/dotfiles-manager
 dotfiles-manager version
 dotfiles-manager init --help
 dotfiles-manager add --help
+dotfiles-manager sync --help
 dotfiles-manager save --help
 dotfiles-manager apply --help
 ```
@@ -65,11 +67,12 @@ go install github.com/shpoont/dotfiles-manager/cmd/dotfiles-manager@latest
 dotfiles-manager version
 dotfiles-manager init --help
 dotfiles-manager add --help
+dotfiles-manager sync --help
 dotfiles-manager save --help
 dotfiles-manager apply --help
 ```
 
-If `init`, `add`, `save`, and `apply` are not present, the installed binary is
+If `init`, `add`, `sync`, `save`, and `apply` are not present, the installed binary is
 not the v2-capable binary described by these docs. Build from the current source
 checkout or install a newer release.
 
@@ -86,10 +89,9 @@ simpler:
   `provenance=unspecified`;
 - the safe temporary-home quickstart in [`getting-started.md`](./getting-started.md)
   should complete without touching the real home directory;
-- live writes should require explicit confirmation and create local backup
-  evidence when a supported apply writes live state;
-- recovery should be previewable with `restore <run-id> --dry-run` before
-  `restore <run-id> --yes`.
+- live writes should require explicit confirmation;
+- the status/diff/sync quickstart should remain readable without teaching local
+  recovery internals as the normal workflow.
 
 Internal release and dogfood details live in:
 

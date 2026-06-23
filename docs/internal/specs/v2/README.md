@@ -30,8 +30,8 @@ Required constraints:
 - Git is optional; a settings folder may be versioned with Git but does not have
   to be a Git repository.
 - `status`, `diff`, and `sync` are the primary UX.
-- `save`/`apply` are directional sync aliases or advanced commands only if #225
-  accepts that policy.
+- `save`/`apply` are secondary compatibility aliases for explicit directional
+  sync, not separate primary workflows.
 - Backup/restore is out of v2 product scope; #212 owns removal or quarantine of
   old backup/restore surfaces.
 - v1 migration is out of the active v2 roadmap; #213/#226 own legacy public
@@ -70,6 +70,7 @@ Required constraints:
 | `13-smart-sync-planning-contract.md` | Active behavior spec | Source of truth for smart-sync planning and conflict UX from #222; no write execution authority. |
 | `14-smart-sync-execution-contract.md` | Active behavior spec | Source of truth for mutating smart-sync execution, confirmation, refusal, and execution reporting from #223. |
 | `15-partial-many-app-sync-fixtures-contract.md` | Active behavior spec | Source of truth for partial and many-app sync UX fixture coverage from #224; no new selector or driver implementation authority. |
+| `16-save-apply-alias-policy.md` | Active behavior spec | Source of truth for #225 `save`/`apply` public alias policy; `sync` remains primary. |
 | `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
@@ -111,6 +112,9 @@ are reconciled with the active behavior specs in this index.
 - #224 owns only partial and many-app sync UX fixture coverage in
   `15-partial-many-app-sync-fixtures-contract.md`; it does not finalize selector
   spelling or add new app/backend behavior.
+- #225 owns only the `save`/`apply` alias policy in
+  `16-save-apply-alias-policy.md`; it does not remove the aliases or change
+  smart-sync planning/execution semantics.
 - #212 owns backup/restore removal or quarantine.
 - #213 and #226 own legacy v1 public-surface policy.
 - #214 and #227-#229 own catalogs/taps.

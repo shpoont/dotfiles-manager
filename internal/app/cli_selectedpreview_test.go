@@ -135,6 +135,10 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	payload, stdout, err := runSelectedPreviewCLI(t, []string{"save", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.Error(t, err)
 	require.Equal(t, "dotfiles-manager.v2.preview", payload["schema"])
+	require.Equal(t, "save", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "save", payload["invokedCommand"])
+	require.Equal(t, "live_to_stored", payload["direction"])
 	errorObj := payload["error"].(map[string]any)
 	require.Equal(t, "selectedlive.confirmationRequired", errorObj["code"])
 	require.NoFileExists(t, desiredPath)
@@ -143,6 +147,9 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.NoError(t, err)
 	require.Equal(t, "save", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "save", payload["invokedCommand"])
+	require.Equal(t, "live_to_stored", payload["direction"])
 	require.Equal(t, false, payload["dryRun"])
 	require.FileExists(t, desiredPath)
 	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
@@ -153,6 +160,9 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.Error(t, err)
 	require.Equal(t, "apply", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "apply", payload["invokedCommand"])
+	require.Equal(t, "stored_to_live", payload["direction"])
 	errorObj = payload["error"].(map[string]any)
 	require.Equal(t, "selectedlive.confirmationRequired", errorObj["code"])
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "changed-live@example.com")
@@ -162,14 +172,21 @@ func TestV2SaveApplyLiveRequireYesForChangesAndYesMutates(t *testing.T) {
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--non-interactive", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.Error(t, err)
 	require.Equal(t, "apply", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "apply", payload["invokedCommand"])
+	require.Equal(t, "stored_to_live", payload["direction"])
 	errorObj = payload["error"].(map[string]any)
 	require.Equal(t, "selectedlive.confirmationRequired", errorObj["code"])
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "changed-live@example.com")
 	require.NotContains(t, stdout, "current@example.com")
 	require.NotContains(t, stdout, "changed-live@example.com")
 
-	_, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
+	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "test.app:identity.email"})
 	require.NoError(t, err)
+	require.Equal(t, "apply", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "apply", payload["invokedCommand"])
+	require.Equal(t, "stored_to_live", payload["direction"])
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.liveRoot, "config.yaml"))), "current@example.com")
 	require.NotContains(t, stdout, "current@example.com")
 	require.NotContains(t, stdout, "changed-live@example.com")
@@ -186,7 +203,7 @@ func TestV2BundledGitSelectedSettingBlockedAndMissingDefaultText(t *testing.T) {
 		stdout, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--dry-run", "--user-id", "leon", "git:user.email"})
 		require.NoError(t, err)
 		require.Contains(t, stdout, "Cannot apply Git user email yet")
-		require.Contains(t, stdout, "Blocked because no saved desired value exists yet")
+		require.Contains(t, stdout, "Blocked because no stored settings exist yet")
 		require.Contains(t, stdout, "No files changed")
 		require.Contains(t, stdout, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email")
 		require.NotContains(t, stdout, "Would update live file")
@@ -202,7 +219,7 @@ func TestV2BundledGitSelectedSettingBlockedAndMissingDefaultText(t *testing.T) {
 
 		stdout, _, err := runSelectedPreviewTextCLI(t, []string{"save", "--dry-run", "--user-id", "leon", "git:user.email"})
 		require.NoError(t, err)
-		require.Contains(t, stdout, "Dry run: would save Git user email")
+		require.Contains(t, stdout, "Dry run: would sync Git user email to stored settings")
 		require.Contains(t, stdout, "No live value found")
 		require.Contains(t, stdout, "desired/user/leon/targets/git/settings.yaml")
 		require.Contains(t, stdout, "No files changed")
@@ -228,23 +245,23 @@ func TestV2BundledGitSelectedSettingReadableTranscript(t *testing.T) {
 
 	statusOut, _, err := runSelectedPreviewTextCLI(t, []string{"status", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, statusOut, "Selected, but not saved to this repo yet.")
+	require.Contains(t, statusOut, "Selected, but not stored in the settings folder yet.")
 	require.Contains(t, statusOut, "No files changed.")
 	require.Contains(t, statusOut, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.email")
 	requireReadableDefaultOutput(t, statusOut)
 
 	saveDryRunOut, _, err := runSelectedPreviewTextCLI(t, []string{"save", "--dry-run", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, saveDryRunOut, "Dry run: would save Git user email.")
+	require.Contains(t, saveDryRunOut, "Dry run: would sync Git user email to stored settings.")
 	require.Contains(t, saveDryRunOut, "No files changed.")
 	require.Contains(t, saveDryRunOut, "dotfiles-manager --config dotfiles-manager.v2.yaml save --yes --user-id leon git:user.email")
 	requireReadableDefaultOutput(t, saveDryRunOut)
 
 	saveYesOut, _, err := runSelectedPreviewTextCLI(t, []string{"save", "--yes", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, saveYesOut, "Saved Git user email as desired state.")
+	require.Contains(t, saveYesOut, "Synced Git user email to stored settings.")
 	require.Contains(t, saveYesOut, "No live Git config was changed.")
-	require.Contains(t, saveYesOut, "Repo files changed.")
+	require.Contains(t, saveYesOut, "Stored settings changed.")
 	require.Contains(t, saveYesOut, "dotfiles-manager --config dotfiles-manager.v2.yaml diff --user-id leon git:user.email")
 	requireReadableDefaultOutput(t, saveYesOut)
 
@@ -252,17 +269,17 @@ func TestV2BundledGitSelectedSettingReadableTranscript(t *testing.T) {
 
 	diffOut, _, err := runSelectedPreviewTextCLI(t, []string{"diff", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, diffOut, "Git user email differs from saved desired state.")
-	require.Contains(t, diffOut, "Reason:\n  Live value differs from saved desired state. The last apply recorded by this tool matches the saved desired value.")
+	require.Contains(t, diffOut, "Git user email differs between live settings and stored settings.")
+	require.Contains(t, diffOut, "Reason:\n  Live settings differ from stored settings. The previous apply recorded by this tool matches stored settings.")
 	require.NotContains(t, diffOut, "This setting has not previously been applied by this tool; review before confirming.")
 	require.NotContains(t, diffOut, "Review note:")
 	require.Contains(t, diffOut, "No files changed.")
-	require.Contains(t, diffOut, "dotfiles-manager --config dotfiles-manager.v2.yaml apply --dry-run --user-id leon git:user.email")
+	require.Contains(t, diffOut, "dotfiles-manager --config dotfiles-manager.v2.yaml sync --user-id leon git:user.email")
 	requireReadableDefaultOutput(t, diffOut)
 
 	applyDryRunOut, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--dry-run", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, applyDryRunOut, "Dry run: would update Git user email.")
+	require.Contains(t, applyDryRunOut, "Dry run: would sync Git user email to live settings.")
 	require.Contains(t, applyDryRunOut, "A local backup of $HOME/.gitconfig would be created before writing.")
 	require.Contains(t, applyDryRunOut, "No files changed.")
 	require.Contains(t, applyDryRunOut, "dotfiles-manager --config dotfiles-manager.v2.yaml apply --yes --user-id leon git:user.email")
@@ -270,7 +287,7 @@ func TestV2BundledGitSelectedSettingReadableTranscript(t *testing.T) {
 
 	applyYesOut, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--yes", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, applyYesOut, "Updated Git user email.")
+	require.Contains(t, applyYesOut, "Synced Git user email to live settings.")
 	require.Contains(t, applyYesOut, "Live files changed after backup.")
 	require.Contains(t, applyYesOut, "Local backup recorded for restore as backup run ")
 	require.Contains(t, applyYesOut, "dotfiles-manager --config dotfiles-manager.v2.yaml restore ")
@@ -288,7 +305,7 @@ func TestV2BundledGitSelectedSettingVerboseTextAndJSONContract(t *testing.T) {
 	statusDefault, _, err := runSelectedPreviewTextCLI(t, []string{"status", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
 	require.Contains(t, statusDefault, "Git user email")
-	require.Contains(t, statusDefault, "Selected, but not saved to this repo yet")
+	require.Contains(t, statusDefault, "Selected, but not stored in the settings folder yet")
 	require.Contains(t, statusDefault, "$HOME/.gitconfig [user] email")
 	require.Contains(t, statusDefault, "Value hidden for safety")
 	require.Contains(t, statusDefault, "No files changed")
@@ -302,7 +319,7 @@ func TestV2BundledGitSelectedSettingVerboseTextAndJSONContract(t *testing.T) {
 
 	statusVerbose, _, err := runSelectedPreviewTextCLI(t, []string{"status", "--verbose", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
-	require.Contains(t, statusVerbose, "Selected, but not saved to this repo yet")
+	require.Contains(t, statusVerbose, "Selected, but not stored in the settings folder yet")
 	require.Contains(t, statusVerbose, "Technical details:")
 	require.Contains(t, statusVerbose, "resource=user-email")
 	require.Contains(t, statusVerbose, "driver=ini-file")
@@ -317,8 +334,8 @@ func TestV2BundledGitSelectedSettingVerboseTextAndJSONContract(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "save dry-run", args: []string{"save", "--dry-run", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Dry run: would save Git user email"},
-		{name: "save yes", args: []string{"save", "--yes", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Saved Git user email as desired state"},
+		{name: "save dry-run", args: []string{"save", "--dry-run", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Dry run: would sync Git user email to stored settings"},
+		{name: "save yes", args: []string{"save", "--yes", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Synced Git user email to stored settings"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, _, err := runSelectedPreviewTextCLI(t, tc.args)
@@ -337,9 +354,9 @@ func TestV2BundledGitSelectedSettingVerboseTextAndJSONContract(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "diff", args: []string{"diff", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Git user email differs from saved desired state"},
-		{name: "apply dry-run", args: []string{"apply", "--dry-run", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Dry run: would update Git user email"},
-		{name: "apply yes", args: []string{"apply", "--yes", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Updated Git user email"},
+		{name: "diff", args: []string{"diff", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Git user email differs between live settings and stored settings"},
+		{name: "apply dry-run", args: []string{"apply", "--dry-run", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Dry run: would sync Git user email to live settings"},
+		{name: "apply yes", args: []string{"apply", "--yes", "--verbose", "--user-id", "leon", "git:user.email"}, want: "Synced Git user email to live settings"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, _, err := runSelectedPreviewTextCLI(t, tc.args)
@@ -401,6 +418,9 @@ func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--dry-run", "--json", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
 	require.Equal(t, "save", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "save", payload["invokedCommand"])
+	require.Equal(t, "live_to_stored", payload["direction"])
 	require.Equal(t, true, payload["dryRun"])
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, "changed", summary["status"])
@@ -408,7 +428,7 @@ func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	items = payload["items"].([]any)
 	item = items[0].(map[string]any)
 	require.Equal(t, "would-promote", item["plannedAction"])
-	require.Contains(t, item["message"], "promoted into desired state")
+	require.Contains(t, item["message"], "synced to stored settings")
 	require.NoFileExists(t, desiredPath)
 	require.NotContains(t, stdout, "current@example.com")
 	require.NotContains(t, stdout, helperSecret)
@@ -416,6 +436,9 @@ func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
 	require.Equal(t, "save", payload["command"])
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "save", payload["invokedCommand"])
+	require.Equal(t, "live_to_stored", payload["direction"])
 	require.FileExists(t, desiredPath)
 	require.Contains(t, string(mustReadCLIFile(t, desiredPath)), "current@example.com")
 	require.NotContains(t, stdout, "current@example.com")
@@ -434,6 +457,9 @@ func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--dry-run", "--json", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "apply", payload["invokedCommand"])
+	require.Equal(t, "stored_to_live", payload["direction"])
 	require.Equal(t, true, payload["dryRun"])
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"))), "changed@example.com")
 	require.NotContains(t, stdout, "changed@example.com")
@@ -441,6 +467,9 @@ func TestV2BundledGitSelectedSettingStatusDiffSaveApplyEndToEnd(t *testing.T) {
 
 	payload, stdout, err = runSelectedPreviewCLI(t, []string{"apply", "--yes", "--json", "--user-id", "leon", "git:user.email"})
 	require.NoError(t, err)
+	require.Equal(t, "sync", payload["operation"])
+	require.Equal(t, "apply", payload["invokedCommand"])
+	require.Equal(t, "stored_to_live", payload["direction"])
 	require.Equal(t, "apply", payload["command"])
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"))), "current@example.com")
 	require.Contains(t, string(mustReadCLIFile(t, filepath.Join(fixture.homeDir, ".gitconfig"))), helperSecret)
@@ -932,7 +961,7 @@ func TestV2FileTreeApplyReportsRemovalPathsBeforeAndAfterConfirmation(t *testing
 
 	stdout, _, err := runSelectedPreviewTextCLI(t, []string{"apply", "--dry-run", "--user-id", "leon", "test.tree:config"})
 	require.NoError(t, err)
-	require.Contains(t, stdout, "Will remove live paths not present in saved desired state")
+	require.Contains(t, stdout, "Will remove live paths not present in stored settings")
 	require.Contains(t, stdout, "lua/extra.lua")
 	require.Equal(t, extraBody, string(mustReadCLIFile(t, filepath.Join(liveTree, "lua", "extra.lua"))))
 	require.NotContains(t, stdout, currentBody)
@@ -953,7 +982,7 @@ func TestV2FileTreeApplyReportsRemovalPathsBeforeAndAfterConfirmation(t *testing
 
 	stdout, _, err = runSelectedPreviewTextCLI(t, []string{"apply", "--yes", "--user-id", "leon", "test.tree:config"})
 	require.NoError(t, err)
-	require.Contains(t, stdout, "Removed live paths not present in saved desired state")
+	require.Contains(t, stdout, "Removed live paths not present in stored settings")
 	require.Contains(t, stdout, "lua/extra.lua")
 	require.NoFileExists(t, filepath.Join(liveTree, "lua", "extra.lua"))
 	require.Equal(t, desiredBody, string(mustReadCLIFile(t, filepath.Join(liveTree, "init.lua"))))
@@ -1271,7 +1300,35 @@ func TestV2SyncHelpUsesResetVocabulary(t *testing.T) {
 	rootStdout, rootStderr, err := runSelectedPreviewTextCLI(t, []string{"--help"})
 	require.NoError(t, err)
 	require.Empty(t, rootStderr)
+	require.Contains(t, rootStdout, "Normal v2 workflow:\n  status -> diff -> sync")
 	require.Contains(t, rootStdout, "Sync safe v2 settings changes between live settings and stored settings")
+	require.Contains(t, rootStdout, "Compatibility aliases:")
+	require.Contains(t, rootStdout, "save  sync live settings -> stored settings")
+	require.Contains(t, rootStdout, "apply sync stored settings -> live settings")
+	require.Less(t, strings.Index(rootStdout, "sync        Sync safe"), strings.Index(rootStdout, "save        Compatibility alias"))
+	require.Less(t, strings.Index(rootStdout, "save        Compatibility alias"), strings.Index(rootStdout, "apply       Compatibility alias"))
+
+	saveStdout, saveStderr, err := runSelectedPreviewTextCLI(t, []string{"save", "--help"})
+	require.NoError(t, err)
+	require.Empty(t, saveStderr)
+	require.Contains(t, saveStdout, "Compatibility alias for directional sync")
+	require.Contains(t, saveStdout, "save copies selected live settings to stored settings")
+	require.Contains(t, saveStdout, "For normal use, run status, then diff, then sync")
+	require.Contains(t, saveStdout, "explicit live-settings-to-stored-settings direction")
+	require.NotContains(t, saveStdout, "should be taught first")
+	require.NotContains(t, strings.ToLower(saveStdout), "desired")
+	require.NotContains(t, strings.ToLower(saveStdout), "repository")
+
+	applyStdout, applyStderr, err := runSelectedPreviewTextCLI(t, []string{"apply", "--help"})
+	require.NoError(t, err)
+	require.Empty(t, applyStderr)
+	require.Contains(t, applyStdout, "Compatibility alias for directional sync")
+	require.Contains(t, applyStdout, "apply copies selected stored settings from the settings folder to live settings")
+	require.Contains(t, applyStdout, "For normal use, run status, then diff, then sync")
+	require.Contains(t, applyStdout, "explicit stored-settings-to-live-settings direction")
+	require.NotContains(t, applyStdout, "should be taught first")
+	require.NotContains(t, strings.ToLower(applyStdout), "desired")
+	require.NotContains(t, strings.ToLower(applyStdout), "repository")
 
 	syncStdout, syncStderr, err := runSelectedPreviewTextCLI(t, []string{"sync", "--help"})
 	require.NoError(t, err)

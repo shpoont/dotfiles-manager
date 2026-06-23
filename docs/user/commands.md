@@ -15,6 +15,7 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] sync [--yes] [--non-interactive] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup list [--json]
@@ -46,8 +47,17 @@ No parent-directory search is performed for v1 config discovery.
 `version`/`--version` do not require config resolution.
 
 For v2 selected-setting commands, scripts should pass `--config
-<dotfiles-manager.v2.yaml>` explicitly. Live `save`, `apply`, and `restore`
-require a v2 root and require `--yes` before a planned write is performed.
+<dotfiles-manager.v2.yaml>` explicitly. The normal v2 workflow is
+`status -> diff -> sync`. `sync` is the primary mutating command. `save` and
+`apply` are compatibility aliases for explicit directions:
+
+```text
+save  = sync live settings -> stored settings
+apply = sync stored settings -> live settings
+```
+
+Mutating `sync`, `save`, `apply`, and `restore` require a v2 root and require
+`--yes` before a planned write is performed.
 
 Log file destination:
 - default paths:
@@ -67,9 +77,10 @@ stderr diagnostics:
 - stdout remains command output (including `--json`)
 
 Selected-setting output tiers:
-- default text for `status`, `diff`, `save`, and `apply` is human-first: it
-  names the selected setting, says whether anything changed, shows user-level
-  live/repo paths, hides raw values, and gives a safe next command.
+- default text for `status`, `diff`, `sync`, and the `save`/`apply`
+  directional aliases is human-first: it names the selected setting, says
+  whether anything changed, shows user-level live/stored-settings paths, hides
+  raw values, and gives a safe next command.
 - `--verbose` is currently implemented for v2 selected-setting `status`,
   `diff`, `save`, and `apply` only. It keeps the same default explanation and
   appends technical details such as profile stack, refs, resource/driver/selector,
@@ -101,13 +112,13 @@ Behavior:
 
 ## v2 `init`
 
-`init` creates the v2 repository scaffold and local identity state:
+`init` creates the v2 settings-folder scaffold and local identity state:
 
 ```bash
 dotfiles-manager init --machine-id docs-machine --user-id docs-user
 ```
 
-Repository files:
+Settings-folder files:
 
 ```text
 dotfiles-manager.v2.yaml
@@ -128,7 +139,7 @@ dotfiles-manager --config dotfiles-manager.v2.yaml list --user-id docs-user
 ```
 
 It prints the selected ref, scope, subject, source layer, resource driver, named
-location, selector, desired URI, and suggested next commands. Use repeated
+location, selector, stored-settings reference, and suggested next commands. Use repeated
 `--profile <layer>` flags to preview extra profile layers on top of the active
 stack.
 
@@ -270,7 +281,7 @@ Behavior:
 - reads existing v1 `.dotfiles-manager.yaml` `syncs:`
 - shows each legacy source and target exactly as configured
 - shows expanded source/target paths separately
-- proposes v2 `custom.files` setting refs, driver, desired artifact binding, and generated file paths
+- proposes v2 `custom.files` setting refs, driver, stored artifact binding, and generated file paths
 - does not delete or rewrite the v1 config
 - `migrate --dry-run` is preview-only and writes nothing
 - plain `migrate` writes only a new migration run directory:
@@ -343,7 +354,7 @@ dotfiles-manager recipe discover ssh --json
 ```
 
 Discovery never mutates files or app state. It does not read config contents,
-desired artifacts, backups, ledgers, profile selections, native export/import
+stored artifacts, backups, ledgers, profile selections, native export/import
 commands, or target runtime state. It only performs PATH command lookups and
 lstat-style metadata checks of declared live config paths.
 
@@ -357,10 +368,10 @@ bundled live config path to discover.
 
 ## v2 add: select a supported target
 
-`add` updates the active v2 profile layer so later `status`, `save`, `diff`,
-and `apply` know which supported settings to manage. It does **not** import
-values, write desired artifacts, write live app files, create backups, or update
-ledgers.
+`add` updates the active v2 profile layer so later `status`, `diff`, `sync`,
+and the directional aliases know which supported settings to manage. It does
+**not** import values, write stored settings, write live app files, create
+backups, or update ledgers.
 
 Common examples:
 
@@ -377,9 +388,9 @@ run interactively and choose the layer. `--json`, `--non-interactive`, and
 `add.choice-required` with machine-readable `missingChoices`.
 
 For file and file-tree settings, `add` writes explicit artifact metadata such
-as `artifact: artifacts/config` so desired state is stored as an artifact
+as `artifact: artifacts/config` so the setting is stored as an artifact
 payload. For scalar settings, the profile entry can remain scope-only and later
-`save` stores the value in `settings.yaml`.
+sync to stored settings writes the value in `settings.yaml`.
 
 ## v2 app authoring: custom local recipes
 
@@ -412,7 +423,7 @@ recipes/local/<target-id>/fixtures/roundtrip/<fixture-name>/
 It copies fixture data into a temporary directory, maps named recipe locations
 to `input/live/locations/<location-id>/...`, and compares results with
 `expected/desired/` and `expected/live/`. It does not touch real app config,
-the real desired root, trust records, backups, or ledgers.
+the real stored-settings root, trust records, backups, or ledgers.
 
 Supported roundtrip drivers in this tranche are whole-file `file` resources and
 selected values backed by `ini-file`, `json-file`, `yaml-file`, `toml-file`, or
@@ -457,9 +468,9 @@ selections:
         scope: user
 ```
 
-Then use the existing selected-value commands. `save --yes` is the supported
-import/promotion command for selected Git identity values: it copies the
-selected live value into v2 desired state after you first preview it.
+Then use the sync-first selected-value model. `sync` is primary. When there are
+no stored settings yet, use the explicit `save` compatibility alias to choose
+the live-settings-to-stored-settings direction after you first preview it.
 
 ```bash
 dotfiles-manager status --user-id leon git:user.email
@@ -470,13 +481,13 @@ dotfiles-manager apply --dry-run --user-id leon git:user.email
 dotfiles-manager apply --yes --user-id leon git:user.email
 ```
 
-When no desired artifact exists and the selected live Git value exists,
+When no stored settings exist and the selected live Git value exists,
 `save --dry-run` explains in plain language that the current live value can be
-saved to this repo. `--verbose` shows the underlying `action=would-promote`
-planner detail for debugging. Both output tiers omit the raw value.
+synced to stored settings. `--verbose` can add troubleshooting metadata, but it
+still keeps the raw value hidden.
 
-`save --yes` copies the selected live value from `~/.gitconfig` into the desired
-settings artifact for that profile subject. For user-scoped Git settings the
+`save --yes` copies the selected live value from `~/.gitconfig` into stored
+settings for that profile subject. For user-scoped Git settings the
 path is:
 
 ```text
@@ -486,16 +497,16 @@ desired/user/<user>/targets/git/settings.yaml
 For example, `--user-id leon` writes
 `desired/user/leon/targets/git/settings.yaml`.
 
-Inspecting that desired file directly can reveal the raw safe identity value
+Inspecting that stored settings file directly can reveal the raw safe identity value
 such as an email address or display name. The raw value is stored there because
-the manager needs an actual desired value to apply later. Normal command output,
+the manager needs an actual value to sync later. Normal command output,
 reports, ledgers, backup metadata, and JSON previews stay redacted.
 
-Promotion applies only to the selected safe Git identity key. Repeat the
-preview-and-save flow for both `git:user.email` and `git:user.name` if you want
-to manage both values.
+The first live-settings-to-stored-settings sync applies only to the selected
+safe Git identity key. Repeat the preview-and-save flow for both
+`git:user.email` and `git:user.name` if you want to manage both values.
 
-`apply --yes` writes the desired value back to `~/.gitconfig` after planning,
+`apply --yes` syncs the stored value back to `~/.gitconfig` after planning,
 backup, write, and verification. The backup is a local whole-file pre-apply
 backup under the manager's local state directory; normal output, ledgers, and
 backup metadata do not show raw Git config values.
@@ -529,7 +540,8 @@ selections:
         scope: user
 ```
 
-Then use the same selected-value workflow:
+Then use the same sync-first selected-value model, using `save`/`apply` only as
+explicit directional aliases:
 
 ```bash
 dotfiles-manager recipe explain starship
@@ -541,7 +553,7 @@ dotfiles-manager apply --dry-run --user-id leon starship:add_newline
 dotfiles-manager apply --yes --user-id leon starship:add_newline
 ```
 
-For user-scoped Starship settings, `save --yes` writes desired state to:
+For user-scoped Starship settings, `save --yes` writes stored settings to:
 
 ```text
 desired/user/<user>/targets/starship/settings.yaml
@@ -591,7 +603,8 @@ selections:
         artifact: artifacts/zshrc
 ```
 
-Then use the same selected file-resource workflow:
+Then use the same sync-first selected file-resource model, using `save`/`apply`
+only as explicit directional aliases:
 
 ```bash
 dotfiles-manager recipe explain zsh
@@ -603,7 +616,7 @@ dotfiles-manager apply --dry-run --user-id leon zsh:zshrc
 dotfiles-manager apply --yes --user-id leon zsh:zshrc
 ```
 
-For user-scoped Zsh files, `save --yes` writes the desired artifact to:
+For user-scoped Zsh files, `save --yes` writes the stored artifact to:
 
 ```text
 desired/user/<user>/targets/zsh/artifacts/<setting-id>
@@ -615,8 +628,8 @@ For example, `--user-id leon` and `zsh:zshrc` write:
 desired/user/leon/targets/zsh/artifacts/zshrc
 ```
 
-The desired artifact contains the raw file bytes because it is the file that
-will be applied later. Normal text and JSON output, diffs, ledgers, and backup
+The stored artifact contains the raw file bytes because it is the file that
+will be synced later. Normal text and JSON output, diffs, ledgers, and backup
 metadata stay metadata-only and do not print raw startup file contents.
 
 Zsh startup files can affect shell startup behavior. For `save` and `apply`
@@ -683,7 +696,7 @@ selections:
         artifact: artifacts/home.conf
 ```
 
-Then use the same selected file-resource workflow:
+Then use the same sync-first selected file-resource model, using `save`/`apply` only as explicit directional aliases:
 
 ```bash
 dotfiles-manager recipe explain tmux
@@ -695,7 +708,7 @@ dotfiles-manager apply --dry-run --user-id leon tmux:home.conf
 dotfiles-manager apply --yes --user-id leon tmux:home.conf
 ```
 
-For user-scoped tmux files, `save --yes` writes the desired artifact to:
+For user-scoped tmux files, `save --yes` writes the stored artifact to:
 
 ```text
 desired/user/<user>/targets/tmux/artifacts/<setting-id>
@@ -713,8 +726,8 @@ The corresponding URI is:
 desired://user/leon/targets/tmux/artifacts/home.conf
 ```
 
-The desired artifact contains the raw tmux config bytes because it is the file
-that will be applied later. Normal text and JSON output, diffs, ledgers, and
+The stored artifact contains the raw tmux config bytes because it is the file
+that will be synced later. Normal text and JSON output, diffs, ledgers, and
 backup metadata stay metadata-only and do not print raw tmux config contents.
 
 tmux loads user configuration according to tmux's own lookup rules when the
@@ -736,11 +749,11 @@ Missing-state behavior is fail-closed in the current whole-file slice:
   `tmux:xdg.conf`) is missing, status/diff/save/apply block rather than
   creating it;
 - if the selected live config file is missing, `save --dry-run` / `save --yes`
-  block and do not delete or tombstone desired state;
+  block and do not delete or tombstone stored settings;
 - if the selected live config file is missing, `apply --dry-run` / `apply --yes`
   also block in this slice rather than creating the file or intermediate
   directories;
-- if the desired artifact is missing, `apply --dry-run` / `apply --yes` block
+- if the stored artifact is missing, `apply --dry-run` / `apply --yes` block
   and do not delete or tombstone live state.
 
 The bundled recipe deliberately does **not** manage:
@@ -786,7 +799,7 @@ selections:
         artifact: artifacts/config
 ```
 
-Then use the same selected file-resource workflow:
+Then use the same sync-first selected file-resource model, using `save`/`apply` only as explicit directional aliases:
 
 ```bash
 dotfiles-manager recipe explain ssh
@@ -798,7 +811,7 @@ dotfiles-manager apply --dry-run --user-id leon ssh:config
 dotfiles-manager apply --yes --user-id leon ssh:config
 ```
 
-For user-scoped SSH config, `save --yes` writes the desired artifact to:
+For user-scoped SSH config, `save --yes` writes the stored artifact to:
 
 ```text
 desired/user/<user>/targets/ssh/artifacts/config
@@ -811,8 +824,8 @@ desired/user/leon/targets/ssh/artifacts/config
 desired://user/leon/targets/ssh/artifacts/config
 ```
 
-The desired artifact contains the raw SSH config bytes because it is the file
-that will be applied later. Normal text and JSON output, diffs, ledgers, and
+The stored artifact contains the raw SSH config bytes because it is the file
+that will be synced later. Normal text and JSON output, diffs, ledgers, and
 backup metadata stay metadata-only and do not print raw SSH config contents.
 
 For `save` and `apply`, the recipe emits this non-blocking content-review
@@ -850,12 +863,12 @@ ssh.config.symlink-unsupported
 Missing-state behavior is fail-closed:
 
 - if `~` is missing, status/diff/save/apply block;
-- if live `~/.ssh/config` is missing, save blocks and does not delete desired
-  state;
+- if live `~/.ssh/config` is missing, save blocks and does not delete stored
+  settings;
 - if live `~/.ssh/config` is missing, apply also blocks rather than creating
   the file or intermediate directories;
-- if the desired artifact is missing, apply blocks and does not delete live
-  state.
+- if the stored artifact is missing, apply blocks and does not delete live
+  settings.
 
 The bundled recipe deliberately does **not** manage:
 
@@ -905,7 +918,7 @@ selections:
         artifact: artifacts/config
 ```
 
-Then use the same selected file-tree workflow:
+Then use the same sync-first selected file-tree model, using `save`/`apply` only as explicit directional aliases:
 
 ```bash
 dotfiles-manager recipe explain nvim
@@ -917,7 +930,7 @@ dotfiles-manager apply --dry-run --user-id leon nvim:config
 dotfiles-manager apply --yes --user-id leon nvim:config
 ```
 
-For user-scoped Neovim config, `save --yes` writes the desired artifact tree to:
+For user-scoped Neovim config, `save --yes` writes the stored artifact tree to:
 
 ```text
 desired/user/<user>/targets/nvim/artifacts/config
@@ -935,8 +948,8 @@ The corresponding URI is:
 desired://user/leon/targets/nvim/artifacts/config
 ```
 
-The desired artifact contains the raw managed config files because those are the
-files that will be applied later. Normal text and JSON output, diffs, ledgers,
+The stored artifact contains the raw managed config files because those are the
+files that will be synced later. Normal text and JSON output, diffs, ledgers,
 and backup metadata stay metadata-only and do not print raw file contents.
 
 Missing-state behavior is explicit:
@@ -946,15 +959,15 @@ Missing-state behavior is explicit:
 - if `~/.config/nvim` is missing but `~/.config` exists, `status` reports a
   missing live tree;
 - `save --dry-run` / `save --yes` block when the live tree is missing and do not
-  delete or tombstone an existing desired artifact;
-- `apply --dry-run` previews creating the live tree when a desired artifact
+  delete or tombstone an existing stored artifact;
+- `apply --dry-run` previews creating the live tree when a stored artifact
   exists;
 - `apply --yes` may create `~/.config/nvim`, records an absent-tree backup, and
   verifies the result.
 
 File-tree apply reconciles the whole managed backing tree, not only one semantic
 setting. If a managed live path exists under `~/.config/nvim` but is absent from
-the saved desired artifact, `apply --dry-run` reports that pending removal before
+the stored artifact, `apply --dry-run` reports that pending removal before
 confirmation. Text output shows up to 20 removal paths and then points to
 `--json`; JSON output includes the full untruncated list in
 `items[].fileTree.operations[]` with slash-relative paths, metadata-only entry
@@ -979,7 +992,7 @@ The v2 selected command flow also supports whole-file and file-tree recipe
 resources. These resources are selected by a recipe, not scalar keys inside
 `settings.yaml`.
 
-For a selected file or file-tree setting, the default desired artifact is:
+For a selected file or file-tree setting, the default stored artifact is:
 
 ```text
 desired/<scope>/<subject>/targets/<target>/artifacts/<setting-id>
@@ -998,7 +1011,7 @@ The corresponding URI is:
 desired://user/leon/targets/test.files/artifacts/config
 ```
 
-Normal commands are the same as selected scalar settings:
+Normal commands follow the same sync-first model as selected scalar settings:
 
 ```bash
 dotfiles-manager status --user-id leon test.files:config
@@ -1010,15 +1023,15 @@ dotfiles-manager apply --yes --user-id leon test.files:config
 ```
 
 `save --yes` copies the current live file bytes or managed tree entries into the
-desired artifact after preview. `apply --yes` backs up the live file/tree, writes
-the desired artifact to the live path, and verifies the result. For file-tree
+stored artifact after preview. `apply --yes` backs up the live file/tree, writes
+the stored artifact to the live path, and verifies the result. For file-tree
 resources, apply reconciles the whole managed backing tree: live managed paths
-that are absent from the desired artifact are removed after backup.
+that are absent from the stored artifact are removed after backup.
 
 Diff and normal command output are metadata-only for file and file-tree resources
 in this slice: they show refs, paths, existence, size/count/hash metadata, change
 kind, and backup/ledger refs, but they do not print raw file contents. The
-desired artifact itself contains the raw bytes because that is the state to apply
+stored artifact itself contains the raw bytes because that is the state to apply
 later.
 
 For file-tree `apply`, text output makes removals explicit before confirmation:
@@ -1032,8 +1045,8 @@ symlinks and other non-regular entries fail closed before operation entries are
 emitted.
 
 Delete/tombstone behavior is intentionally not supported yet. A missing live file
-or tree blocks `save`; it does not remove an existing desired artifact. A missing
-desired artifact blocks `apply`; it does not delete the live file/tree. Selected
+or tree blocks `save`; it does not remove an existing stored artifact. A missing
+stored artifact blocks `apply`; it does not delete the live file/tree. Selected
 single-file apply still requires an existing live file so the pre-mutation backup
 has a concrete file. Selected file-tree apply may create a missing live tree when
 the named location root exists; the backup records the tree as absent.
