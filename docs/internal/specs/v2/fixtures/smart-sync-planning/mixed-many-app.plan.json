@@ -1,0 +1,173 @@
+{
+  "schema": "dotfiles-manager.sync-plan.v2.example",
+  "planVersion": 1,
+  "mode": "planning-only",
+  "selection": {
+    "kind": "all-apps"
+  },
+  "generatedFrom": {
+    "statusDiffContract": "12-status-diff-read-only-contract",
+    "planningContract": "13-smart-sync-planning-contract",
+    "generatedAt": "2026-06-23T00:00:00Z",
+    "baselineEvidence": "fixture"
+  },
+  "apps": [
+    {
+      "appRef": "git",
+      "label": "Git",
+      "checkedSettings": 2
+    },
+    {
+      "appRef": "starship",
+      "label": "Starship",
+      "checkedSettings": 2
+    },
+    {
+      "appRef": "zsh",
+      "label": "Zsh",
+      "checkedSettings": 1
+    },
+    {
+      "appRef": "raycast",
+      "label": "Raycast",
+      "checkedSettings": 1
+    }
+  ],
+  "summaryCounts": {
+    "plannedWritesToStoredSettings": 1,
+    "plannedWritesToLiveSettings": 1,
+    "needsChoice": 2,
+    "skipped": 1,
+    "blocked": 1,
+    "failedInspections": 1
+  },
+  "items": [
+    {
+      "appRef": "git",
+      "settingRef": "git:user.email",
+      "label": "Git user email",
+      "writeUnitId": "git.user.email",
+      "liveAddress": "$HOME/.gitconfig [user] email",
+      "storedAddress": "for me in the settings folder",
+      "state": "changed-in-live-settings",
+      "decision": "write",
+      "direction": "live_to_stored",
+      "wouldWrite": true,
+      "writeSource": "live settings",
+      "writeTarget": "stored settings",
+      "reasonCode": "one-sided-live-change",
+      "reason": "Live settings changed and stored settings did not.",
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "diffAvailable": true,
+      "valuesRedacted": true,
+      "executableBySync": true
+    },
+    {
+      "appRef": "starship",
+      "settingRef": "starship:config",
+      "label": "Starship config",
+      "writeUnitId": "starship.config",
+      "liveAddress": "$HOME/.config/starship.toml",
+      "storedAddress": "for me in the settings folder",
+      "state": "changed-in-stored-settings",
+      "decision": "write",
+      "direction": "stored_to_live",
+      "wouldWrite": true,
+      "writeSource": "stored settings",
+      "writeTarget": "live settings",
+      "reasonCode": "one-sided-stored-change",
+      "reason": "Stored settings changed and live settings did not.",
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "diffAvailable": true,
+      "valuesRedacted": true,
+      "executableBySync": true
+    },
+    {
+      "appRef": "zsh",
+      "settingRef": "zsh:zshrc",
+      "label": "Zsh config",
+      "writeUnitId": "zsh.zshrc",
+      "liveAddress": "$HOME/.zshrc",
+      "storedAddress": "for me in the settings folder",
+      "state": "conflict",
+      "decision": "needs_choice",
+      "direction": "both_sides_changed",
+      "wouldWrite": false,
+      "writeSource": "",
+      "writeTarget": "",
+      "reasonCode": "both-sides-changed",
+      "reason": "Live settings and stored settings both changed.",
+      "choiceRequired": true,
+      "allowedChoices": ["choose_live_settings", "choose_stored_settings", "skip"],
+      "diffAvailable": true,
+      "valuesRedacted": true,
+      "executableBySync": false
+    },
+    {
+      "appRef": "starship",
+      "settingRef": "starship:prompt",
+      "label": "Starship prompt",
+      "writeUnitId": "starship.prompt",
+      "liveAddress": "$HOME/.config/starship.toml [prompt]",
+      "storedAddress": "for me in the settings folder",
+      "state": "no-stored-settings-yet",
+      "decision": "needs_choice",
+      "direction": "live_to_stored",
+      "wouldWrite": false,
+      "writeSource": "",
+      "writeTarget": "",
+      "reasonCode": "no-stored-settings-yet",
+      "reason": "Live settings exist, but no stored settings exist yet.",
+      "choiceRequired": true,
+      "allowedChoices": ["choose_live_settings", "skip"],
+      "diffAvailable": false,
+      "valuesRedacted": true,
+      "executableBySync": false
+    },
+    {
+      "appRef": "raycast",
+      "settingRef": "raycast:preferences",
+      "label": "Raycast preferences",
+      "writeUnitId": "raycast.preferences",
+      "liveAddress": "not available on this computer",
+      "storedAddress": "for me in the settings folder",
+      "state": "app-not-available",
+      "decision": "skip",
+      "direction": "none",
+      "wouldWrite": false,
+      "writeSource": "",
+      "writeTarget": "",
+      "reasonCode": "app-not-available",
+      "reason": "Live settings could not be inspected on this computer.",
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "diffAvailable": false,
+      "valuesRedacted": true,
+      "executableBySync": false
+    },
+    {
+      "appRef": "git",
+      "settingRef": "git:credential.helper",
+      "label": "Git credential helper",
+      "writeUnitId": "git.credential.helper",
+      "liveAddress": "$HOME/.gitconfig [credential] helper",
+      "storedAddress": "for me in the settings folder",
+      "state": "failed-to-inspect",
+      "decision": "blocked",
+      "direction": "unknown",
+      "wouldWrite": false,
+      "writeSource": "",
+      "writeTarget": "",
+      "reasonCode": "failed-to-inspect",
+      "reason": "The live setting could not be inspected safely.",
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "diffAvailable": false,
+      "valuesRedacted": true,
+      "executableBySync": false
+    }
+  ],
+  "noWritePerformed": true
+}

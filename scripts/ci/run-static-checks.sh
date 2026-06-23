@@ -23,6 +23,9 @@ fi
 echo "Checking v2 status/diff fixtures..."
 scripts/ci/check-v2-status-diff-fixtures.sh
 
+echo "Checking v2 smart-sync planning fixtures..."
+scripts/ci/check-v2-smart-sync-planning-fixtures.sh
+
 if [[ "$HAS_GO_MOD" != "true" ]]; then
   echo "No go.mod detected; skipping go vet/staticcheck/golangci-lint."
   exit 0

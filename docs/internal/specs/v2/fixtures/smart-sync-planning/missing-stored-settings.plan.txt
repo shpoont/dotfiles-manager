@@ -1,0 +1,20 @@
+Sync plan checked 1 setting in Starship.
+
+Needs choice:
+
+Starship
+  - starship:prompt
+    Skipped: no stored settings yet.
+    Direction: live settings -> stored settings, if you choose to include this setting later
+    Safe option: sync live settings to stored settings.
+    Live value exists and is hidden for safety.
+    No write was planned automatically.
+
+Summary:
+  Planned writes to stored settings: 0
+  Planned writes to live settings: 0
+  Needs choice: 1
+  Skipped: 0
+  Blocked: 0
+
+Planning-only command: no files were changed.

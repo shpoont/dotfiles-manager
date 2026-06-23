@@ -1,0 +1,59 @@
+Sync plan checked 6 settings across 4 apps.
+
+Summary:
+  Planned writes to stored settings: 1
+  Planned writes to live settings: 1
+  Needs choice: 2
+  Skipped: 1
+  Blocked: 1
+
+Planned writes:
+
+Git
+  - git:user.email
+    Plan: sync live settings to stored settings.
+    Direction: live settings -> stored settings
+    Write source: live settings at $HOME/.gitconfig [user] email
+    Write target: stored settings for me in the settings folder
+    Values hidden for safety.
+
+Starship
+  - starship:config
+    Plan: sync stored settings to live settings.
+    Direction: stored settings -> live settings
+    Write source: stored settings for me in the settings folder
+    Write target: live settings at $HOME/.config/starship.toml
+    Values hidden for safety.
+
+Needs choice:
+
+Zsh
+  - zsh:zshrc
+    Conflict: live settings and stored settings both changed.
+    Direction: both sides changed
+    Needs choice: choose live settings, choose stored settings, or skip before sync can continue.
+    No direction was selected.
+
+Starship
+  - starship:prompt
+    Skipped: no stored settings yet.
+    Direction: live settings -> stored settings, if you choose to include this setting later
+    No write was planned automatically.
+
+Skipped:
+
+Raycast
+  - raycast:preferences
+    Skipped: app not available.
+    Direction: not planned
+    No write was planned.
+
+Blocked:
+
+Git
+  - git:credential.helper
+    Blocked: cannot plan safely.
+    Direction: no safe direction
+    Reason: failed to inspect this live setting.
+
+Planning-only command: no files were changed.

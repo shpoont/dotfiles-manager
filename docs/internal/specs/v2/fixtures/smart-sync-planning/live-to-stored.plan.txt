@@ -1,0 +1,20 @@
+Sync plan checked 1 setting in Git.
+
+Planned writes:
+
+Git
+  - git:user.email
+    Plan: sync live settings to stored settings.
+    Direction: live settings -> stored settings
+    Write source: live settings at $HOME/.gitconfig [user] email
+    Write target: stored settings for me in the settings folder
+    Values hidden for safety.
+
+Summary:
+  Planned writes to stored settings: 1
+  Planned writes to live settings: 0
+  Needs choice: 0
+  Skipped: 0
+  Blocked: 0
+
+Planning-only command: no files were changed.

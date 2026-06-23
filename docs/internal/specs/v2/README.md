@@ -67,6 +67,7 @@ Required constraints:
 | `10-v1-migration.md` | Superseded for active v2 roadmap | v1 migration is not active v2 scope; #213/#226 own legacy public-surface policy. |
 | `11-mvp-acceptance-tests.md` | Draft requiring reset review | Must be reworked so backup/restore, migration, and legacy v1 tests are not v2 acceptance blockers. |
 | `12-status-diff-read-only-contract.md` | Active behavior spec | Source of truth for read-only `status` and `diff` output, examples, and golden-fixture expectations from #221. |
+| `13-smart-sync-planning-contract.md` | Active behavior spec | Source of truth for smart-sync planning and conflict UX from #222; no write execution authority. |
 | `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
@@ -90,12 +91,18 @@ runtime behavior.
 Before runtime implementation starts, the issue must cite the active behavior
 spec or explicitly include the accepted behavior contract.
 
+Older prototype packages such as `internal/v2/guidedsync` may be useful
+implementation references, but they are not public reset-v2 authority until they
+are reconciled with the active behavior specs in this index.
+
 ## Follow-up ownership
 
 - #210 owns vocabulary/source-of-truth cleanup.
 - #211 and #221-#225 own status/diff/sync and `save`/`apply` policy.
 - #221 specifically owns only the read-only `status` and `diff` behavior
   contract in `12-status-diff-read-only-contract.md`.
+- #222 owns only smart-sync planning and conflict UX in
+  `13-smart-sync-planning-contract.md`; #223 owns write execution.
 - #212 owns backup/restore removal or quarantine.
 - #213 and #226 own legacy v1 public-surface policy.
 - #214 and #227-#229 own catalogs/taps.
