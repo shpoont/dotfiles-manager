@@ -1,0 +1,77 @@
+{
+  "schema": "dotfiles-manager.sync-plan.v2.partial-many-app-fixture",
+  "schemaVersion": 1,
+  "command": "sync",
+  "mode": "planning-only",
+  "selection": {
+    "kind": "setting-area",
+    "targetRef": "zsh",
+    "settingAreaRef": "zsh:startup-files",
+    "label": "Zsh startup files"
+  },
+  "summary": {
+    "selectedSettingAreas": 1,
+    "willSync": 1,
+    "needsChoice": 1,
+    "cannotSyncNow": 0,
+    "notSelected": "other setting areas and apps",
+    "outOfScopeWrites": 0
+  },
+  "items": [
+    {
+      "targetRef": "zsh",
+      "settingRef": "zsh:zshrc",
+      "label": "Zsh config",
+      "state": "changed-in-live-settings",
+      "direction": "live_to_stored",
+      "decision": "write",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "valuesRedacted": true,
+      "settingAreaRef": "zsh:startup-files",
+      "settingAreaLabel": "Zsh startup files",
+      "reasonCode": "one-sided-live-change",
+      "message": "Only live settings changed.",
+      "planCategory": "will-sync"
+    },
+    {
+      "targetRef": "zsh",
+      "settingRef": "zsh:zprofile",
+      "label": "Zsh profile",
+      "state": "conflict",
+      "direction": "both_sides_changed",
+      "decision": "needs_choice",
+      "wouldWrite": false,
+      "choiceRequired": true,
+      "allowedChoices": [
+        "choose_live_settings",
+        "choose_stored_settings",
+        "skip"
+      ],
+      "executableBySync": false,
+      "valuesRedacted": true,
+      "settingAreaRef": "zsh:startup-files",
+      "settingAreaLabel": "Zsh startup files",
+      "reasonCode": "both-sides-changed",
+      "message": "Conflict needs a choice.",
+      "planCategory": "needs-choice"
+    }
+  ],
+  "outOfScope": {
+    "settingAreas": [
+      "zsh:history",
+      "zsh:completions"
+    ],
+    "apps": [
+      "git",
+      "starship",
+      "tmux",
+      "nvim",
+      "ssh",
+      "ghostty"
+    ]
+  },
+  "noWritePerformed": true
+}

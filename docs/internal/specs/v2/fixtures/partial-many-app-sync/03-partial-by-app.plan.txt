@@ -1,0 +1,18 @@
+Sync plan for Starship only.
+
+Will sync:
+Starship
+  - starship:add_newline
+    Direction: live settings -> stored settings
+    Reason: only live settings changed.
+
+Not in this selection:
+Git, Tmux, Zsh, Neovim, SSH, and Ghostty were not selected for this sync.
+
+Summary:
+  Selected apps: 1
+  Will sync: 1
+  Needs choice: 0
+  Cannot sync now: 0
+  Not selected: 6 apps
+  Out-of-scope writes: 0

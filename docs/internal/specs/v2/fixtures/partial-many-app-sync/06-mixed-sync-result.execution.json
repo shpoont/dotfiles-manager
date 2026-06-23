@@ -1,0 +1,131 @@
+{
+  "schema": "dotfiles-manager.sync-execution.v2",
+  "schemaVersion": 1,
+  "command": "sync",
+  "runId": "partial-many-app-sync-fixture",
+  "profileStack": [
+    "global"
+  ],
+  "selection": {
+    "kind": "all-apps"
+  },
+  "confirmation": {
+    "required": true,
+    "confirmed": true,
+    "source": "prompt"
+  },
+  "summary": {
+    "status": "complete",
+    "changed": 2,
+    "skipped": 3,
+    "failed": 0,
+    "notAttempted": 0,
+    "writesToStoredSettings": 1,
+    "writesToLiveSettings": 1,
+    "needsChoice": 1,
+    "cannotSyncNow": 2,
+    "notSelected": 0,
+    "blocked": 2
+  },
+  "items": [
+    {
+      "targetRef": "starship",
+      "settingRef": "starship:add_newline",
+      "scope": "user",
+      "subject": "leon",
+      "state": "changed-in-live-settings",
+      "decision": "write",
+      "direction": "live_to_stored",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "result": "changed",
+      "reasonCode": "one-sided-live-change",
+      "message": "Synced live settings -> stored settings.",
+      "evidenceId": "fixture-starship-add-newline",
+      "valuesRedacted": true,
+      "underlyingRunId": "partial-many-app-starship-add_newline"
+    },
+    {
+      "targetRef": "tmux",
+      "settingRef": "tmux:home.conf",
+      "scope": "user",
+      "subject": "leon",
+      "state": "changed-in-stored-settings",
+      "decision": "write",
+      "direction": "stored_to_live",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "result": "changed",
+      "reasonCode": "one-sided-stored-change",
+      "message": "Synced stored settings -> live settings.",
+      "evidenceId": "fixture-tmux-home-conf",
+      "valuesRedacted": true,
+      "underlyingRunId": "partial-many-app-tmux-home-conf"
+    },
+    {
+      "targetRef": "zsh",
+      "settingRef": "zsh:zprofile",
+      "scope": "user",
+      "subject": "leon",
+      "state": "conflict",
+      "decision": "needs_choice",
+      "direction": "both_sides_changed",
+      "wouldWrite": false,
+      "choiceRequired": true,
+      "allowedChoices": [
+        "choose_live_settings",
+        "choose_stored_settings",
+        "skip"
+      ],
+      "executableBySync": false,
+      "result": "skipped",
+      "reasonCode": "both-sides-changed",
+      "message": "Conflict needs a choice.",
+      "evidenceId": "fixture-zsh-zprofile-conflict",
+      "valuesRedacted": true,
+      "skipCategory": "needs-choice"
+    },
+    {
+      "targetRef": "nvim",
+      "settingRef": "nvim:config",
+      "scope": "user",
+      "subject": "leon",
+      "state": "missing-in-live-settings",
+      "decision": "blocked",
+      "direction": "unknown",
+      "wouldWrite": false,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": false,
+      "result": "skipped",
+      "reasonCode": "settings-not-available",
+      "message": "Neovim settings are not available on this computer.",
+      "evidenceId": "fixture-nvim-missing",
+      "valuesRedacted": true,
+      "skipCategory": "cannot-sync-now"
+    },
+    {
+      "targetRef": "ssh",
+      "settingRef": "ssh:agent",
+      "scope": "user",
+      "subject": "leon",
+      "state": "unsupported",
+      "decision": "blocked",
+      "direction": "unknown",
+      "wouldWrite": false,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": false,
+      "result": "skipped",
+      "reasonCode": "unsupported-account-or-secret-state",
+      "message": "This setting is not supported because it may contain account or secret state.",
+      "evidenceId": "fixture-ssh-agent-unsupported",
+      "valuesRedacted": true,
+      "skipCategory": "cannot-sync-now"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "schema": "dotfiles-manager.sync-plan.v2.partial-many-app-fixture",
+  "schemaVersion": 1,
+  "command": "sync",
+  "mode": "planning-only",
+  "selection": {
+    "kind": "setting",
+    "targetRef": "starship",
+    "settingRef": "starship:scan_timeout",
+    "label": "Starship scan timeout"
+  },
+  "summary": {
+    "selectedSettings": 1,
+    "willSync": 1,
+    "needsChoice": 0,
+    "cannotSyncNow": 0,
+    "notSelected": 1,
+    "outOfScopeWrites": 0
+  },
+  "items": [
+    {
+      "targetRef": "starship",
+      "settingRef": "starship:scan_timeout",
+      "label": "Starship scan timeout",
+      "state": "changed-in-stored-settings",
+      "direction": "stored_to_live",
+      "decision": "write",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "valuesRedacted": true,
+      "reasonCode": "one-sided-stored-change",
+      "message": "Only stored settings changed.",
+      "planCategory": "will-sync"
+    }
+  ],
+  "outOfScope": {
+    "changedSettings": [
+      "starship:add_newline"
+    ]
+  },
+  "noWritePerformed": true
+}

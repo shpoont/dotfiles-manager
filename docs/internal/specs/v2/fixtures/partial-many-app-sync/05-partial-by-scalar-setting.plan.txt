@@ -1,0 +1,18 @@
+Sync plan for one Starship setting.
+
+Will sync:
+Starship
+  - starship:scan_timeout
+    Direction: stored settings -> live settings
+    Reason: only stored settings changed.
+
+Not in this selection:
+Starship add_newline also changed, but it was not selected and will not be written by this sync.
+
+Summary:
+  Selected settings: 1
+  Will sync: 1
+  Needs choice: 0
+  Cannot sync now: 0
+  Not selected: 1 changed setting
+  Out-of-scope writes: 0

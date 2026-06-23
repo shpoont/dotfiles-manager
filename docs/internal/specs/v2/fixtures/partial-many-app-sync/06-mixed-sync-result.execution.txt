@@ -1,0 +1,43 @@
+Sync complete with skipped settings.
+
+Changed:
+Starship
+  - starship:add_newline
+    Synced: live settings -> stored settings
+    Values hidden for safety.
+
+Tmux
+  - tmux:home.conf
+    Synced: stored settings -> live settings
+    Values hidden for safety.
+
+Needs your choice:
+Zsh
+  - zsh:zprofile
+    Conflict: live settings and stored settings both changed.
+    Direction: both sides changed
+    No write happened for this setting.
+
+Cannot sync now:
+Neovim
+  - nvim:config
+    Missing live settings: Neovim settings are not available on this computer.
+
+SSH
+  - ssh:agent
+    Unsupported: this setting may contain account or secret state.
+
+Not selected:
+  None. This sync used the all-app selection.
+
+Needs-choice and cannot-sync-now settings did not block unrelated safe settings.
+
+Summary:
+  Changed: 2
+  Needs choice: 1
+  Cannot sync now: 2
+  Not selected: 0
+  Failed: 0
+  Not attempted: 0
+  Writes to stored settings: 1
+  Writes to live settings: 1
