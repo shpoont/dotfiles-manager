@@ -1,8 +1,8 @@
 ---
 owner: Core Engineering
 document-type: v2-draft-spec
-status: Draft
-last-updated: 2026-06-05
+status: Superseded
+last-updated: 2026-06-23
 canonical-source: docs/internal/specs/v2/01-repository-layout.md
 source-concept-sections:
   - Files layout of source and configuration
@@ -10,8 +10,14 @@ source-concept-sections:
   - URI schemes
   - Schema boundaries and versioning
   - v1 compatibility and migration contract
-authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
+authority: Superseded by docs/internal/specs/v2/01-settings-storage-layout.md for reset-v2 planning; retained only as historical prototype reference.
 ---
+
+> [!WARNING]
+> Superseded for reset-v2 planning. This repository-layout draft preserves the
+> older prototype model and must not be used as active v2 implementation
+> authority. Use [`01-settings-storage-layout.md`](01-settings-storage-layout.md)
+> for the reset settings-folder layout direction.
 
 # v2 repository layout
 

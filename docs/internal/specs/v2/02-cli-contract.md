@@ -1,8 +1,8 @@
 ---
 owner: Core Engineering
 document-type: v2-draft-spec
-status: Draft
-last-updated: 2026-06-11
+status: Superseded draft pending #211/#221-#225
+last-updated: 2026-06-23
 canonical-source: docs/internal/specs/v2/02-cli-contract.md
 source-concept-sections:
   - CLI contract v2
@@ -10,8 +10,17 @@ source-concept-sections:
   - Status and preview output
   - Canonical status and conflict state machine
   - v1 compatibility and migration contract
-authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
+authority: Superseded as an active CLI contract by the reset-v2 sync-first model; retained as reusable prototype material for #211/#221-#225 only.
 ---
+
+> [!WARNING]
+> Superseded as an active reset-v2 CLI contract. This draft still contains
+> prototype command wording such as repository-first `save`/`apply`,
+> backup/restore, and migration. Use it only as historical/reusable input for
+> #211 and split issues #221-#225. Implementation issues must not cite this file
+> as the active CLI contract except as historical/prototype input pending the
+> #211 replacement. New command help/output must follow
+> [`00-vocabulary.md`](00-vocabulary.md) and the sync-first reset model.
 
 # v2 CLI contract
 

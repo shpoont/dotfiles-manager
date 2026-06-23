@@ -1,424 +1,374 @@
 ---
-owner: Core Engineering
-document-type: v2-draft-spec
-status: Draft
-last-updated: 2026-06-05
+owner: Product + Core Engineering
+document-type: v2-vocabulary-source
+status: Active vocabulary source; not a runtime behavior contract
+last-updated: 2026-06-23
 canonical-source: docs/internal/specs/v2/00-vocabulary.md
-source-concept-sections:
-  - Core nouns and relationships
-  - User-facing model
-  - Scopes and profiles
-  - Driver/resource model
-  - Open decisions
-authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
+source-issue: 210
+authority: Authoritative v2 vocabulary for planning, specs, issues, CLI text, examples, and docs; behavior still requires promoted behavior specs.
 ---
 
 # v2 vocabulary
 
 ## Purpose
 
-This spec defines the core nouns for the v2 product model. It exists so that
-implementation specs, GitHub issues, recipes, and AI agents use the same names
-for the same concepts.
+This file defines the vocabulary for the reset v2 product model. It exists so
+specs, GitHub issues, command output, examples, and documentation use the same
+nouns consistently.
 
-This file is vocabulary only. Behavior is defined in the other v2 specs.
+It owns names and meanings only. It is active as a vocabulary/source-of-truth
+document, not as a runtime behavior contract.
 
-## Status and authority
+## Product vocabulary rule
 
-This is a draft extraction from `../../scope/product-concept-v2.md`. It is not
-implementation-authoritative until promoted through `README.md`.
+Normal users should experience the product as a settings manager, not as a Git
+repository tool and not as a configuration-modeling framework.
 
-Current v1 behavior remains governed by the existing v1 specs and contracts.
+Use these public nouns first:
 
-## Example support labels
+- settings folder;
+- live settings;
+- stored settings;
+- app/tool;
+- setting;
+- status;
+- diff;
+- sync;
+- conflict;
+- catalog, when explaining where recipes come from.
 
-Examples in v2 docs must say whether they are current/implemented,
-planned/candidate, or illustrative-only. Target names such as `zsh`, `nvim`,
-`tmux`, `ssh`, `starship`, and native-app candidates such as `raycast` are
-planned/candidate examples until their recipe or native-support issues ship.
-The neutral `example-tool` target is illustrative-only and must not be read as a
-bundled app.
+Avoid these as core public nouns in the reset v2 happy path:
 
-## Source map and extraction notes
+- repo or repository;
+- desired-state URI;
+- driver;
+- resource;
+- profile stack;
+- backup/restore;
+- migration;
+- user account.
 
-Extracted from the concept sections covering:
+Advanced/internal specs may still use technical terms where needed, but normal
+output must explain what the user can do without requiring those terms.
 
-- simple end-user model;
-- targets, settings, settings groups, resources, drivers, recipes;
-- scopes, profile layers, profile stacks, resolved profiles;
-- desired artifacts, current state, ledgers, backups;
-- support levels and capabilities.
-
-Deliberate non-decisions:
-
-- canonical schema filenames are defined by `01-repository-layout.md`, not this
-  vocabulary spec;
-- canonical local state paths are defined by `01-repository-layout.md`, not this
-  vocabulary spec;
-- product rename decisions are outside this spec.
-
-## Terms owned by this spec
+## Core public terms
 
 ### Manager
 
-The application that manages selected settings and files for selected targets.
-It should normally be experienced as:
+The `dotfiles-manager` application. It manages selected settings for selected
+apps/tools by comparing live settings with stored settings and syncing in a safe
+direction.
 
-```text
-manage these apps/settings for me
-show what changed
-save from this machine
-apply to this machine
-```
+### App/tool
 
-### Target
+A supported user-facing thing whose selected settings can be managed.
 
-A user-facing thing the manager can manage.
+Internal specs may call this a **target**. Normal copy can say app, tool, or
+setting depending on context.
 
 Examples:
 
-- `git`
-- `custom.files`
-- `nvim` (planned/candidate)
-- `raycast` (native-app candidate until verified)
-- `example-tool` (illustrative-only)
-
-A target may contain one or more settings and one or more internal resources.
-Users should normally choose targets by name, not by resource path.
+- `git`;
+- `starship`;
+- `custom.files` for advanced/custom file management;
+- `example-tool` for illustrative-only examples.
 
 ### Setting
 
-A named manageable piece of target state.
+A named manageable piece of app/tool state.
+
+A setting may be a scalar value, structured object, file, file tree, opaque
+portable native export, or other recipe-declared payload. It is the normal unit
+for status, diff, sync, conflict reporting, and partial selection.
 
 Examples:
 
-- `git:user.email`
-- `nvim:config` (planned/candidate)
-- `raycast:snippets` (native-app candidate until verified)
-- `example-tool:user.email` (illustrative-only)
-- `example-tool:user-info` (illustrative-only)
-
-A setting may be a single scalar value, a structured object, a file, a file tree,
-or a portable native export. A setting is the normal unit for status, diff, save,
-apply, and conflict reporting.
+- `git:user.email`;
+- `starship:config`;
+- `example-tool:user-info` (illustrative-only).
 
 ### Public target and setting refs
 
-Normal commands should use public refs, not internal URIs. This section is
-the canonical MVP grammar for public target and setting refs; other specs should
-reference it instead of restating or extending it.
-
-Canonical public ref grammar for MVP:
+Normal commands use public refs, not internal URIs.
 
 ```text
 target-ref = target-id
 setting-ref = target-id ":" setting-id
-
-target-id = lower-name *( "." lower-name | "-" lower-name )
-setting-id = lower-name *( "." lower-name | "-" lower-name )
-lower-name = lowercase letter or digit followed by lowercase letters, digits,
-             hyphens, or underscores
 ```
 
 Examples:
 
-- `git`
-- `git:user.email`
-- `nvim:config` (planned/candidate)
-- `raycast:quicklinks` (native-app candidate until verified)
-- `visual-studio-code:settings` (planned/candidate unless implemented)
-- `example-tool:user-info` (illustrative-only)
+```text
+git
+git:user.email
+starship:config
+example-tool:user-info
+```
 
-Internal URI form is separate. Public refs are not URI strings. For example,
-public `example-tool:user.email` may map to internal `target://example-tool/user.email` when
-URI form is needed. Groups, resources, drivers, profile layers, and artifact
-paths are not public refs in the MVP normal command surface.
+Public refs are stable user-facing names. They may map internally to settings
+folder paths, recipe resources, drivers, or internal URIs, but those mappings are
+not part of the ordinary command surface.
 
-### Settings group
+### Settings folder
 
-An optional recipe-owned grouping of related settings.
+The public noun for the folder where the manager stores selected settings so
+they can be compared with and synced to live app settings.
 
-Groups are not first-class user model objects. They may help recipes express
-safe defaults, bulk selection, or native export/import groupings. A target may
-have no groups.
+A settings folder may be versioned with Git, but Git is optional. Do not use
+`repo`, `repository`, or `config repo` as the normal product noun.
+
+### Settings storage folder
+
+A precise synonym for settings folder. Use it when extra precision is useful,
+especially in layout, path ownership, storage safety, and Git-optional
+explanations.
+
+### Live settings
+
+The current settings on this computer, read from app-native locations or
+app-native commands through a reviewed recipe/driver.
+
+Live settings may include values from files, directories, plist/defaults, INI,
+JSON/YAML/TOML, native export commands, or other supported backends. Unknown or
+unsafe live state defaults to unmanaged.
+
+### Stored settings
+
+The actual managed settings stored in the settings folder.
+
+Stored settings may contain scalar values, structured fragments, files, file
+trees, or portable native export payloads. They may contain personal or sensitive
+preferences. Normal output must not print raw values unless a recipe declares the
+value safe for display. Secret or unsafe values must be blocked or governed by a
+later explicit policy.
+
+### Status
+
+A read-only summary of how live settings and stored settings compare, grouped by
+what the user can safely do next.
+
+### Diff
+
+A read-only explanation of differences. Diffs should be readable where possible
+and honest where not possible. Opaque native exports should show metadata/hash
+changes and limitations, not fake field-level diffs.
+
+### Sync
+
+The action that copies selected settings in a chosen safe direction.
+
+Directions are:
+
+```text
+live settings -> stored settings
+stored settings -> live settings
+```
+
+`sync` must not mean blind automatic two-way merge. It must plan, explain
+direction, ask on conflicts, and refuse when the safe direction is unknown.
+
+### Save and apply
+
+`save` and `apply` are not primary v2 product nouns.
+
+They may remain as directional sync aliases or advanced commands only if #225
+accepts that policy.
+
+If retained:
+
+```text
+save  = sync live settings -> stored settings
+apply = sync stored settings -> live settings
+```
+
+### Conflict
+
+A state where both sides changed, the baseline is missing, or the safe direction
+is otherwise ambiguous. Conflicts require an explicit user decision or refusal.
+
+### Catalog
+
+A source of recipes.
+
+The bundled/default catalog is the source for common built-in app/tool support.
+Optional local or remote catalogs are future expansion points. Catalogs are a
+public noun only when users manage recipe sources; they are not a prerequisite
+for ordinary bundled-app sync.
+
+Remote catalogs require explicit origin, trust, update, disable/remove, and
+write-authority rules before recipes from them can write live settings.
+
+## Scopes and profile language
+
+### Scope
+
+The portability boundary for stored settings.
+
+| Internal scope | Normal label | Meaning |
+| --- | --- | --- |
+| `shared` | for everyone | Same wherever this settings folder is used. |
+| `user` | for me | Personal settings that follow one logical person across computers. |
+| `machine` | for this computer | Settings for one computer. |
+| `machine-user` | for me on this computer | Local personal override for one person on one computer. |
+
+Normal text should prefer the labels. Advanced/JSON output may expose scope IDs.
+
+Scopes do not create app accounts, cloud accounts, or a user-management product.
+They only decide where stored settings live and how they are selected.
+
+### Machine
+
+A logical computer identity known to the manager. It is not a hardware serial
+number or proof that the same physical hardware is present.
+
+### Logical person / user subject
+
+A logical subject used for `user` and `machine-user` scoped settings. It is not
+necessarily the OS account name, app account, or cloud account.
+
+Use `user` in schema/internal contexts when needed, but normal text should say
+`for me` or `for me on this computer`.
+
+### Profile layer
+
+A named layer of selections, scopes, policies, values, and location overrides.
+Profiles are composition tools for advanced use; they are not an account system.
+
+### Profile stack
+
+An ordered list of profile layers used to resolve the effective settings for a
+run. Normal users should not need to understand stack algebra for supported apps.
+
+## Recipe and implementation terms
+
+### Recipe
+
+A reviewed support definition for an app/tool. A recipe declares supported
+settings, safe defaults, named locations, resources, drivers, lifecycle policy,
+sensitivity policy, and optional native import/export capability.
+
+### Catalog metadata
+
+A source of recipes. The bundled/default catalog comes first. Remote catalogs are
+future work and require explicit origin, trust, update, disable/remove, and
+write-authority rules before they can write live settings.
+
+### Named location
+
+A recipe-defined logical live path root with a default and optional user override.
+Named locations prevent recipes from embedding arbitrary unvalidated paths.
 
 ### Resource
 
-An internal technical unit read or written by a driver.
-
-Examples:
-
-- a file path;
-- a file tree rooted at a named location;
-- an INI section/key pair;
-- a JSON/YAML/TOML path selector;
-- a plist key path;
-- a native export artifact.
-
-Resources are normally hidden from end users. They appear in verbose output,
-recipe authoring, debugging, and implementation specs.
+An internal technical unit read or written by a driver, such as a file, file
+section/key, JSON path, plist key path, file tree, or native export payload.
+Resources are not normal user-facing nouns.
 
 ### Driver
 
 Reviewed deterministic code shipped with the manager. A driver owns technical
-operations such as detecting, reading, normalizing, diffing, previewing,
-backing up, applying, verifying, and restoring a resource.
+operations such as detecting, reading, normalizing, diffing, previewing, writing,
+and verifying resources.
 
-Recipes choose from available drivers. Downloaded or user-authored recipes must
-not inject arbitrary executable logic into drivers.
-
-### Recipe
-
-A declarative support definition for a target. A recipe declares:
-
-- target identity and support metadata;
-- settings and optional settings groups;
-- named target locations;
-- resources and driver bindings;
-- selectors;
-- lifecycle policy;
-- safety and sensitivity policy;
-- import/export capability when applicable;
-- verification expectations.
-
-Bundled recipes are reviewed with the tool. User-local recipes require explicit
-trust before write-capable behavior.
-
-### Named target location
-
-A recipe-defined logical path root with a default and optional user override.
-
-Examples:
-
-- `home`: `~`
-- `config`: `~/.config/example-tool` (illustrative-only)
-- `support`: `~/Library/Application Support/Raycast` (native-app candidate until verified)
-
-Named locations prevent recipes from embedding unvalidated arbitrary paths.
-
-### Scope
-
-The portability boundary for desired state.
-
-Public scopes are:
-
-| Scope | Meaning |
-| --- | --- |
-| `shared` | Same for everyone using the repository. |
-| `user` | Same for one logical user across machines. |
-| `machine` | Same for one machine across users. |
-| `machine-user` | Specific to one user on one machine. |
-
-Scope chooses where desired artifacts live and which profile layer owns a saved
-value. Scope does not by itself define the active profile stack.
-
-### Machine
-
-A logical device identity known to the manager. A machine can have multiple OS
-users and multiple profile layers.
-
-Machine identity is not a cloud account, login account, hardware serial number,
-or proof that the same physical hardware is present. It is a stable manager
-subject used for machine-scoped desired artifacts and local ledgers.
-
-Machine IDs are repo-visible because they appear in desired-state paths.
-Bootstrap, persistence, adoption, rename, and collision behavior are specified
-by `03-profile-and-scope-resolution.md`.
-
-### User
-
-A logical user identity known to the manager. A user can appear on multiple
-machines. A machine can have multiple users.
-
-A user is not necessarily the same as a local POSIX account name, login account,
-cloud account, or app account. A local OS account may be used as a default
-bootstrap hint and local mapping key, but the manager user is the logical
-subject used for user-scoped desired artifacts.
-
-User IDs are repo-visible because they appear in desired-state paths.
-Bootstrap, persistence, local-account mapping, adoption, rename, and collision
-behavior are specified by `03-profile-and-scope-resolution.md`.
-
-### Profile layer
-
-A named layer of desired selections, values, policies, and location overrides.
-
-Examples:
-
-- `global`
-- `os/macos`
-- `user/leon`
-- `machine/mbp-2026`
-- `machine-user/mbp-2026/leon`
-- `work`
-- `personal`
-
-A machine may use multiple profile layers. A user on the same machine may also
-use multiple profile layers. Profile layers are ordered into a profile stack.
-
-### Profile stack
-
-An ordered list of profile layers used to resolve desired state for a run.
-Later layers override or refine earlier layers where the schema permits.
-
-A machine can have multiple named stacks, such as `default`, `work`, or
-`travel`, if the implementation supports them. The MVP must at least support a
-deterministic active stack.
-
-### Resolved profile
-
-The result of evaluating the active profile stack, selected targets, selected
-settings, scopes, desired artifacts, policies, and named-location overrides.
-
-Commands operate against a resolved profile, not against raw profile layers.
+Downloaded or user-authored recipes must not inject arbitrary executable logic
+into drivers.
 
 ### Desired artifact
 
-Repository-side desired state for a setting or resource.
+Internal term for stored setting material in the settings folder. Desired
+artifacts may be scalar settings, files, file trees, opaque native exports, or
+metadata binding public settings to payloads.
 
-Examples:
+Normal users should see stored settings and settings folder language instead.
 
-- a scalar value for `git:user.email`;
-- a JSON/YAML/TOML fragment;
-- a file;
-- a file tree;
-- an encrypted opaque native export.
+### Internal URI
 
-Desired artifacts are not always human-editable. Opaque artifacts require
-explicit policy and metadata-only diff behavior.
+Internal URI schemes such as `desired://` are implementation/debug identifiers.
+Normal text output should not require users to read or type them. They may appear
+in verbose, JSON, debug, or authoring contexts when they are the clearest stable
+identifier.
 
-### Current state
-
-Live state read from the current machine, user, or application through a driver.
-Current state may be normalized before comparison.
-
-### Last-applied state
-
-The normalized state recorded in the local ledger after a verified successful
-save or apply. It is used for conflict detection. It is not the desired artifact
-itself.
-
-### Change preview
-
-A dry-run description of intended reads, writes, creates, deletes, backups,
-skips, blockers, risks, and verification steps.
-
-Any live mutation must be previewable before it is performed.
+Public refs such as `git:user.email` remain the normal command surface.
 
 ### Ledger
 
-Local state recording verified command results, normalized hashes, versions,
-backup references, partial failures, and restore material references.
+Local evidence of observed state, previous sync baselines, hashes, run results,
+and verification. Ledgers are local state, not the settings folder source of
+truth.
 
-The ledger is not the repository source of truth. It is local evidence used for
-status, conflict detection, audit, and restore.
+### Internal safety evidence
 
-### Backup
+Implementation may keep local pre-write evidence or run records if explicitly
+accepted by #212. This must not be presented as a first-class backup/restore
+workflow in active v2.
 
-Local pre-mutation restore material captured before live writes where supported.
-Backups are referenced from ledgers and restore previews.
+## CLI help and output vocabulary floor
 
-### Support level
+Future CLI contracts, help text, JSON fields, text output, examples, and golden
+tests must follow this vocabulary floor unless an issue explicitly supersedes it:
 
-Recipe stability and support classification.
+- use settings folder, live settings, stored settings, status, diff, and sync as
+  the normal product language;
+- describe Git as optional versioning/sharing for a settings folder;
+- use user-friendly scope labels (`for everyone`, `for me`,
+  `for this computer`, `for me on this computer`) in normal text output;
+- keep public refs such as `git:user.email` as the normal selection syntax;
+- do not expose `desired://` or other internal URIs except in verbose, JSON,
+  debug, or authoring contexts;
+- do not present backup/restore, v1 migration, or legacy v1 commands as the
+  normal v2 happy path;
+- do not print raw stored values in normal output unless the recipe declares
+  them safe for display.
 
-| Support level | Meaning |
-| --- | --- |
-| `stable` | Tested for declared versions/platforms. |
-| `read-only` | Safe to inspect/status/diff only. |
-| `experimental` | Available with warnings and explicit opt-in for writes. |
-| `deprecated` | Existing support remains temporarily. |
-| `blocked` | Known unsafe or unsupported. |
 
-### Capability
+## Normative vocabulary rules
 
-What operations a target or setting supports.
+1. Public copy says settings folder, live settings, stored settings, status,
+   diff, and sync.
+2. Git is optional versioning/sharing for a settings folder, not the core noun.
+3. Stored settings can contain actual values and sensitive managed bytes.
+4. Normal output must not expose raw values, internal URI schemes, resources,
+   drivers, profile stacks, or storage paths unless the context is verbose,
+   JSON, debug, or authoring.
+5. `save`/`apply` are directional sync aliases only if #225 accepts them.
+6. Backup/restore and v1 migration are not active v2 product nouns.
+7. Unknown, unsupported, secret, account-bound, generated, cached, or session
+   state defaults to unmanaged.
 
-| Capability | Meaning |
-| --- | --- |
-| `inspect-only` | Detect/explain only. |
-| `read-only` | Read/status/diff, no write. |
-| `read-write` | Save and apply through deterministic drivers. |
-| `import-only` | Reserved future capability for apply-only management; not accepted by the #110 native-apply MVP. |
-| `export-only` | Save through native export, cannot safely apply. |
-| `never` | Explicit do-not-manage boundary. |
+## Example wording
 
-## Normative MVP rules
-
-1. End-user commands should speak in targets, settings, scopes, and actions.
-2. Resources, drivers, raw captures, ledgers, and URI internals should be hidden
-   unless verbose/debug/authoring output is requested.
-3. Every managed setting must resolve to one target, one scope, and one desired
-   artifact binding before save/apply behavior is allowed.
-4. A machine may have multiple users, and a machine/user may use multiple
-   profile layers.
-5. Settings groups are optional recipe structure, not required public nouns.
-6. Unknown or unsupported target state must default to unmanaged rather than
-   being guessed.
-
-## Derived schema boundaries, not final schemas
-
-This vocabulary spec owns names and meanings only. It does not define final
-schemas.
-
-Schema-bearing specs must use these terms consistently when defining config,
-profile, recipe, artifact, ledger, backup, and preview objects.
-
-## Examples
-
-Examples in this vocabulary spec demonstrate canonical noun, public-ref, and
-internal-URI shapes. Field names inside text or YAML snippets remain sketches
-unless the owning spec explicitly promotes them.
-
-### Git email
+Preferred normal output:
 
 ```text
-target: git
-setting: user.email
-scope: user
-desired artifact: desired://user/leon/targets/git/settings#user.email
-resource: ~/.gitconfig [user] email
-driver: ini-file
+Changed here:
+  git:user.email       for me
+
+Suggested safe action:
+  sync live settings -> settings folder
 ```
 
-### Illustrative-only mixed scopes
-
-`example-tool` is not a bundled target; it exists here only to show how one
-target can combine a per-user selected value with a shared artifact.
+Preferred precise/internal wording:
 
 ```text
-example-tool:user.email    scope=user         resource=~/.example-tool/config.yaml user.email
-example-tool:user-info     scope=shared       resource=~/.example-tool/user-info.json
+Stored setting:
+  ref: git:user.email
+  scope: user
+  settings folder path: desired/user/leon/targets/git/settings.yaml
+  internal URI: desired://user/leon/targets/git/settings#user.email
 ```
 
-## Errors, blockers, and partial-result behavior
+Avoid in normal output:
 
-Vocabulary errors should surface as validation errors in downstream specs:
-
-- unknown target ID;
-- unknown setting ID;
-- unsupported scope;
-- ambiguous target name;
-- profile stack cannot be resolved;
-- desired artifact binding is missing or duplicated.
-
-## Acceptance expectations
-
-- Documentation and command output use the same nouns consistently.
-- Normal output does not require users to know drivers or resources.
-- Verbose output can map public settings to resources and drivers.
-- Tests include at least one machine with multiple users and one user with
-  multiple profile layers.
+```text
+Save current machine state into repo desired://user/leon/...
+Apply repo artifact after backup/restore migration baseline.
+```
 
 ## Out of scope
 
-- final schema field definitions and runtime validators;
-- local state retention and cleanup policy;
-- product rename;
-- remote recipe catalog terminology;
-- AI discovery vocabulary beyond draft-recipe concepts.
-
-## Spec follow-ups / open decisions
-
-- Decide whether named profile stacks are MVP or post-MVP.
-- Decide final product name and compatibility aliases.
+- Runtime command behavior.
+- Final JSON schema fields.
+- Catalog/tap trust implementation.
+- Backup/restore policy.
+- Legacy v1 public-surface policy.
+- Production end-user documentation rewrite.
