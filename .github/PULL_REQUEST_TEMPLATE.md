@@ -26,6 +26,8 @@
 - Validation result:
 - Acceptor / acceptance needed:
 - Exceptions or follow-up issues:
+- Project state update needed for #209 or the execution record: yes / no,
+  explain:
 
 ## Documentation and safety
 

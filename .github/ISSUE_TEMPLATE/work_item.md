@@ -46,10 +46,18 @@ Privacy / authority / recovery:
 - [ ] Evidence plan is listed.
 - [ ] Dependencies are resolved, blocked with owner/date, or explicitly waived.
 
+## Managed changes after freeze
+
+- Scope changes:
+- Behavior changes:
+- Risk-tier changes:
+- Evidence/validation changes:
+- Owner approval for the change:
+
 ## Closure
 
 - [ ] PR(s) or artifacts linked.
-- [ ] Real-result evidence linked.
+- [ ] Real-result evidence linked or explicit waiver recorded.
 - [ ] Validation result recorded.
 - [ ] Acceptance recorded.
 - [ ] Exceptions/follow-up issues created or explicitly not needed.
