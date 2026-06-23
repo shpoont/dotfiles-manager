@@ -1,0 +1,15 @@
+Diff checked 1 setting in Git.
+
+Git
+  - git:user.email: changed in live settings
+    Comparing live settings with stored settings.
+    Direction: live settings -> stored settings.
+    Live settings: $HOME/.gitconfig [user] email
+    Stored settings: for me in the settings folder
+    Values are hidden for safety. Metadata shows that the two sides differ.
+
+Diff body:
+  The live value changed after the previous sync.
+  The stored value did not change after the previous sync.
+
+Read-only command: no files were changed.

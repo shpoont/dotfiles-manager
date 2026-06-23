@@ -1,0 +1,31 @@
+{
+  "schema": "dotfiles-manager.status.v2.read-only.example",
+  "command": "status",
+  "selection": {
+    "kind": "setting",
+    "ref": "git:user.email"
+  },
+  "summary": {
+    "checkedSettings": 1,
+    "checkedApps": 1,
+    "upToDate": 0,
+    "changedInLiveSettings": 1,
+    "changedInStoredSettings": 0,
+    "conflicts": 0,
+    "missingApps": 0,
+    "missingStoredSettings": 0
+  },
+  "items": [
+    {
+      "appRef": "git",
+      "settingRef": "git:user.email",
+      "status": "changed-in-live-settings",
+      "direction": "live-settings-to-stored-settings",
+      "diffAvailable": true,
+      "valuesRedacted": true,
+      "normalTextLabel": "changed in live settings"
+    }
+  ],
+  "readOnly": true,
+  "changedFiles": 0
+}

@@ -1,0 +1,19 @@
+Status checked 1 setting in Git.
+
+Git
+  - git:user.email: conflict
+    Live settings: $HOME/.gitconfig [user] email
+    Stored settings: for me in the settings folder
+    Direction: both sides changed; no safe direction was chosen
+    Values hidden for safety.
+    A later sync plan must ask before any write.
+
+Summary:
+  Up to date: 0
+  Changed in live settings: 0
+  Changed in stored settings: 0
+  Conflicts: 1
+  Missing apps: 0
+  Missing stored settings: 0
+
+Read-only command: no files were changed.

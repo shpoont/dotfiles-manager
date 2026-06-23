@@ -1,0 +1,15 @@
+Diff checked 1 setting in Starship.
+
+Starship
+  - starship:config: changed in stored settings
+    Comparing live settings with stored settings.
+    Direction: stored settings -> live settings.
+    Live settings: $HOME/.config/starship.toml
+    Stored settings: for me in the settings folder
+    Values are hidden for safety. Metadata shows that the two sides differ.
+
+Diff body:
+  The stored settings changed after the previous sync.
+  The live settings did not change after the previous sync.
+
+Read-only command: no files were changed.

@@ -1,0 +1,18 @@
+Status checked 1 setting in Starship.
+
+Starship
+  - starship:config: no stored settings yet
+    Live settings: $HOME/.config/starship.toml
+    Stored settings: not found in the settings folder
+    Direction: live settings -> stored settings, if you choose to sync later
+    Live value exists and is hidden for safety.
+
+Summary:
+  Up to date: 0
+  Changed in live settings: 0
+  Changed in stored settings: 0
+  Conflicts: 0
+  Missing apps: 0
+  Missing stored settings: 1
+
+Read-only command: no files were changed.
