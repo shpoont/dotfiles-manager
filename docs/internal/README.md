@@ -63,6 +63,15 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 ## 6) Process
 
 - `process/documentation-governance.md` — documentation ownership/change policy
+- `process/v2-execution-standards-tailoring.md` — repo-specific tailoring for
+  applying the Project Execution Standards to v2 reset work
+
+## 7) Project execution records
+
+- `project/v2-project-execution-standards-transformation-plan.md` — written
+  plan for transforming v2 work to follow the Project Execution Standards
+- `project/v2-reset-execution-record.md` — active repo-editable project record
+  for the v2 reset
 
 ## Canonicality
 
