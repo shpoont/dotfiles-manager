@@ -1,139 +1,100 @@
 ---
-owner: Core Engineering
+owner: Product + Core Engineering
 document-type: v2-package-index
-status: Draft
-last-updated: 2026-06-04
+status: Active reset index; not a runtime behavior contract
+last-updated: 2026-06-23
 canonical-source: docs/internal/specs/v2/README.md
-authority: Draft package index; promotion rules only, not current implementation behavior
+source-issue: 210
+authority: Source-of-truth map for active, draft, and superseded v2 planning specs; implementation authority requires explicitly Active behavior specs.
 ---
 
-# v2 formal specification package
+# v2 specification package index
 
-This package is the staging area for formal `dotfiles-manager` v2
-specifications.
+## Purpose
 
-The source concept is:
+This package is the staging area for reset-v2 product and implementation specs.
+It tells agents which documents are active planning inputs, which are reusable
+drafts, and which older prototype specs are superseded.
 
-- `../../scope/product-concept-v2.md`
+No v2 spec is runtime implementation-authoritative unless it is explicitly marked
+`Active` for a specific behavior scope. Vocabulary and layout documents may be
+active planning sources without implementing behavior.
 
-The concept document defines the accepted v2 product direction. The files in
-this package extract that direction into implementation-facing specifications.
-Once a v2 spec is written and reviewed, agents and humans should implement from
-that spec instead of directly from the concept prose.
+## Current reset model
 
-## Authority and relationship to v1
+v2 is a local settings manager focused on syncing selected **live settings** with
+**stored settings** in a **settings folder**.
 
-This package is draft implementation-prep material until explicitly promoted.
-It does not override the existing v1 specs, contracts, or implementation
-behavior by itself.
+Required constraints:
 
-Current v1 behavior remains governed by:
-
-- `../cli-and-config-spec.md`
-- `../decisions.md`
-- `../decision-matrix.md`
-- `../../contracts/*`
-
-The v2 implementation must prove v1 parity before replacing the existing
-dotfile sync path. Existing `syncs:` configs must remain readable through a
-legacy adapter until explicit migration behavior is implemented and accepted.
-
-## Metadata contract
-
-Formal v2 specs in this package must use this front matter shape:
-
-```yaml
-owner: Core Engineering
-document-type: v2-draft-spec
-status: Draft
-last-updated: YYYY-MM-DD
-canonical-source: docs/internal/specs/v2/<file>.md
-source-concept-sections:
-  - <concept section name>
-authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
-```
-
-Planning artifacts are not formal specs. They must use a distinct
-`document-type`, such as `v2-planning-roadmap`, and must not appear in the
-formal 00-11 spec table.
+- Git is optional; a settings folder may be versioned with Git but does not have
+  to be a Git repository.
+- `status`, `diff`, and `sync` are the primary UX.
+- `save`/`apply` are directional sync aliases or advanced commands only if #225
+  accepts that policy.
+- Backup/restore is out of v2 product scope; #212 owns removal or quarantine of
+  old backup/restore surfaces.
+- v1 migration is out of the active v2 roadmap; #213/#226 own legacy public
+  surface policy.
+- Remote catalog writes wait for #214/#227 trust and write-authority rules.
 
 ## Status taxonomy
 
 | Status | Meaning | Implementation authority |
 | --- | --- | --- |
-| `Draft` | Extracted or proposed v2 material under review. | no |
-| `Active` | Reviewed and explicitly promoted for v2 implementation work. | v2 only |
-| `Superseded` | Replaced by another promoted v2 spec or current v1 authority. | no |
+| Active vocabulary/planning source | Accepted noun/model direction for issues/specs/docs. | no runtime behavior by itself |
+| Active behavior spec | Reviewed behavior contract for a bounded implementation issue. | yes, for that scope only |
+| Draft | Reusable prototype/spec material still needing reset review. | no |
+| Superseded | Older prototype material replaced by a reset source or follow-up issue. | no |
+| Historical | Preserved background/reference only. | no |
 
-There are currently no `Active` v2 specs. All formal specs in this package are
-`Draft`.
+## Active and superseded spec map
+
+| File | Reset status | Role / next owner |
+| --- | --- | --- |
+| `../../scope/product-concept-v2.md` | Active vocabulary/planning source | Reset product concept for v2; not command behavior authority. |
+| `00-vocabulary.md` | Active vocabulary/planning source | Vocabulary source for settings folder, live/stored settings, scopes, internal URI policy, CLI vocabulary floor, and sensitive stored values; not command behavior authority. |
+| `01-settings-storage-layout.md` | Draft reset layout source | Replaces repository-layout direction; exact schemas/path compatibility need later promoted specs. |
+| `01-repository-layout.md` | Superseded | Historical prototype repository layout; do not use as active reset-v2 authority. |
+| `02-cli-contract.md` | Superseded draft pending #211 split | Contains useful examples but still encodes old command model; #221-#225 own the replacement status/diff/sync contracts. |
+| `03-profile-and-scope-resolution.md` | Draft reusable input | Keep profile/scope mechanics, but #210 vocabulary labels apply. |
+| `04-status-conflict-state-machine.md` | Draft reusable input | #221/#222 must review against sync-first UX before implementation. |
+| `05-desired-artifacts-and-uris.md` | Draft reusable input | Keep internal artifact/URI mechanics; normal output must follow #210 internal URI policy. |
+| `06-recipe-schema.md` | Draft reusable input | Keep recipe/named-location concepts; catalog/trust updates belong to #214/#227. |
+| `07-driver-interface.md` | Draft reusable input | Keep deterministic driver model; native import/export remains reviewed recipe/driver capability. |
+| `08-mutation-ledger-backup-restore.md` | Superseded for product scope | Backup/restore is not active v2 product scope; #212 decides delete/quarantine/internal safety evidence. |
+| `09-security-redaction-trust.md` | Draft reusable input | Must incorporate sensitive stored-settings wording from #210 before promotion. |
+| `10-v1-migration.md` | Superseded for active v2 roadmap | v1 migration is not active v2 scope; #213/#226 own legacy public-surface policy. |
+| `11-mvp-acceptance-tests.md` | Draft requiring reset review | Must be reworked so backup/restore, migration, and legacy v1 tests are not v2 acceptance blockers. |
+| `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
 
-A v2 spec becomes implementation-authoritative only after it is written,
-reviewed, and explicitly linked from this package index as an active spec.
-Until then, existing v1 specs and contracts remain authoritative for current
-behavior.
+A behavior spec becomes implementation-authoritative only after all of these are
+true:
 
-Promotion requires all of the following:
-
-1. the spec's front matter status changes from `Draft` to `Active`;
-2. the spec's authority field states the exact v2 implementation scope it owns;
-3. this package index marks the spec `Active` in the formal spec table;
-4. the promotion change cites the review or issue that approved promotion;
-5. the spec has enough acceptance tests or fixture expectations for agents to
-   implement without using the concept prose as the contract;
-6. the change explicitly states whether current v1 behavior is unaffected,
-   adapted through compatibility, or superseded by a migration gate.
-
-Promotion does not automatically make v2 the current user-facing implementation.
-Current v1 behavior remains authoritative until a separate migration/promotion
-decision updates the root internal canonicality model.
+1. the spec's front matter says `status: Active behavior spec`;
+2. the authority field names the exact behavior scope;
+3. this index marks the spec active for that scope;
+4. the promotion change cites the approving issue/PR/review;
+5. acceptance tests or fixtures are sufficient for implementation agents;
+6. reset constraints above are not contradicted.
 
 ## Agent implementation rule
 
-AI agents may use Draft v2 specs for planning, issue writing, and prototype
-work. They must not claim that a Draft v2 spec defines current production
-behavior. Runtime implementation issues should cite the exact v2 specs they use
-and should also state how v1 behavior is preserved while v2 is built beside it.
+Agents may use active planning sources and draft reusable inputs for planning and
+PR scope. They must not claim that a draft or superseded spec defines current
+runtime behavior.
 
-## Planned spec set
+Before runtime implementation starts, the issue must cite the active behavior
+spec or explicitly include the accepted behavior contract.
 
-| Spec | Status | Purpose |
-| --- | --- | --- |
-| `00-vocabulary.md` | Draft | Core nouns and relationships. |
-| `01-repository-layout.md` | Draft | Source/config/state file layout. |
-| `02-cli-contract.md` | Draft | Commands, flags, prompts, JSON, and exit codes. |
-| `03-profile-and-scope-resolution.md` | Draft | Profile stacks, scopes, IDs, and resolution. |
-| `04-status-conflict-state-machine.md` | Draft | Status states, derivation, conflict handling. |
-| `05-desired-artifacts-and-uris.md` | Draft | Desired artifacts, URI schemes, lifecycle rules. |
-| `06-recipe-schema.md` | Draft | Recipe format, named locations, settings, support levels. |
-| `07-driver-interface.md` | Draft | Driver operations, selectors, normalization, verification. |
-| `08-mutation-ledger-backup-restore.md` | Draft | Transactions, ledgers, backups, restore semantics. |
-| `09-security-redaction-trust.md` | Draft | Secrets, trust, redaction, lifecycle, threat model. |
-| `10-v1-migration.md` | Draft | v1 compatibility, migration preview, rollback. |
-| `11-mvp-acceptance-tests.md` | Draft | Fixture matrix and release gates. |
+## Follow-up ownership
 
-
-## Planning artifacts
-
-These files are planning aids, not formal specs in the 00-11 set:
-
-| File | Status | Purpose |
-| --- | --- | --- |
-| `mvp-implementation-roadmap.md` | Draft | MVP implementation sequence and tracker reset plan. |
-
-## Spec extraction rules
-
-Each spec should:
-
-1. preserve the simple end-user model from the concept document;
-2. define normative behavior separately from examples;
-3. include concrete examples for normal and edge cases;
-4. define error/blocker behavior where relevant;
-5. include acceptance-test expectations;
-6. identify explicit out-of-scope behavior;
-7. avoid silently changing current v1 behavior before migration is explicit.
-
-The goal is to turn the concept into small, reviewable implementation contracts
-that AI agents can execute without improvising from the long concept document.
+- #210 owns vocabulary/source-of-truth cleanup.
+- #211 and #221-#225 own status/diff/sync and `save`/`apply` policy.
+- #212 owns backup/restore removal or quarantine.
+- #213 and #226 own legacy v1 public-surface policy.
+- #214 and #227-#229 own catalogs/taps.
+- #215 and #230-#231 own new-computer bootstrap.
+- #216 owns production end-user docs after accepted behavior exists.
