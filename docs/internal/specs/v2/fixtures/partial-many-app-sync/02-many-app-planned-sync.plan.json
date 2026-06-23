@@ -1,0 +1,107 @@
+{
+  "schema": "dotfiles-manager.sync-plan.v2.partial-many-app-fixture",
+  "schemaVersion": 1,
+  "command": "sync",
+  "mode": "planning-only",
+  "selection": {
+    "kind": "all-apps"
+  },
+  "summary": {
+    "willSync": 2,
+    "needsChoice": 1,
+    "cannotSyncNow": 2,
+    "notSelected": 0,
+    "writesToStoredSettings": 1,
+    "writesToLiveSettings": 1,
+    "outOfScopeWrites": 0
+  },
+  "items": [
+    {
+      "targetRef": "starship",
+      "settingRef": "starship:add_newline",
+      "label": "Starship add newline",
+      "state": "changed-in-live-settings",
+      "direction": "live_to_stored",
+      "decision": "write",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "valuesRedacted": true,
+      "reasonCode": "one-sided-live-change",
+      "message": "Only live settings changed.",
+      "planCategory": "will-sync"
+    },
+    {
+      "targetRef": "tmux",
+      "settingRef": "tmux:home.conf",
+      "label": "Tmux config",
+      "state": "changed-in-stored-settings",
+      "direction": "stored_to_live",
+      "decision": "write",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "valuesRedacted": true,
+      "reasonCode": "one-sided-stored-change",
+      "message": "Only stored settings changed.",
+      "planCategory": "will-sync"
+    },
+    {
+      "targetRef": "zsh",
+      "settingRef": "zsh:zprofile",
+      "label": "Zsh profile",
+      "state": "conflict",
+      "direction": "both_sides_changed",
+      "decision": "needs_choice",
+      "wouldWrite": false,
+      "choiceRequired": true,
+      "allowedChoices": [
+        "choose_live_settings",
+        "choose_stored_settings",
+        "skip"
+      ],
+      "executableBySync": false,
+      "valuesRedacted": true,
+      "settingAreaRef": "zsh:startup-files",
+      "settingAreaLabel": "Zsh startup files",
+      "reasonCode": "both-sides-changed",
+      "message": "Conflict needs a choice.",
+      "planCategory": "needs-choice"
+    },
+    {
+      "targetRef": "nvim",
+      "settingRef": "nvim:config",
+      "label": "Neovim config",
+      "state": "missing-in-live-settings",
+      "direction": "unknown",
+      "decision": "blocked",
+      "wouldWrite": false,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": false,
+      "valuesRedacted": true,
+      "reasonCode": "settings-not-available",
+      "message": "Settings are not available on this computer.",
+      "planCategory": "cannot-sync-now"
+    },
+    {
+      "targetRef": "ssh",
+      "settingRef": "ssh:agent",
+      "label": "SSH agent state",
+      "state": "unsupported",
+      "direction": "unknown",
+      "decision": "blocked",
+      "wouldWrite": false,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": false,
+      "valuesRedacted": true,
+      "reasonCode": "unsupported-account-or-secret-state",
+      "message": "Unsupported account or secret state.",
+      "planCategory": "cannot-sync-now"
+    }
+  ],
+  "noWritePerformed": true
+}

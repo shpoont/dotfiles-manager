@@ -69,6 +69,7 @@ Required constraints:
 | `12-status-diff-read-only-contract.md` | Active behavior spec | Source of truth for read-only `status` and `diff` output, examples, and golden-fixture expectations from #221. |
 | `13-smart-sync-planning-contract.md` | Active behavior spec | Source of truth for smart-sync planning and conflict UX from #222; no write execution authority. |
 | `14-smart-sync-execution-contract.md` | Active behavior spec | Source of truth for mutating smart-sync execution, confirmation, refusal, and execution reporting from #223. |
+| `15-partial-many-app-sync-fixtures-contract.md` | Active behavior spec | Source of truth for partial and many-app sync UX fixture coverage from #224; no new selector or driver implementation authority. |
 | `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
@@ -107,6 +108,9 @@ are reconciled with the active behavior specs in this index.
 - #223 owns only mutating smart-sync execution and confirmation UX in
   `14-smart-sync-execution-contract.md`; #224/#225 remain responsible for
   broader UX and directional alias policy.
+- #224 owns only partial and many-app sync UX fixture coverage in
+  `15-partial-many-app-sync-fixtures-contract.md`; it does not finalize selector
+  spelling or add new app/backend behavior.
 - #212 owns backup/restore removal or quarantine.
 - #213 and #226 own legacy v1 public-surface policy.
 - #214 and #227-#229 own catalogs/taps.

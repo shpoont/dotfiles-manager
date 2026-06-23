@@ -1,0 +1,41 @@
+Sync plan checked 7 apps and found 2 safe settings to sync.
+
+Will sync:
+Starship
+  - starship:add_newline
+    Direction: live settings -> stored settings
+    Reason: only live settings changed.
+
+Tmux
+  - tmux:home.conf
+    Direction: stored settings -> live settings
+    Reason: only stored settings changed.
+
+Needs your choice:
+Zsh
+  - zsh:zprofile
+    Conflict: live settings and stored settings both changed.
+    Direction: both sides changed
+    No write will happen until you choose a direction or skip it.
+
+Cannot sync now:
+Neovim
+  - nvim:config
+    Missing live settings: Neovim settings are not available on this computer.
+
+SSH
+  - ssh:agent
+    Unsupported: this setting may contain account or secret state.
+
+Not selected:
+  None. This plan checked all selected apps.
+
+Safe settings can still sync. Needs-choice and cannot-sync-now settings will not block unrelated safe settings.
+
+Summary:
+  Will sync: 2
+  Needs choice: 1
+  Cannot sync now: 2
+  Not selected: 0
+  Writes to stored settings: 1
+  Writes to live settings: 1

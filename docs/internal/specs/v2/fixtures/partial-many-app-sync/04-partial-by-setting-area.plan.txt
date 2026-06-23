@@ -1,0 +1,25 @@
+Sync plan for Zsh startup files only.
+
+Will sync:
+Zsh startup files
+  - zsh:zshrc
+    Direction: live settings -> stored settings
+    Reason: only live settings changed.
+
+Needs your choice:
+Zsh startup files
+  - zsh:zprofile
+    Conflict: live settings and stored settings both changed.
+    Direction: both sides changed
+    No write will happen until you choose a direction or skip it.
+
+Not in this selection:
+Zsh history, completions, and other apps were not selected for this sync.
+
+Summary:
+  Selected setting areas: 1
+  Will sync: 1
+  Needs choice: 1
+  Cannot sync now: 0
+  Not selected: other setting areas and apps
+  Out-of-scope writes: 0

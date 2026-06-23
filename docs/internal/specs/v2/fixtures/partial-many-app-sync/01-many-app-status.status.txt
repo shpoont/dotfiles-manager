@@ -1,0 +1,44 @@
+Status checked 7 settings across 7 apps.
+
+Changed in live settings:
+Starship
+  - starship:add_newline
+    Direction: live settings -> stored settings, if you choose to sync later
+    Values hidden for safety.
+
+Changed in stored settings:
+Tmux
+  - tmux:home.conf
+    Direction: stored settings -> live settings, if you choose to sync later
+    Values hidden for safety.
+
+Needs your choice:
+Zsh
+  - zsh:zprofile
+    Conflict: live settings and stored settings both changed.
+    Direction: both sides changed; no safe direction was chosen
+    Values hidden for safety.
+
+Cannot sync now:
+Neovim
+  - nvim:config
+    Missing live settings: Neovim settings are not available on this computer.
+
+SSH
+  - ssh:agent
+    Unsupported: this setting may contain account or secret state.
+
+Up to date:
+Git
+  - git:user.email
+Ghostty
+  - ghostty:config
+
+Summary:
+  Up to date: 2
+  Changed in live settings: 1
+  Changed in stored settings: 1
+  Needs choice: 1
+  Cannot sync now: 2
+
+Read-only command: no files were changed.

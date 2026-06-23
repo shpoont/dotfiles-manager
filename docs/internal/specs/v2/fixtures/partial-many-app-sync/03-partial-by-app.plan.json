@@ -1,0 +1,52 @@
+{
+  "schema": "dotfiles-manager.sync-plan.v2.partial-many-app-fixture",
+  "schemaVersion": 1,
+  "command": "sync",
+  "mode": "planning-only",
+  "selection": {
+    "kind": "app",
+    "targetRef": "starship",
+    "label": "Starship"
+  },
+  "summary": {
+    "selectedApps": 1,
+    "willSync": 1,
+    "needsChoice": 0,
+    "cannotSyncNow": 0,
+    "notSelected": 6,
+    "outOfScopeWrites": 0
+  },
+  "items": [
+    {
+      "targetRef": "starship",
+      "settingRef": "starship:add_newline",
+      "label": "Starship add newline",
+      "state": "changed-in-live-settings",
+      "direction": "live_to_stored",
+      "decision": "write",
+      "wouldWrite": true,
+      "choiceRequired": false,
+      "allowedChoices": [],
+      "executableBySync": true,
+      "valuesRedacted": true,
+      "reasonCode": "one-sided-live-change",
+      "message": "Only live settings changed.",
+      "planCategory": "will-sync"
+    }
+  ],
+  "outOfScope": {
+    "apps": [
+      "git",
+      "tmux",
+      "zsh",
+      "nvim",
+      "ssh",
+      "ghostty"
+    ],
+    "changedSettings": [
+      "tmux:home.conf",
+      "zsh:zshrc"
+    ]
+  },
+  "noWritePerformed": true
+}

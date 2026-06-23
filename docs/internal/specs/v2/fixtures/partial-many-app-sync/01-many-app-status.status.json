@@ -1,0 +1,88 @@
+{
+  "schema": "dotfiles-manager.status.v2.partial-many-app-fixture",
+  "schemaVersion": 1,
+  "command": "status",
+  "selection": {
+    "kind": "all-apps"
+  },
+  "summary": {
+    "checkedApps": 7,
+    "checkedSettings": 7,
+    "upToDate": 2,
+    "changedInLiveSettings": 1,
+    "changedInStoredSettings": 1,
+    "needsChoice": 1,
+    "cannotSyncNow": 2
+  },
+  "items": [
+    {
+      "targetRef": "git",
+      "settingRef": "git:user.email",
+      "label": "Git user email",
+      "status": "up-to-date",
+      "direction": "none",
+      "diffAvailable": false,
+      "valuesRedacted": true
+    },
+    {
+      "targetRef": "starship",
+      "settingRef": "starship:add_newline",
+      "label": "Starship add newline",
+      "status": "changed-in-live-settings",
+      "direction": "live-settings-to-stored-settings",
+      "diffAvailable": true,
+      "valuesRedacted": true
+    },
+    {
+      "targetRef": "tmux",
+      "settingRef": "tmux:home.conf",
+      "label": "Tmux config",
+      "status": "changed-in-stored-settings",
+      "direction": "stored-settings-to-live-settings",
+      "diffAvailable": true,
+      "valuesRedacted": true
+    },
+    {
+      "targetRef": "zsh",
+      "settingRef": "zsh:zprofile",
+      "label": "Zsh profile",
+      "status": "conflict",
+      "direction": "both-sides-changed",
+      "diffAvailable": true,
+      "valuesRedacted": true,
+      "settingAreaRef": "zsh:startup-files",
+      "settingAreaLabel": "Zsh startup files"
+    },
+    {
+      "targetRef": "nvim",
+      "settingRef": "nvim:config",
+      "label": "Neovim config",
+      "status": "missing-in-live-settings",
+      "direction": "none",
+      "diffAvailable": false,
+      "valuesRedacted": true,
+      "reasonCode": "settings-not-available"
+    },
+    {
+      "targetRef": "ssh",
+      "settingRef": "ssh:agent",
+      "label": "SSH agent state",
+      "status": "unsupported",
+      "direction": "none",
+      "diffAvailable": false,
+      "valuesRedacted": true,
+      "reasonCode": "unsupported-account-or-secret-state"
+    },
+    {
+      "targetRef": "ghostty",
+      "settingRef": "ghostty:config",
+      "label": "Ghostty config",
+      "status": "up-to-date",
+      "direction": "none",
+      "diffAvailable": false,
+      "valuesRedacted": true
+    }
+  ],
+  "readOnly": true,
+  "changedFiles": 0
+}
