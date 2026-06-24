@@ -1,7 +1,7 @@
 ---
 owner: Project Owner + Work Manager
-status: Active transformation plan
-last-updated: 2026-06-23
+status: Active transformation plan; Phase 4 execution ongoing
+last-updated: 2026-06-24
 canonical-source: docs/internal/project/v2-project-execution-standards-transformation-plan.md
 related-issues: [209, 217]
 ---
@@ -34,19 +34,24 @@ where the change affects this project.
 
 ## Current baseline
 
-As of 2026-06-23:
+As of 2026-06-24:
 
 - The active product direction is the v2 reset around settings-folder sync.
-- GitHub issue #209 is the parent v2 reset issue.
-- Issues #210-#216 are the active reset work items.
-- Issue #217 tracks Phase 1 standards-adoption scaffold work.
-- There are no other open GitHub issues and no open pull requests.
-- The old draft docs PR #208 and old docs issue #207 were closed as superseded.
-- The current implementation and internal docs still contain old-model concepts,
-  including repository-first wording, `save`/`apply` as the happy path,
-  backup/restore, and v1 migration references.
-- The current implementation is therefore a prototype baseline, not an accepted
-  v2 product contract.
+- GitHub issue #209 is the parent v2 reset issue and remains open until the
+  combined reset outcome is accepted.
+- Phase 1 scaffold adoption is complete (#217 / PR #218).
+- Phase 2 audit/discovery is complete for sequencing purposes (#219 / PR #220),
+  with remaining product decisions carried by follow-up issues.
+- Product model/vocabulary is accepted (#210).
+- The focused sync split is complete (#221-#225), including the `save`/`apply`
+  alias policy in PR #237. Parent #211 remains open because #212 and #213/#226
+  are public-scope gates before production-ready sync acceptance.
+- Catalog and bootstrap parent areas remain open through their split children:
+  #214 -> #227-#229 and #215 -> #230-#231.
+- Production documentation (#216) remains open until accepted behavior and
+  examples from remaining gates are available.
+- Current reconciliation work is tracked in #238 because #209 and the execution
+  record lagged live tracker state after several issue closures.
 - New work must start from `main` on a fresh issue-linked branch, not from old
   closed-PR branches.
 
@@ -88,6 +93,16 @@ The project follows the Project Execution Standards when all of these are true:
     dependencies, and next action.
 
 ## Transformation phases
+
+### Phase status as of 2026-06-24
+
+| Phase | Status | Evidence / next action |
+| --- | --- | --- |
+| Phase 1 — Install execution scaffold | Complete | #217 closed; PR #218 merged. |
+| Phase 2 — Audit current v2 | Complete for sequencing | #219 closed; PR #220 merged; remaining decisions live in follow-up issues. |
+| Phase 3 — Recontract and resequence | Substantially complete | #210 accepted; #211/#214/#215 split into focused children; parent issues remain open where gates remain. |
+| Phase 4 — Execute frozen work items | Active | #238 reconciles source-of-truth drift; #212 is the recommended next product issue. |
+| Phase 5 — Project-level acceptance | Not started | Requires remaining gates, clean-environment validation, and production docs. |
 
 ### Phase 1 — Install the execution scaffold
 
@@ -224,20 +239,25 @@ Completion evidence:
 - Evidence quality expectations are met for all completion claims.
 - Known limitations and future work are separated from completion requirements.
 
-## Immediate execution plan
+## Current execution plan
 
-The first execution slice is Phase 1 only. It is scaffold work and must not make
-product behavior claims.
+The first scaffold slice is complete. Current work is in Phase 4: execute one
+frozen work item at a time while keeping #209 and the execution record current.
 
-Immediate steps:
+Current steps:
 
-1. Create a fresh branch from `main`.
-2. Add this plan, the execution record, the tailoring doc, and issue/PR
-   templates.
-3. Create the standards-adoption GitHub issue and link it from #209.
-4. Open a PR for the scaffold.
-5. Validate that the scaffold is discoverable and does not modify product code.
-6. Ask the Project Owner to accept the source-of-truth decision.
+1. Finish #238 by reconciling #209 and the execution record with live tracker
+   state, without changing runtime behavior.
+2. Validate the #238 source-of-truth edits with readback checks, Pro review,
+   subagent PR review, and CI/validation.
+3. After #238, proceed to #212 as the recommended next product issue, because
+   backup/restore is still the clearest public-scope contradiction with the
+   reset model.
+4. Treat #213/#226 as the paired legacy public-surface gate after or alongside
+   #212.
+5. Continue catalogs (#227 -> #228/#229), bootstrap (#230 -> #231), and final
+   production docs (#216) only after their prerequisite decisions/examples are
+   accepted.
 
 ## Anti-patterns to avoid
 
