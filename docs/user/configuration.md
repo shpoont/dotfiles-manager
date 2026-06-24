@@ -1,7 +1,7 @@
 # v2 configuration and data layout
 
-v2 uses a small control plane in the repository, desired-state artifacts in the
-repository, and local state outside the repository.
+v2 uses a small control plane in the settings folder, stored settings in the
+settings folder, and local state outside the settings folder.
 
 ## Config loading
 
@@ -18,15 +18,15 @@ dotfiles-manager --config dotfiles-manager.v2.yaml list
 ```
 
 Some preview commands can find a v2 root when the current directory is inside a
-repository containing `dotfiles-manager.v2.yaml`. Mutating commands should be
-run from the intended repository and should use explicit `--config` in scripts.
+settings folder containing `dotfiles-manager.v2.yaml`. Mutating commands should be
+run from the intended settings folder and should use explicit `--config` in scripts.
 
 Legacy v1 file sync still uses `.dotfiles-manager.yaml`; see the legacy section
 at the end of this file.
 
-## Repository control plane
+## Settings-folder control plane
 
-`dotfiles-manager init` creates this minimal repository scaffold:
+`dotfiles-manager init` creates this minimal settings-folder scaffold:
 
 ```text
 dotfiles-manager.v2.yaml
@@ -73,15 +73,15 @@ as global + work + machine-local overrides.
 
 ## Scopes
 
-Scopes choose the desired-state subject. They do not decide the live file path;
+Scopes choose the stored-settings subject. They do not decide the live file path;
 the recipe resource and named location decide live paths.
 
-| Scope | Desired subject | Meaning |
+| Scope | Stored-settings subject | Meaning |
 | --- | --- | --- |
-| `shared` | `desired/shared/-/...` | Same desired value for everyone and every machine. |
-| `user` | `desired/user/<user-id>/...` | Same desired value for one logical user across machines. |
-| `machine` | `desired/machine/<machine-id>/...` | Same desired value for everyone on one machine. |
-| `machine-user` | `desired/machine-user/<machine-id>/<user-id>/...` | Value specific to one logical user on one machine. |
+| `shared` | `desired/shared/-/...` | Same stored value for everyone and every machine. |
+| `user` | `desired/user/<user-id>/...` | Same stored value for one logical user across machines. |
+| `machine` | `desired/machine/<machine-id>/...` | Same stored value for everyone on one machine. |
+| `machine-user` | `desired/machine-user/<machine-id>/<user-id>/...` | Stored value specific to one logical user on one machine. |
 
 Examples:
 
@@ -92,9 +92,11 @@ desired://machine/mbp-2026/targets/git/settings#host.name
 desired://machine-user/mbp-2026/leon/targets/git/settings#local.theme
 ```
 
-## Desired data plane
+## Stored settings data plane
 
-Desired state is stored under `desired/` in the repository.
+Stored settings are kept under `desired/` in the settings folder. The path
+name remains `desired/` for current on-disk compatibility, but user-facing docs
+call the contents stored settings.
 
 Selected scalar settings use `settings.yaml`:
 
@@ -127,7 +129,7 @@ File-tree resources use an artifact directory:
 desired/user/docs-user/targets/nvim/artifacts/config/
 ```
 
-Desired artifacts may contain the actual managed bytes. Do not commit secrets,
+Stored settings artifacts may contain the actual managed bytes. Do not commit secrets,
 credentials, private keys, tokens, account exports, generated caches, or runtime
 state unless a reviewed recipe explicitly supports that data.
 
@@ -161,7 +163,7 @@ silently broaden bundled writes or discovery.
 
 User-facing output may show internal URI schemes:
 
-- `desired://...` points to desired repository artifacts;
+- `desired://...` points to stored settings artifacts in the settings folder;
 - `state://...` points to local state artifacts such as backups or ledger runs;
 - `recipe://...` identifies bundled or local recipe metadata.
 
@@ -171,14 +173,14 @@ when you need details.
 
 ## Local state
 
-v2 local state is outside the repository by default and is keyed by a stable hash
-of the real repository path.
+v2 local state is outside the settings folder by default and is keyed by a stable hash
+of the real settings-folder path.
 
 Default local state roots:
 
 ```text
-macOS: ~/Library/Application Support/dotfiles-manager/v2/<repo-state-id>/
-Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<repo-state-id>/
+macOS: ~/Library/Application Support/dotfiles-manager/v2/<settings-folder-state-id>/
+Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<settings-folder-state-id>/
 ```
 
 Current state subtrees include:
@@ -192,9 +194,9 @@ ledger/ledger.jsonl
 ledger/runs/<run-id>.json
 ```
 
-Normal backup and ledger metadata is redacted/metadata-oriented. Backup payloads
-may contain the actual pre-apply managed bytes so restore can put them back.
-Treat the local state root as sensitive.
+Normal ledger and local pre-write-evidence metadata is redacted/metadata-oriented.
+Where pre-write payloads are still implemented, they may contain the actual
+managed bytes needed for recovery. Treat the local state root as sensitive.
 
 ## Custom local recipes
 

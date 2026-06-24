@@ -49,10 +49,25 @@ var (
 
 func NewRootCmd() *cobra.Command {
 	opts := &rootOptions{}
+	cobra.EnableCommandSorting = false
 
 	rootCmd := &cobra.Command{
-		Use:           "dotfiles-manager",
-		Short:         "Config-driven dotfiles synchronization tool",
+		Use:   "dotfiles-manager",
+		Short: "Local settings manager for syncing live settings with stored settings",
+		Long: `dotfiles-manager manages selected app/tool settings in a local settings folder.
+
+Normal v2 workflow:
+  status -> diff -> sync
+
+sync is the primary v2 action. It copies selected settings in a safe direction
+between live settings and stored settings after checking the current state.
+
+Compatibility aliases:
+  save  sync live settings -> stored settings
+  apply sync stored settings -> live settings
+
+The settings folder is local storage. It may be versioned with Git, but Git is
+optional.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
@@ -65,21 +80,21 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&opts.logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 
 	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.AddCommand(newInitCmd(opts))
+	rootCmd.AddCommand(newRecipeCmd(opts))
+	rootCmd.AddCommand(newAddCmd(opts))
+	rootCmd.AddCommand(newListCmd(opts))
 	rootCmd.AddCommand(newStatusCmd(opts))
-	rootCmd.AddCommand(newDeployCmd(opts))
-	rootCmd.AddCommand(newImportCmd(opts))
 	rootCmd.AddCommand(newDiffCmd(opts))
+	rootCmd.AddCommand(newSyncCmd(opts))
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
-	rootCmd.AddCommand(newSyncCmd(opts))
-	rootCmd.AddCommand(newInitCmd(opts))
-	rootCmd.AddCommand(newAddCmd(opts))
 	rootCmd.AddCommand(newAppCmd(opts))
-	rootCmd.AddCommand(newListCmd(opts))
 	rootCmd.AddCommand(newBackupCmd(opts))
 	rootCmd.AddCommand(newRestoreCmd(opts))
+	rootCmd.AddCommand(newDeployCmd(opts))
+	rootCmd.AddCommand(newImportCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))
-	rootCmd.AddCommand(newRecipeCmd(opts))
 
 	return rootCmd
 }
@@ -224,8 +239,13 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "save [ref]",
-		Short: "Preview saving selected v2 settings to desired artifacts",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Compatibility alias: sync live settings to stored settings",
+		Long: `Compatibility alias for directional sync.
+
+save copies selected live settings to stored settings in the settings folder.
+For normal use, run status, then diff, then sync. Use save only when you need
+the explicit live-settings-to-stored-settings direction.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSelectedPreviewRootCommand(cmd, opts, commandOptions{
 				Name:           "save",
@@ -240,9 +260,9 @@ func newSaveCmd(opts *rootOptions) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value save without writing desired artifacts")
-	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live save without interactive prompting")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if selected-value save needs confirmation")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview syncing live settings to stored settings without writing")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm syncing live settings to stored settings without interactive prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if this directional sync needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
@@ -259,8 +279,13 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "apply [ref]",
-		Short: "Preview applying selected v2 settings to live state",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Compatibility alias: sync stored settings to live settings",
+		Long: `Compatibility alias for directional sync.
+
+apply copies selected stored settings from the settings folder to live settings.
+For normal use, run status, then diff, then sync. Use apply only when you need
+the explicit stored-settings-to-live-settings direction.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSelectedPreviewRootCommand(cmd, opts, commandOptions{
 				Name:           "apply",
@@ -275,9 +300,9 @@ func newApplyCmd(opts *rootOptions) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected-value apply without writing live state")
-	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm selected-value live apply without interactive prompting")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if selected-value apply needs confirmation")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview syncing stored settings to live settings without writing")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm syncing stored settings to live settings without interactive prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; fail if this directional sync needs confirmation")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
@@ -332,7 +357,7 @@ func newInitCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize v2 repository scaffold and local identity state",
+		Short: "Initialize v2 settings folder and local identity state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runInitCommand(cmd, opts, v2initcmd.Options{

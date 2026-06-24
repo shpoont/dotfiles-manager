@@ -3,12 +3,14 @@
 ## What should I read first?
 
 Use [`getting-started.md`](./getting-started.md). It starts with a temporary
-`HOME` workflow so you can run `init`, `add`, `save`, `apply`, `backup`, and
-`restore` without touching real dotfiles.
+`HOME` workflow so you can run `init`, `add`, `status`, `diff`, and
+`sync` without touching real dotfiles. When you need an explicit direction, it also shows the
+compatibility aliases `save` and `apply`.
 
 ## Does v2 store actual values?
 
-Yes. The repository stores actual desired state so values can be applied later.
+Yes. The settings folder stores actual managed values so settings can be
+synced later.
 For example, `git:user.email` with `--scope user --user-id docs-user` is stored
 in:
 
@@ -17,9 +19,9 @@ desired/user/docs-user/targets/git/settings.yaml
 ```
 
 Whole-file and file-tree resources store managed bytes under `artifacts/...`.
-Normal command output, previews, backup metadata, and ledger metadata redact raw
-values, but desired artifacts and backup payloads may contain the actual managed
-bytes.
+Normal command output, previews, and ledger metadata redact raw values, but
+stored settings payloads may contain the actual managed bytes. Local pre-write
+evidence, where still implemented, may also contain managed bytes.
 
 ## Is this safe for secrets?
 
@@ -29,7 +31,7 @@ supports that data. The current product is not a secret manager.
 
 ## Where are profiles stored?
 
-In the repository:
+In the settings folder:
 
 ```text
 profiles/stacks/<stack>.yaml
@@ -48,24 +50,25 @@ default stack and add `--profile work` for work-only selections.
 
 ## What scopes are available?
 
-- `shared` — one desired value for everyone and every machine.
-- `user` — one desired value for a logical user across machines.
-- `machine` — one desired value for a machine.
-- `machine-user` — one desired value for a logical user on a machine.
+- `shared` — one stored value for everyone and every machine.
+- `user` — one stored value for a logical user across machines.
+- `machine` — one stored value for a machine.
+- `machine-user` — one stored value for a logical user on a machine.
 
-Scopes decide where desired state is stored under `desired/`; recipes still
+Scopes decide where stored settings are placed under `desired/`; recipes still
 decide live file locations.
 
 ## Where is local state stored?
 
-By default, outside the repository:
+By default, outside the settings folder:
 
 ```text
-macOS: ~/Library/Application Support/dotfiles-manager/v2/<repo-state-id>/
-Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<repo-state-id>/
+macOS: ~/Library/Application Support/dotfiles-manager/v2/<settings-folder-state-id>/
+Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<settings-folder-state-id>/
 ```
 
-It contains identity files, backup metadata/payloads, and ledger/run records.
+It contains identity files, local pre-write evidence where implemented, and
+ledger/run records.
 Commands display state references as `state://...` URIs.
 
 ## How do I recover after a failed or wrong apply?
@@ -131,7 +134,7 @@ version is:
 
 Not as a general public workflow in this tranche. Native export/import support
 needs a reviewed recipe with explicit command metadata, lifecycle behavior,
-redaction expectations, backup/restore behavior, and tests. Do not assume an
+redaction expectations, lifecycle behavior, and tests. Do not assume an
 app's native export/import command is supported just because the app has one.
 
 ## Can I add my own app?
@@ -160,8 +163,8 @@ dotfiles-manager import --dry-run
 ```
 
 v1 `deploy` means source to target. v1 `import` means target to source. v2 uses
-`dotfiles-manager.v2.yaml`, profiles, scopes, selected settings, desired
-artifacts, backups, and restore.
+`dotfiles-manager.v2.yaml`, profiles, scopes, selected settings, stored
+settings, and sync.
 
 ## How do I migrate v1 file syncs?
 

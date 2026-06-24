@@ -32,6 +32,9 @@ scripts/ci/check-v2-smart-sync-execution-fixtures.sh
 echo "Checking v2 partial/many-app sync fixtures..."
 scripts/ci/check-v2-partial-many-app-sync-fixtures.sh
 
+echo "Checking v2 save/apply alias policy..."
+scripts/ci/check-v2-save-apply-alias-policy.sh
+
 if [[ "$HAS_GO_MOD" != "true" ]]; then
   echo "No go.mod detected; skipping go vet/staticcheck/golangci-lint."
   exit 0

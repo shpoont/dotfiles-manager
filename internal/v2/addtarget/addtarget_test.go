@@ -370,7 +370,7 @@ func TestAddFriendlyTextCoversResultBranches(t *testing.T) {
 	writtenText := Text(written)
 	require.Contains(t, writtenText, "Selected Git settings.")
 	require.Contains(t, writtenText, "Already selected: git:user.name — user name")
-	require.Contains(t, writtenText, "Preview saving the current live value as desired state:")
+	require.Contains(t, writtenText, "Preview explicit sync from live settings to stored settings:")
 	require.Contains(t, writtenText, "Summary: 1 selected setting for git.")
 }
 

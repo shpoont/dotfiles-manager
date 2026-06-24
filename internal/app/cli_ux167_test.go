@@ -47,19 +47,19 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 	addOut := runUX167Text(t, []string{"add", "git", "--setting", "user.email", "--scope", "user", "--yes"})
 	require.Contains(t, addOut, "Selected Git settings.")
 	require.Contains(t, addOut, "No live app config was changed")
-	require.Contains(t, addOut, "Preview saving the current live value as desired state")
+	require.Contains(t, addOut, "Preview explicit sync from live settings to stored settings")
 
 	listBeforeSave := runUX167Text(t, []string{"list", "--user-id", "leon"})
 	require.Contains(t, listBeforeSave, "Selected settings")
 	require.Contains(t, listBeforeSave, "git:user.email — User email")
-	require.Contains(t, listBeforeSave, "Desired state: not saved yet")
+	require.Contains(t, listBeforeSave, "Stored settings: not stored yet")
 
 	_ = runUX167Text(t, []string{"save", "--yes", "--user-id", "leon", "git:user.email"})
 	desiredPath := filepath.Join(repoRoot, "desired", "user", "leon", "targets", "git", "settings.yaml")
 	writeCLIFile(t, desiredPath, "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  user.email:\n    intent: set\n    kind: string\n    value: desired@example.com\n")
 
 	listAfterSave := runUX167Text(t, []string{"list", "--user-id", "leon"})
-	require.Contains(t, listAfterSave, "Desired state: saved")
+	require.Contains(t, listAfterSave, "Stored settings: stored")
 	require.Contains(t, listAfterSave, "Inspect drift:")
 
 	applyOut := runUX167Text(t, []string{"apply", "--yes", "--user-id", "leon", "git:user.email"})

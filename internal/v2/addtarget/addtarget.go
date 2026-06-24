@@ -332,7 +332,7 @@ func Text(report *Report) string {
 			lines = append(lines, "", "To confirm:", "  "+cmd)
 		}
 	} else if first := firstAddSetting(report.Add.Settings); first != nil {
-		lines = append(lines, "", "Next:", "  Preview saving the current live value as desired state:", "  "+addNextSaveCommandLine(first.Ref))
+		lines = append(lines, "", "Next:", "  Preview explicit sync from live settings to stored settings:", "  "+addNextSaveCommandLine(first.Ref))
 	}
 	for _, diagnostic := range report.Diagnostics {
 		if diagnostic.Severity == SeverityError {

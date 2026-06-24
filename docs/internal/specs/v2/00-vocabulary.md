@@ -171,8 +171,8 @@ direction, ask on conflicts, and refuse when the safe direction is unknown.
 
 `save` and `apply` are not primary v2 product nouns.
 
-They may remain as directional sync aliases or advanced commands only if #225
-accepts that policy.
+Issue #225 accepted them as public compatibility aliases for explicit
+directional sync. They remain secondary to the primary `sync` command.
 
 If retained:
 
@@ -330,7 +330,7 @@ tests must follow this vocabulary floor unless an issue explicitly supersedes it
 4. Normal output must not expose raw values, internal URI schemes, resources,
    drivers, profile stacks, or storage paths unless the context is verbose,
    JSON, debug, or authoring.
-5. `save`/`apply` are directional sync aliases only if #225 accepts them.
+5. `save`/`apply` are secondary compatibility aliases for directional sync.
 6. Backup/restore and v1 migration are not active v2 product nouns.
 7. Unknown, unsupported, secret, account-bound, generated, cached, or session
    state defaults to unmanaged.

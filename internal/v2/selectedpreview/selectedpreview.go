@@ -34,6 +34,7 @@ const (
 
 	CommandStatus = "status"
 	CommandDiff   = "diff"
+	CommandSync   = "sync"
 	CommandSave   = "save"
 	CommandApply  = "apply"
 
@@ -76,16 +77,19 @@ type Options struct {
 }
 
 type Report struct {
-	Schema        string            `json:"schema"`
-	SchemaVersion int               `json:"schemaVersion"`
-	Command       string            `json:"command"`
-	RunID         string            `json:"runId"`
-	DryRun        bool              `json:"dryRun"`
-	ProfileStack  []string          `json:"profileStack"`
-	Summary       Summary           `json:"summary"`
-	Items         []Item            `json:"items"`
-	Error         *ErrorObj         `json:"error,omitempty"`
-	Invocation    InvocationContext `json:"-"`
+	Schema         string            `json:"schema"`
+	SchemaVersion  int               `json:"schemaVersion"`
+	Command        string            `json:"command"`
+	Operation      string            `json:"operation,omitempty"`
+	InvokedCommand string            `json:"invokedCommand,omitempty"`
+	Direction      string            `json:"direction,omitempty"`
+	RunID          string            `json:"runId"`
+	DryRun         bool              `json:"dryRun"`
+	ProfileStack   []string          `json:"profileStack"`
+	Summary        Summary           `json:"summary"`
+	Items          []Item            `json:"items"`
+	Error          *ErrorObj         `json:"error,omitempty"`
+	Invocation     InvocationContext `json:"-"`
 }
 
 type Summary struct {
@@ -402,6 +406,10 @@ func defaultText(report *Report) string {
 func singleItemDefaultText(report *Report, item Item) []string {
 	label := itemDisplayName(item)
 	lines := []string{singleItemHeadline(report, item, label), ""}
+	if alias := commandAliasLines(report.Command); len(alias) > 0 {
+		lines = append(lines, alias...)
+		lines = append(lines, "")
+	}
 
 	if status := itemStatusText(report, item); status != "" {
 		lines = append(lines, "Status:", "  "+status, "")
@@ -413,20 +421,20 @@ func singleItemDefaultText(report *Report, item Item) []string {
 	switch report.Command {
 	case CommandSave:
 		if report.DryRun {
-			lines = append(lines, "From live file:")
+			lines = append(lines, "From live settings:")
 		} else if item.Mutation != nil {
-			lines = append(lines, "Read from:")
+			lines = append(lines, "Read from live settings:")
 		} else {
-			lines = append(lines, "Live value:")
+			lines = append(lines, "Live settings:")
 		}
 		lines = append(lines, liveValueLines(item)...)
 		lines = append(lines, "")
 		if report.DryRun {
-			lines = append(lines, "Would write repo file:")
+			lines = append(lines, "Would update stored settings file:")
 		} else if item.Mutation != nil {
-			lines = append(lines, "Wrote repo file:")
+			lines = append(lines, "Updated stored settings file:")
 		} else {
-			lines = append(lines, "Repo file:")
+			lines = append(lines, "Stored settings file:")
 		}
 		lines = append(lines, "  "+desiredPathLabel(item), "")
 		if item.Mutation != nil {
@@ -434,13 +442,13 @@ func singleItemDefaultText(report *Report, item Item) []string {
 		}
 	case CommandApply:
 		if itemBlocked(item) {
-			lines = append(lines, "Saved desired value:")
+			lines = append(lines, "Stored settings:")
 		} else if report.DryRun {
-			lines = append(lines, "Would read desired value from:")
+			lines = append(lines, "Would read stored settings from:")
 		} else if item.Mutation != nil {
-			lines = append(lines, "Read desired value from:")
+			lines = append(lines, "Read stored settings from:")
 		} else {
-			lines = append(lines, "Saved desired value:")
+			lines = append(lines, "Stored settings:")
 		}
 		lines = append(lines, desiredValueLines(item)...)
 		lines = append(lines, "")
@@ -465,7 +473,7 @@ func singleItemDefaultText(report *Report, item Item) []string {
 		lines = append(lines, "Live value:")
 		lines = append(lines, liveValueLines(item)...)
 		lines = append(lines, "")
-		lines = append(lines, "Saved desired value:")
+		lines = append(lines, "Stored settings:")
 		lines = append(lines, desiredValueLines(item)...)
 		lines = append(lines, "")
 		if report.Command == CommandDiff && item.Diff != nil {
@@ -485,6 +493,10 @@ func singleItemDefaultText(report *Report, item Item) []string {
 func multiItemDefaultText(report *Report) []string {
 	counts := defaultCounts(report)
 	lines := []string{fmt.Sprintf("Checked %d selected settings.", len(report.Items)), ""}
+	if alias := commandAliasLines(report.Command); len(alias) > 0 {
+		lines = append(lines, alias...)
+		lines = append(lines, "")
+	}
 	lines = append(lines, fmt.Sprintf("Summary: %d changed, %d unchanged, %d blocked.", counts.changed, counts.unchanged, counts.blocked), "")
 	if report.DryRun {
 		lines = append(lines, "Dry run: no files were changed.", "")
@@ -612,11 +624,36 @@ func commandTitle(command string) string {
 	case CommandDiff:
 		return "Diff"
 	case CommandSave:
-		return "Save"
+		return "Save (sync live settings -> stored settings)"
 	case CommandApply:
-		return "Apply"
+		return "Apply (sync stored settings -> live settings)"
 	default:
 		return "Selected settings"
+	}
+}
+
+func commandAliasLines(command string) []string {
+	switch command {
+	case CommandSave:
+		return []string{
+			"Command alias:",
+			"  save is a compatibility alias for sync.",
+			"Sync direction:",
+			"  live settings -> stored settings",
+			"Primary command:",
+			"  sync",
+		}
+	case CommandApply:
+		return []string{
+			"Command alias:",
+			"  apply is a compatibility alias for sync.",
+			"Sync direction:",
+			"  stored settings -> live settings",
+			"Primary command:",
+			"  sync",
+		}
+	default:
+		return nil
 	}
 }
 
@@ -639,12 +676,12 @@ func singleItemHeadline(report *Report, item Item, label string) string {
 		switch report.Command {
 		case CommandSave:
 			if item.Mutated || report.Summary.Saved > 0 {
-				return "Saved " + label + " as desired state."
+				return "Synced " + label + " to stored settings."
 			}
-			return label + " was already saved."
+			return label + " was already in stored settings."
 		case CommandApply:
 			if item.Mutated || report.Summary.Applied > 0 {
-				return "Updated " + label + "."
+				return "Synced " + label + " to live settings."
 			}
 			return label + " was already up to date."
 		}
@@ -653,16 +690,16 @@ func singleItemHeadline(report *Report, item Item, label string) string {
 		switch report.Command {
 		case CommandSave:
 			if IsSavePlannedAction(item.PlannedAction) {
-				return "Dry run: would save " + label + "."
+				return "Dry run: would sync " + label + " to stored settings."
 			}
 		case CommandApply:
 			if item.PlannedAction == PlannedActionWouldApply {
-				return "Dry run: would update " + label + "."
+				return "Dry run: would sync " + label + " to live settings."
 			}
 		}
 	}
 	if report.Command == CommandDiff && !itemUnchanged(item) {
-		return label + " differs from saved desired state."
+		return label + " differs between live settings and stored settings."
 	}
 	return label
 }
@@ -671,53 +708,53 @@ func itemStatusText(report *Report, item Item) string {
 	if report != nil && item.Mutation != nil {
 		switch report.Command {
 		case CommandSave:
-			return "Saved desired value now exists in this repo."
+			return "Stored settings now contain this live value."
 		case CommandApply:
-			return "Applied the saved desired value to the live file."
+			return "Live settings now match the stored settings."
 		}
 	}
 	if itemBlocked(item) {
 		if item.PlannedAction == PlannedActionBlockedMissingDesired || item.State == v2status.StateMissingDesired || item.Desired.Status == desired.StatusMissing {
-			return "Blocked because no saved desired value exists yet."
+			return "Blocked because no stored settings exist yet."
 		}
 		return "Blocked; no files will be changed."
 	}
 	if item.Preview != nil && item.Preview.ReadOnly {
-		return "read-only; save/apply is not supported for this setting."
+		return "read-only; directional sync aliases are not supported for this setting."
 	}
 	if item.Desired.Status == desired.StatusUnmanaged || item.Desired.Unmanaged {
 		return "Intentionally unmanaged."
 	}
 	if item.Desired.Status == desired.StatusMissing {
 		if item.Current.Exists {
-			return "Selected, but not saved to this repo yet."
+			return "Selected, but not stored in the settings folder yet."
 		}
-		return "Selected, but neither a live value nor a saved desired value exists yet."
+		return "Selected, but neither live settings nor stored settings exist yet."
 	}
 	if itemUnchanged(item) {
-		return "Up to date with saved desired state."
+		return "Live settings match stored settings."
 	}
 	if report != nil {
 		switch report.Command {
 		case CommandSave:
 			if IsSavePlannedAction(item.PlannedAction) {
 				if item.Current.Exists {
-					return "Current live value can be saved to this repo."
+					return "Live settings can be synced to stored settings."
 				}
-				return "Live value is missing; saving would record that desired state."
+				return "Live value is missing; sync would record that in stored settings."
 			}
 		case CommandApply:
 			if item.PlannedAction == PlannedActionWouldApply {
-				return "Saved desired value can be applied to the live file."
+				return "Stored settings can be synced to live settings."
 			}
 		case CommandDiff:
 			if item.Diff != nil {
-				return "Live value differs from saved desired state."
+				return "Live settings differ from stored settings."
 			}
 		}
 	}
 	if item.Current.Exists && item.Desired.Snapshot.Exists {
-		return "Live value differs from saved desired state."
+		return "Live settings differ from stored settings."
 	}
 	if item.Current.Exists {
 		return "Live value exists."
@@ -852,9 +889,9 @@ func fileTreeRemovalDefaultLines(report *Report, item Item) []string {
 	if len(removals) == 0 {
 		return nil
 	}
-	heading := "Will remove live paths not present in saved desired state:"
+	heading := "Will remove live paths not present in stored settings:"
 	if fileTreeRemovalsApplied(report, item) {
-		heading = "Removed live paths not present in saved desired state:"
+		heading = "Removed live paths not present in stored settings:"
 	}
 	lines := []string{"File-tree removals:", "  " + heading}
 	limit := fileTreeRemovalTextLimit
@@ -879,9 +916,9 @@ func fileTreeRemovalSummaryLine(report *Report, item Item) string {
 		return ""
 	}
 	if fileTreeRemovalsApplied(report, item) {
-		return fmt.Sprintf("Removed %d live %s not present in saved desired state; use --json for full fileTree.operations.", len(removals), pluralizePath(len(removals)))
+		return fmt.Sprintf("Removed %d live %s not present in stored settings; use --json for full fileTree.operations.", len(removals), pluralizePath(len(removals)))
 	}
-	return fmt.Sprintf("Will remove %d live %s not present in saved desired state; run a focused dry-run or --json for full paths.", len(removals), pluralizePath(len(removals)))
+	return fmt.Sprintf("Will remove %d live %s not present in stored settings; run a focused dry-run or --json for full paths.", len(removals), pluralizePath(len(removals)))
 }
 
 func fileTreeRemoveOperations(item Item) []FileTreeOperation {
@@ -953,7 +990,7 @@ func fileChangeLine(report *Report) string {
 	switch report.Command {
 	case CommandSave:
 		if report.Summary.Saved > 0 || report.Summary.Changed > 0 {
-			return "Repo files changed."
+			return "Stored settings changed."
 		}
 	case CommandApply:
 		if report.Summary.Applied > 0 || report.Summary.Changed > 0 {
@@ -992,14 +1029,17 @@ func nextCommandLines(report *Report) []string {
 	ref := fallback(item.SettingRef, "<target:setting>")
 	if itemBlocked(item) {
 		if item.PlannedAction == PlannedActionBlockedMissingDesired || item.Desired.Status == desired.StatusMissing {
-			return []string{"Next:", "  Preview saving the current live value:", "  " + selectedCommandLine(report, CommandSave, []string{"--dry-run"}, ref)}
+			return []string{"Next:", "  Preview explicit sync from live settings to stored settings:", "  " + selectedCommandLine(report, CommandSave, []string{"--dry-run"}, ref)}
 		}
 		return []string{"Next:", "  Run with --verbose for technical diagnostics:", "  " + selectedCommandLine(report, fallback(report.Command, CommandStatus), []string{"--verbose"}, ref)}
 	}
 	switch report.Command {
 	case CommandStatus:
+		if item.NativeExport != nil {
+			return []string{"Next:", "  Inspect native export metadata before choosing a sync direction:", "  " + selectedCommandLine(report, CommandDiff, nil, ref)}
+		}
 		if item.Desired.Status == desired.StatusMissing {
-			return []string{"Next:", "  Preview saving the current live value:", "  " + selectedCommandLine(report, CommandSave, []string{"--dry-run"}, ref)}
+			return []string{"Next:", "  Preview explicit sync from live settings to stored settings:", "  " + selectedCommandLine(report, CommandSave, []string{"--dry-run"}, ref)}
 		}
 		if !itemUnchanged(item) {
 			return []string{"Next:", "  Inspect the hidden-value diff:", "  " + selectedCommandLine(report, CommandDiff, nil, ref)}
@@ -1013,7 +1053,7 @@ func nextCommandLines(report *Report) []string {
 		}
 	case CommandDiff:
 		if !itemUnchanged(item) {
-			return []string{"Next:", "  Preview applying the saved desired value:", "  " + selectedCommandLine(report, CommandApply, []string{"--dry-run"}, ref)}
+			return []string{"Next:", "  Run sync to use the safe direction after reviewing this diff:", "  " + selectedCommandLine(report, CommandSync, nil, ref)}
 		}
 	case CommandApply:
 		if report.DryRun && item.PlannedAction == PlannedActionWouldApply {
@@ -1188,27 +1228,29 @@ func humanizeInternalText(text string) string {
 	out := strings.TrimSpace(text)
 	switch out {
 	case "Setting is selected but no desired artifact exists.":
-		return "This setting is selected, but this repo does not have a saved desired value yet."
+		return "This setting is selected, but the settings folder does not have stored settings for it yet."
+	case "Setting is selected but no stored settings exists.":
+		return "This setting is selected, but the settings folder does not have stored settings for it yet."
 	case "Existing live selected value can be promoted into desired state with save --yes; raw value remains redacted in output.":
-		return "Existing live value can be saved to this repo with save --yes; raw value remains hidden."
+		return "Existing live value can be synced to stored settings with save --yes; raw value remains hidden."
 	case "Current differs from desired and there is no previous sync baseline; saving will replace the desired artifact.":
-		return "Live value differs from saved desired state. Saving would replace the saved desired value."
+		return "Live settings differ from stored settings. Syncing to stored settings would replace the stored value."
 	case "Desired differs from current and there is no previous sync baseline; applying will replace live state.":
-		return "Saved desired value differs from live value. Applying would replace the live value."
+		return "Stored settings differ from live settings. Syncing to live settings would replace the live value."
 	case "Changed, no previous sync baseline: review diff, then choose save or apply.":
-		return "Live value differs from saved desired state."
+		return "Live settings differ from stored settings."
 	case "State cannot be determined safely from incomplete last-applied baseline data.":
 		return "State cannot be determined safely from incomplete previous apply data."
 	case "Current differs from desired; last-applied baseline matches desired.":
-		return "Live value differs from saved desired state. The last apply recorded by this tool matches the saved desired value."
+		return "Live settings differ from stored settings. The previous apply recorded by this tool matches stored settings."
 	case "Desired differs from current; last-applied baseline matches current.":
-		return "Saved desired value differs from live value. The last apply recorded by this tool matches the current live value."
+		return "Stored settings differ from live settings. The previous apply recorded by this tool matches current live settings."
 	}
 	out = strings.ReplaceAll(out, "selected-value", "selected value")
 	out = strings.ReplaceAll(out, "selected value", "value")
-	out = strings.ReplaceAll(out, "desired artifact", "saved desired value")
-	out = strings.ReplaceAll(out, "Desired value artifact", "Saved desired value")
-	out = strings.ReplaceAll(out, "no desired artifact", "no saved desired value")
+	out = strings.ReplaceAll(out, "desired artifact", "stored settings")
+	out = strings.ReplaceAll(out, "Desired value artifact", "Stored settings")
+	out = strings.ReplaceAll(out, "no desired artifact", "no stored settings")
 	return out
 }
 
@@ -1266,7 +1308,24 @@ func commandDryRun(command string, dryRun bool) bool {
 }
 
 func baseReport(command string, dryRun bool, profileStack []string) *Report {
-	return &Report{Schema: Schema, SchemaVersion: SchemaVersion, Command: command, RunID: RunID, DryRun: dryRun, ProfileStack: append([]string(nil), profileStack...), Summary: Summary{Status: SummaryOK}, Items: []Item{}}
+	report := &Report{Schema: Schema, SchemaVersion: SchemaVersion, Command: command, RunID: RunID, DryRun: dryRun, ProfileStack: append([]string(nil), profileStack...), Summary: Summary{Status: SummaryOK}, Items: []Item{}}
+	if operation, direction, ok := commandAliasOperation(command); ok {
+		report.Operation = operation
+		report.InvokedCommand = command
+		report.Direction = direction
+	}
+	return report
+}
+
+func commandAliasOperation(command string) (operation string, direction string, ok bool) {
+	switch command {
+	case CommandSave:
+		return "sync", "live_to_stored", true
+	case CommandApply:
+		return "sync", "stored_to_live", true
+	default:
+		return "", "", false
+	}
 }
 
 func errorReport(opts Options, code string, message string, details map[string]any) *Report {
@@ -1482,7 +1541,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 
 	if read.Status == desired.StatusUnmanaged {
 		item.State = v2status.StateUnchanged
-		item.Message = "Setting is intentionally unmanaged in desired settings."
+		item.Message = "Setting is intentionally unmanaged in stored settings."
 		return item
 	}
 
@@ -1687,7 +1746,7 @@ func buildFileResourceItem(repoRoot string, stateRoot string, command string, it
 	item.PlannedAction = plannedAction(command, item)
 	if command == CommandSave && !plan.DestinationState.Exists && plan.SourceState.Exists {
 		item.PlannedAction = PlannedActionWouldPromote
-		item.Message = "Existing live file can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
+		item.Message = "Existing live file can be synced to stored settings with save --yes; raw file contents remain omitted from output."
 	}
 	return item
 }
@@ -1778,7 +1837,7 @@ func buildNativeExportItem(repoRoot string, stateRoot string, command string, it
 	}
 	if command == CommandStatus {
 		item.State = v2status.StateUnknown
-		item.Message = "Native export status does not run the export operation in this tranche; use diff or save --dry-run to compare metadata."
+		item.Message = "Native export status does not run the export operation in this tranche; use diff to compare metadata before choosing a sync direction."
 		item.AllowedActions = []v2status.Action{v2status.ActionDiff, v2status.ActionSave}
 		return item
 	}
@@ -1836,7 +1895,7 @@ func buildNativeExportItem(repoRoot string, stateRoot string, command string, it
 	item.PlannedAction = plannedAction(command, item)
 	if command == CommandSave && desiredRead.Status == "missing" && export.Metadata.Payload.Exists {
 		item.PlannedAction = PlannedActionWouldPromote
-		item.Message = "Existing native export can be promoted into a desired artifact with save --yes; internal app settings are not semantically diffed."
+		item.Message = "Existing native export can be synced to stored settings with save --yes; internal app settings are not semantically diffed."
 	}
 	return item
 }
@@ -1907,7 +1966,7 @@ func buildFileTreeResourceItem(stateRoot string, command string, item Item, plan
 	item.PlannedAction = plannedAction(command, item)
 	if command == CommandSave && !plan.TreeDestinationState.Exists && plan.TreeSourceState.Exists {
 		item.PlannedAction = PlannedActionWouldPromote
-		item.Message = "Existing live file tree can be promoted into a desired artifact with save --yes; raw file contents remain omitted from output."
+		item.Message = "Existing live file tree can be synced to stored settings with save --yes; raw file contents remain omitted from output."
 	}
 	return item
 }
@@ -1997,7 +2056,7 @@ func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, set
 	}
 	if command == CommandApply {
 		item.State = v2status.StateMissingDesired
-		item.Message = "Selected setting has no desired artifact; apply dry-run cannot change live state."
+		item.Message = "Selected setting has no stored settings; apply dry-run cannot change live state."
 		item.AllowedActions = []v2status.Action{v2status.ActionSave, v2status.ActionCreate}
 		item.PlannedAction = PlannedActionBlockedMissingDesired
 		return item
@@ -2033,7 +2092,7 @@ func buildMissingDesiredItem(repoRoot string, item Item, rec *recipe.Recipe, set
 		item.PlannedAction = plannedSaveActionForMissingDesired(item)
 		item.Preview = &PreviewInfo{ChangeKind: "create", Intent: saveIntent(item.Current)}
 		if item.PlannedAction == PlannedActionWouldPromote {
-			item.Message = "Existing live selected value can be promoted into desired state with save --yes; raw value remains redacted in output."
+			item.Message = "Existing live selected value can be synced to stored settings with save --yes; raw value remains redacted in output."
 		}
 	}
 	if command == CommandDiff {

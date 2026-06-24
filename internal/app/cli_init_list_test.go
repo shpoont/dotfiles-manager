@@ -96,8 +96,8 @@ selections:
 	_ = runUX167JSON(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
 
 	text := runUX167Text(t, []string{"list", "--user-id", "leon"})
-	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: saved")
-	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Desired state: not saved yet")
+	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: stored")
+	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: not stored yet")
 	require.Contains(t, text, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.name")
 
 	payload := runUX167JSON(t, []string{"list", "--json", "--user-id", "leon"})
@@ -130,7 +130,7 @@ selections:
 	text := stdout.String()
 	require.Contains(t, text, "Selected settings")
 	require.Contains(t, text, "git:user.email — User email")
-	require.Contains(t, text, "Desired state: not saved yet")
+	require.Contains(t, text, "Stored settings: not stored yet")
 	require.NotContains(t, text, "desired://")
 	require.NotContains(t, text, "resource=")
 	require.NotContains(t, strings.ToLower(text), "resource group")

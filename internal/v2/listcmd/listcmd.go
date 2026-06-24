@@ -234,7 +234,7 @@ func Text(report *Report) string {
 				} else if len(setting.Subject.Missing) > 0 {
 					lines = append(lines, "    Subject: unresolved; missing "+strings.Join(setting.Subject.Missing, ", "))
 				}
-				lines = append(lines, "    Desired state: "+friendlyDesiredSaved(setting))
+				lines = append(lines, "    Stored settings: "+friendlyDesiredSaved(setting))
 			}
 			lines = append(lines, "")
 		}
@@ -243,7 +243,7 @@ func Text(report *Report) string {
 			if first.DesiredSaved {
 				lines = append(lines, "  Inspect drift:", "  "+listCommandLine("diff", first.Ref, first.Subject.ID))
 			} else {
-				lines = append(lines, "  Preview saving the current live value:", "  "+listCommandLine("save", first.Ref, first.Subject.ID))
+				lines = append(lines, "  Preview explicit sync from live settings to stored settings:", "  "+listCommandLine("save", first.Ref, first.Subject.ID))
 			}
 			lines = append(lines, "")
 		}
@@ -368,14 +368,14 @@ func settingLabel(setting ManagedSetting) string {
 func friendlyDesiredSaved(setting ManagedSetting) string {
 	switch setting.DesiredState.Status {
 	case DesiredStateSaved:
-		return "saved"
+		return "stored"
 	case DesiredStateNotSaved:
-		return "not saved yet"
+		return "not stored yet"
 	case "":
 		if setting.DesiredSaved {
-			return "saved"
+			return "stored"
 		}
-		return "not saved yet"
+		return "not stored yet"
 	default:
 		return setting.DesiredState.Status
 	}
@@ -785,7 +785,7 @@ func desiredStateSaved(repoRoot string, item ManagedSetting) (bool, *Diagnostic)
 			return false, &Diagnostic{
 				Code:     CodeDesiredInvalid,
 				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("desired state for %s is invalid; treating the setting as not saved: %s", item.Ref, err),
+				Message:  fmt.Sprintf("stored settings for %s are invalid; treating the setting as not stored: %s", item.Ref, err),
 				Ref:      item.Ref,
 				Path:     item.DesiredRelPath,
 			}
