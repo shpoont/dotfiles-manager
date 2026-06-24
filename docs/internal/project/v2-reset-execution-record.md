@@ -12,7 +12,7 @@ project-issue: 209
 
 - Project charter / parent issue: #209
 - Standards-adoption scaffold issue: #217
-- Current reconciliation issue: #238
+- Latest standards reconciliation issue: #238 (complete)
 - Transformation plan:
   [`v2-project-execution-standards-transformation-plan.md`](v2-project-execution-standards-transformation-plan.md)
 - Project-specific execution tailoring:
@@ -78,9 +78,9 @@ As of 2026-06-24:
 - The focused sync split is complete (#221-#225), but parent #211 remains open
   because public-scope gates #212 and #213/#226 still affect production-ready
   sync acceptance.
-- This reconciliation pass (#238) exists because #209 and this file lagged live
-  tracker state after several closures. The project is scaffold-adopted and is
-  following the standards in current work, but it is not yet fully v2-accepted.
+- Reconciliation pass #238 closed the source-of-truth drift introduced by several
+  rapid issue closures. The project is scaffold-adopted and is following the
+  standards in current work, but it is not yet fully v2-accepted.
 
 ## Active work-item table
 
@@ -102,7 +102,7 @@ As of 2026-06-24:
 | #229 | Delivery | Tier 2 | Open child of #214 | Implement remote catalog management after #227. |
 | #230 | UX/design | Tier 1 | Open child of #215 | Specify new-computer UX and output. |
 | #231 | Delivery | Tier 2 | Open child of #215 | Implement apply-from-storage flow after sync model/UX is accepted. |
-| #238 | Cleanup / enabler | Tier 1 | Active reconciliation | Reconcile #209 and this execution record with live state; no runtime changes. |
+| #238 | Cleanup / enabler | Tier 1 | Complete | PR #239 reconciled #209 and this execution record with live state; no runtime changes. |
 
 ## Reconciliation inventory: 2026-06-24
 
@@ -133,7 +133,7 @@ child-scope completion, not automatic parent closure.
 | #230 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Specify new-computer UX/output before implementation. |
 | #231 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Implement apply-from-storage after accepted UX/model. |
 | #216 | Open / Todo | Production docs | Live issue open | Open | Rewrite after accepted behavior/examples; current docs are not final production docs. |
-| #238 | Open / In Progress | Standards reconciliation | Current issue and Pro pre-review | Active | Close after PR, readback, validation, and acceptance. |
+| #238 | Closed / Done | Standards reconciliation | PR #239 merged; final evidence comment recorded | Checked | No further action; continue with #212. |
 
 ## Open parent rationale
 
@@ -148,8 +148,8 @@ child-scope completion, not automatic parent closure.
   #231 implementation.
 - #216 remains open because production end-user documentation depends on
   accepted behavior and examples from the remaining gates.
-- #238 remains open only while this reconciliation PR, #209 readback, validation,
-  and acceptance are pending.
+- #238 is closed; future work should keep #209 and this record current after each
+  work item closes.
 
 ## Current branch rule
 
@@ -167,7 +167,7 @@ Before starting any work item:
 
 | Risk | Mitigation | Owner | Status |
 | --- | --- | --- | --- |
-| Source-of-truth records drift behind live tracker state | #238 reconciliation and post-edit readback checks | Work Manager | Active |
+| Source-of-truth records drift behind live tracker state | Keep #209 and this record updated after each closure; #238 reconciled the current drift | Work Manager | Monitoring |
 | Backup/restore remains visible as a public v2 scope contradiction | Execute #212 next | Work Manager | Open |
 | Legacy v1 commands/migration can leak into v2 happy path | Execute #213/#226 after or alongside #212 | Work Manager | Open |
 | Remote recipe catalogs can execute untrusted writes | Complete #227 before #228/#229 remote write behavior | Work Manager | Open |
@@ -188,7 +188,7 @@ Before starting any work item:
 | Vocabulary/product model accepted | GitHub issue #210 closed / project Done | 2026-06-23 | Product wording can still require future cleanup if drift appears. |
 | Sync split children completed | GitHub issues #221-#225 closed / project Done; PRs #234-#237 for #222-#225 | 2026-06-24 | Completes focused children, not parent #211 production readiness. |
 | Save/apply alias policy accepted | PR #237 squash merge `4f7ca3846c4bb4de5f6d5cc98c91318a70b5e15e`; issue #225 closed | 2026-06-24 | Alias policy only; backup/restore and legacy public-surface cleanup deferred. |
-| Standards reconciliation pre-review passed with must-fix refinements | ChatGPT Pro review `https://chatgpt.com/c/6a3b9a16-16cc-83eb-83c8-6c7b64b26d4c`; issue #238 comment | 2026-06-24 | Must be followed by local diff, #209 readback, validation, and PR review. |
+| Standards reconciliation completed | PR #239 squash merge `1e2eafeebe26adbb5cd3bc1ad70ec39a93abd5ec`; issue #238 closed / Done | 2026-06-24 | Records state only; product gates remain open. |
 
 ## Phase 1 acceptance state
 
@@ -238,7 +238,7 @@ Phase 3 recontract/resequence:
 
 ## Current next gate
 
-Recommended next product issue after #238:
+Recommended next product issue:
 
 - #212 — remove or hide backup/restore from the v2 public product surface.
 
@@ -252,5 +252,5 @@ Paired follow-up:
   surface policy.
 
 Do not edit runtime behavior, CLI help, tests, specs, or end-user docs as part
-of #238 except where necessary to keep the project source-of-truth records
-accurate.
+of standards-record maintenance except where necessary to keep the project
+source-of-truth records accurate.
