@@ -50,8 +50,8 @@ As of 2026-06-24:
   #214 -> #227-#229 and #215 -> #230-#231.
 - Production documentation (#216) remains open until accepted behavior and
   examples from remaining gates are available.
-- Current reconciliation work is tracked in #238 because #209 and the execution
-  record lagged live tracker state after several issue closures.
+- Reconciliation issue #238 closed the source-of-truth drift that appeared after
+  several rapid issue closures.
 - New work must start from `main` on a fresh issue-linked branch, not from old
   closed-PR branches.
 
@@ -101,7 +101,7 @@ The project follows the Project Execution Standards when all of these are true:
 | Phase 1 — Install execution scaffold | Complete | #217 closed; PR #218 merged. |
 | Phase 2 — Audit current v2 | Complete for sequencing | #219 closed; PR #220 merged; remaining decisions live in follow-up issues. |
 | Phase 3 — Recontract and resequence | Substantially complete | #210 accepted; #211/#214/#215 split into focused children; parent issues remain open where gates remain. |
-| Phase 4 — Execute frozen work items | Active | #238 reconciles source-of-truth drift; #212 is the recommended next product issue. |
+| Phase 4 — Execute frozen work items | Active | #238 reconciled source-of-truth drift; #212 is the recommended next product issue. |
 | Phase 5 — Project-level acceptance | Not started | Requires remaining gates, clean-environment validation, and production docs. |
 
 ### Phase 1 — Install the execution scaffold
@@ -246,16 +246,12 @@ frozen work item at a time while keeping #209 and the execution record current.
 
 Current steps:
 
-1. Finish #238 by reconciling #209 and the execution record with live tracker
-   state, without changing runtime behavior.
-2. Validate the #238 source-of-truth edits with readback checks, Pro review,
-   subagent PR review, and CI/validation.
-3. After #238, proceed to #212 as the recommended next product issue, because
+1. Proceed to #212 as the recommended next product issue, because
    backup/restore is still the clearest public-scope contradiction with the
    reset model.
-4. Treat #213/#226 as the paired legacy public-surface gate after or alongside
+2. Treat #213/#226 as the paired legacy public-surface gate after or alongside
    #212.
-5. Continue catalogs (#227 -> #228/#229), bootstrap (#230 -> #231), and final
+3. Continue catalogs (#227 -> #228/#229), bootstrap (#230 -> #231), and final
    production docs (#216) only after their prerequisite decisions/examples are
    accepted.
 
