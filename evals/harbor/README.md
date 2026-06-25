@@ -47,7 +47,7 @@ and `evals/harbor/local-output/`.
 | `issue-quality-v2-specs` | Check whether agent-authored v2 implementation issues are scoped, spec-referenced, safety-aware, and independent of v1 work. |
 | `happy-path-ux-v2-cli` | Check whether the normal user flow for `init`, `add`, `status`, `diff`, `save`, and `apply` is explained simply while preserving safety boundaries. |
 | `recipe-explain-clarity` | Check whether recipe/support explanations cover scopes, named locations, managed vs unmanaged values, optional groups, lifecycle, and redaction without live reads. |
-| `native-safety-review` | Check whether native export/import proposals fail closed around arbitrary commands, secrets, opaque payloads, lifecycle, trust, backup, and verification. |
+| `native-safety-review` | Check whether native export/import proposals fail closed around arbitrary commands, secrets, opaque payloads, lifecycle, trust, internal recovery evidence, and verification. |
 
 ## Deterministic local validation
 

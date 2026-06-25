@@ -90,8 +90,6 @@ optional.`,
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
 	rootCmd.AddCommand(newAppCmd(opts))
-	rootCmd.AddCommand(newBackupCmd(opts))
-	rootCmd.AddCommand(newRestoreCmd(opts))
 	rootCmd.AddCommand(newDeployCmd(opts))
 	rootCmd.AddCommand(newImportCmd(opts))
 	rootCmd.AddCommand(newMigrateCmd(opts))

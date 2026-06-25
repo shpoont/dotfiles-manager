@@ -73,37 +73,20 @@ Commands display state references as `state://...` URIs.
 
 ## How do I recover after a failed or wrong apply?
 
-1. Stop and do not run another write until you inspect backups.
-2. List backups:
+The public recovery workflow is review-first, not a built-in rollback command:
 
-   ```bash
-   dotfiles-manager --config dotfiles-manager.v2.yaml backup list
-   ```
+1. Stop and do not run another write until you understand the current state.
+2. Run `status` and `diff` for the affected setting.
+3. Inspect the live app setting directly when possible.
+4. If you version the settings folder with Git or another versioning system, use
+   that history to recover the stored settings you want.
+5. Run `sync --dry-run`, `save --dry-run`, or `apply --dry-run` for the specific
+   setting before confirming any repair.
+6. Confirm only the intended direction with `--yes`.
 
-3. Copy the relevant run id from the first column. Apply run ids commonly look
-   like `selected-value-YYYYMMDDTHHMMSS.NNNNNNNNNZ`.
-4. Inspect metadata:
-
-   ```bash
-   dotfiles-manager --config dotfiles-manager.v2.yaml backup show <run-id>
-   ```
-
-5. Preview restore:
-
-   ```bash
-   dotfiles-manager --config dotfiles-manager.v2.yaml \
-     restore <run-id> --dry-run --user-id <user-id>
-   ```
-
-6. Confirm only if the preview shows the intended live path and change:
-
-   ```bash
-   dotfiles-manager --config dotfiles-manager.v2.yaml \
-     restore <run-id> --yes --user-id <user-id>
-   ```
-
-For selected values backed by files, restore rolls back the whole backing file
-from the backup payload; it is not a semantic single-value rollback.
+Some write paths may keep internal pre-write recovery evidence in local state,
+but that evidence is not a public backup/restore workflow and should not replace
+reviewing the current `status` / `diff` result.
 
 ## How do I know what an app recipe manages?
 

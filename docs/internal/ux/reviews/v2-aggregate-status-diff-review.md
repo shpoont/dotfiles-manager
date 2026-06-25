@@ -1,5 +1,10 @@
 # v2 aggregate selected status/diff transcript review
 
+> [!WARNING]
+> Reviewed before #212. Backup/restore comments are historical only; active v2
+> read-only output must not introduce public backup/restore guidance.
+
+
 Status: pass.
 Reviewed on: 2026-06-14.
 Issue / PR: #177; PR was not assigned at review time.

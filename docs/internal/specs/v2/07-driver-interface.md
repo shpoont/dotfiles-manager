@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-10
+last-updated: 2026-06-25
 canonical-source: docs/internal/specs/v2/07-driver-interface.md
 source-concept-sections:
   - Driver
@@ -19,7 +19,7 @@ authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/REA
 
 This spec defines the draft interface for deterministic drivers. Drivers are the
 reviewed code that reads, normalizes, diffs, previews, writes, verifies, and
-restores target resources.
+records internal recovery evidence for target resources where policy requires it.
 
 Recipes configure drivers. Recipes do not implement driver logic.
 
@@ -55,7 +55,7 @@ Deliberate non-decisions:
 - normalized value;
 - preview;
 - verification;
-- restore support;
+- internal recovery support;
 - typed driver error.
 
 ## Normative MVP rules
@@ -77,11 +77,11 @@ an operation is unsupported:
 | `readCurrent` | Read live state into raw capture or structured value. | read/temp only |
 | `normalize` | Convert input to deterministic comparison form. | none |
 | `diff` | Compare normalized current and desired state. | none |
-| `previewApply` | Describe writes, deletes, creates, backups, risks. | none |
-| `backup` | Capture pre-write restore material where supported. | local state only |
+| `previewApply` | Describe writes, deletes, creates, write-safety requirements, and risks. | none |
+| `backup` | Internal hook: capture pre-write recovery material where supported. Not a public v2 command. | local state only |
 | `apply` | Mutate live state according to desired input. | declared paths only |
 | `verify` | Prove or fail the write result. | read/temp only |
-| `restore` | Restore from compatible backup when supported. | declared paths only |
+| `restore` | Internal/reserved hook for compatible recovery material if a later active spec authorizes it. Not a public v2 command. | declared paths only |
 
 Read-only drivers must not expose writes through recipe overrides.
 
@@ -89,9 +89,9 @@ Read-only drivers must not expose writes through recipe overrides.
 
 Drivers must expose static, redacted-safe explanation metadata separately from
 live operations. `recipe explain` may use this metadata to summarize selector
-support, operation support, backup/restore support, normalization mode, diff
+support, operation support, internal recovery support, normalization mode, diff
 mode, and limitations without calling `detect`, `readCurrent`, `normalize`,
-`diff`, `backup`, `apply`, `verify`, `restore`, or native command operations.
+`diff`, internal recovery hooks, `apply`, `verify`, or native command operations.
 
 Driver explanation metadata must not include raw captures, live values,
 value-bearing defaults, raw command argv, environment variables, or local paths
@@ -178,14 +178,14 @@ A live native apply transaction must run in this order:
 
 1. validate the desired native artifact and payload hash;
 2. copy desired payload to a manager-owned temp input and validate the copy;
-3. run a pre-apply export and persist it as local backup;
+3. run a pre-apply export and persist it as internal recovery evidence;
 4. run the reviewed import operation using only the temp input root;
 5. run a post-import export;
 6. compare post-import payload hash and normalizer to desired;
 7. write success/last-applied metadata only after verification passes.
 
 If any step before import fails, import must not run. If import or verification
-fails after backup, the run record must retain the backup reference but must not
+fails after recovery evidence is recorded, the run record must retain the internal evidence reference but must not
 write a successful ledger entry.
 
 ### Driver safety requirements
@@ -278,7 +278,7 @@ may continue and return partial success.
 - Fixtures prove path traversal and unsafe symlink traversal are rejected.
 - Structured-driver fixtures cover invalid selectors and normalization.
 - `previewApply` fixtures prove no mutation occurs.
-- Backup/restore fixtures cover supported and unsupported restore paths.
+- Internal recovery-evidence fixtures cover supported and unsupported write-safety paths without exposing a public backup/restore workflow.
 - Redaction fixtures prove sensitive values are not leaked in diffs.
 
 ## Out of scope

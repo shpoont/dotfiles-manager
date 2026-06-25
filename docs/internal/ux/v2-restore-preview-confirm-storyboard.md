@@ -1,6 +1,11 @@
 # v2 restore preview/confirm storyboard
 
-Status: issue #187 pre-implementation UX artifact.
+> [!WARNING]
+> Superseded by #212. Public backup/restore commands are out of v2 product
+> scope. This storyboard is historical only and must not be used as active CLI
+> UX, docs, tests, or acceptance evidence.
+
+Status: superseded historical UX artifact after #212.
 Last updated: 2026-06-15.
 Scope: visual CLI UX only; no command behavior, renderer, JSON schema, v1
 output, native export/import, lifecycle automation, or package/app-control

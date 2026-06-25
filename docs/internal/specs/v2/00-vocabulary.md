@@ -361,7 +361,7 @@ Avoid in normal output:
 
 ```text
 Save current machine state into repo desired://user/leon/...
-Apply repo artifact after backup/restore migration baseline.
+Apply repo artifact with legacy recovery/migration jargon.
 ```
 
 ## Out of scope

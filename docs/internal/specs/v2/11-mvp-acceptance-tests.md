@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-11
+last-updated: 2026-06-25
 canonical-source: docs/internal/specs/v2/11-mvp-acceptance-tests.md
 source-concept-sections:
   - MVP acceptance test matrix
@@ -68,16 +68,15 @@ A v2 MVP release must not be called production-ready unless these areas pass:
 | Profile/scope | All four scopes, multi-user machine, multiple profile layers. |
 | Identity bootstrap | Machine/user bootstrap, local-account mapping, adoption, rename preview, collision handling, non-interactive missing-identity failures. |
 | Status | Every canonical state and target-level aggregation. |
-| File driver | Create/update/delete preview, backup, restore, symlink rejection. |
+| File driver | Create/update/delete preview/apply/verify, internal pre-write recovery evidence where policy requires it, symlink rejection. |
 | File-tree driver | Globs, case conflicts, unsafe traversal, metadata policy. |
 | Structured drivers | INI/JSON/YAML/TOML selectors, invalid selectors, normalization. |
 | Plist/defaults | Selected keys only, read-only defaults, unsupported write attempts. |
 | Platform/filesystem | macOS roots, Linux XDG roots, unsupported Windows/unknown OS, unsupported driver gating, case-conflict and permission behavior. |
 | Redaction | Display redaction, blocked save, unavailable redaction, safe values. |
-| Lifecycle | Running app allowed/warn/blocked, explicit lifecycle target validation, non-interactive and `--yes` manual prompt blocks, bounded/hardened detection, native import-operation lifecycle enforcement, apply-only lifecycle actions, truthful dry-run records, quit declined/failed before backup/write, still-running recheck, reopen failure after verified write. |
+| Lifecycle | Running app allowed/warn/blocked, explicit lifecycle target validation, non-interactive and `--yes` manual prompt blocks, bounded/hardened detection, native import-operation lifecycle enforcement, apply-only lifecycle actions, truthful dry-run records, quit declined/failed before write, still-running recheck, reopen failure after verified write. |
 | Native export | Diffable export, opaque export, passphrase prompt, size/category limits. |
-| Ledger | Last-applied update only after verified success, partial failure recording. |
-| Restore | Restore preview, backup-before-restore, unsupported restore path. |
+| Ledger | Last-applied update only after verified success, partial failure recording, internal recovery-evidence references hidden from public output. |
 | Migration | v1 `syncs:` parity and generated `custom.files` target. |
 | Trust | Untrusted local recipe, recipe broadening write scope, command-IO gate. |
 
@@ -157,9 +156,9 @@ Do not use Harbor as the sole test for deterministic behavior:
 | CLI commands, flags, prompts, exit codes | Go unit/integration/contract tests and snapshots. |
 | JSON schema/envelope behavior | Contract tests and schema fixtures. |
 | Path safety, symlink rejection, traversal rejection | Unit/integration safety fixtures. |
-| File/file-tree/structured driver diff/apply/restore behavior | Deterministic filesystem fixtures. |
-| Ledger, backup, restore, partial failure recording | Integration and contract fixtures. |
-| Redaction/secret leakage in output, JSON, logs, artifacts, ledgers, or backups | Deterministic safety regression tests. |
+| File/file-tree/structured driver diff/apply/verify behavior | Deterministic filesystem fixtures. |
+| Ledger, internal recovery evidence, partial failure recording | Integration and contract fixtures. |
+| Redaction/secret leakage in output, JSON, logs, artifacts, ledgers, or internal recovery evidence | Deterministic safety regression tests. |
 | Performance thresholds | Normal performance regression tests. |
 
 UX transcript reviews are required evidence for v2 command-output changes, but
@@ -179,9 +178,9 @@ Initial local-private suite:
 | Case | Release-readiness question |
 | --- | --- |
 | `evals/harbor/cases/issue-quality-v2-specs` | Are agent-authored implementation issues scoped, spec-referenced, acceptance-testable, v2-only, and safe? |
-| `evals/harbor/cases/happy-path-ux-v2-cli` | Is the normal user flow convenient and understandable without hiding preview, desired-data, trust, backup, ledger, live-state, or native boundaries? |
+| `evals/harbor/cases/happy-path-ux-v2-cli` | Is the normal user flow convenient and understandable without hiding preview, stored-settings data, trust, ledger, live-state, write-safety, or native boundaries? |
 | `evals/harbor/cases/recipe-explain-clarity` | Does support explanation make scopes, named locations, managed/unmanaged settings, optional groups, lifecycle, redaction, and native summaries clear without live reads? |
-| `evals/harbor/cases/native-safety-review` | Does native export/import review fail closed around arbitrary commands, secrets/account data, opaque diffs, lifecycle, trust, backup, verification, and opt-in? |
+| `evals/harbor/cases/native-safety-review` | Does native export/import review fail closed around arbitrary commands, secrets/account data, opaque diffs, lifecycle, trust, internal recovery-evidence boundaries, verification, and opt-in? |
 
 The concrete suite remains local-private. It must not introduce a runtime CLI
 dependency, CI/cloud auth dependency, committed generated Harbor results, or
@@ -210,8 +209,6 @@ save --dry-run
 apply --dry-run
 save
 apply
-backup list
-restore
 ```
 
 Scope:
@@ -221,7 +218,7 @@ Scope:
 - profile stack;
 - desired artifacts;
 - local ledger;
-- backup before apply;
+- internal pre-write recovery evidence before confirmed live writes where required by policy;
 - v1 migration fixture.
 
 ### Production-readiness gate
@@ -229,10 +226,10 @@ Scope:
 Production readiness requires:
 
 - v1 parity for current dotfile use cases;
-- no known secret leakage path in output, JSON, artifacts, ledgers, or backups;
+- no known secret leakage path in output, JSON, artifacts, ledgers, or internal recovery evidence;
 - dry-run previews are trustworthy;
-- live apply creates backups where supported;
-- restore works for supported drivers;
+- live apply records internal pre-write recovery evidence where required by policy;
+- public backup/restore is not a v2 acceptance dependency; recovery from settings-folder history is an external versioning workflow;
 - unsupported/unsafe cases fail clearly;
 - CI passes on clean checkout;
 - dogfood run succeeds on a non-critical profile/machine.
@@ -283,7 +280,7 @@ Acceptance:
 ```text
 Dogfood profile: v2-sandbox
 Targets: custom.files, git read/write, nvim file-tree
-Required: dry-run reviewed, apply backed up, restore tested
+Required: status/diff reviewed, dry-run reviewed, save/apply tested, settings-folder versioning checked when used
 ```
 
 ## Errors, blockers, and partial-result behavior

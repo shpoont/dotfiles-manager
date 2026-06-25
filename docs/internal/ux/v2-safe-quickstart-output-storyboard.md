@@ -1,9 +1,15 @@
 # v2 safe quickstart CLI output storyboard
 
+> [!WARNING]
+> Partially superseded by #212. Any transcript sections that present backup or
+> restore as a public v2 workflow are historical only. Active v2 happy-path UX is
+> sync-first and uses preview, diff, explicit confirmation, and optional
+> versioned settings storage for safety.
+
 Status: issue #169 pre-implementation UX artifact.
-Last updated: 2026-06-13.
+Last updated: 2026-06-25.
 Scope: visual CLI UX only; no command behavior or schema changes.
-Related issues: #165, #166, #167, #168, #169.
+Related issues: #165, #166, #167, #168, #169, #212.
 Pro pre-validation: <https://chatgpt.com/c/6a281d17-56ec-83ed-88d8-fc0d345b3b9f?dfm_storyboard=1781306002>.
 
 ## Purpose
@@ -20,7 +26,7 @@ The target user should be able to read the terminal transcript and answer:
 - What would change if the confirmed command is run?
 - Where is desired state stored?
 - Was the actual selected value printed?
-- How can the user preview or undo an apply?
+- How can the user preview a write and inspect drift afterward?
 - What should the user run next?
 
 ## Non-goals
@@ -35,7 +41,7 @@ The target user should be able to read the terminal transcript and answer:
 - No native export/import and no change to #113.
 - No public `custom.files` adoption.
 - No raw selected values, unrelated config values, secrets, private keys,
-  tokens, credentials, or backup payload bytes in examples.
+  tokens, credentials, or internal recovery payload bytes in examples.
 
 ## Current pain examples
 
@@ -71,14 +77,15 @@ summary status=changed changed=1 blocked=0 saved=0 applied=0
 Problem: `state=missing-desired`, `resource`, `driver`, and `selector` are useful
 for debugging, but they are not the user story.
 
-### Current backup output hides the recovery path behind refs
+### Historical backup output hid a recovery path behind refs
 
 ```text
-backups=state://backups/selected-value-YYYYMMDDTHHMMSSZ/git_user.email
+internal-recovery-ref=<hidden internal state URI>
 ```
 
-Problem: the user needs to know whether a backup exists and how to preview
-restore, not the internal backup URI first.
+Superseded by #212: active v2 no longer exposes public backup/restore as a
+normal workflow. The reusable lesson is that internal refs must not be the first
+thing a normal user sees.
 
 ## Output tier boundaries
 
@@ -92,7 +99,6 @@ Default text is for humans. It should show:
 - user-level repo paths, such as
   `desired/user/<user-id>/targets/git/settings.yaml`;
 - redaction statements when values exist but are hidden;
-- backup run ids and restore preview commands when relevant;
 - one safe next command.
 
 Default text should not require understanding:
@@ -107,14 +113,14 @@ Default text should not require understanding:
 
 Verbose text is for debugging and power users. `--verbose` is a global output
 flag for v2 commands that emit text; it is not a per-command behavior toggle and
-must not change the plan, write safety, backup behavior, or redaction behavior.
+must not change the plan, write safety, or redaction behavior.
 It may include:
 
 - setting refs such as `git:user.email`;
 - profile stack/layer details;
 - resource, driver, selector, and location identifiers;
 - desired artifact URIs;
-- state and backup URIs;
+- state URIs and internal recovery refs only when an active behavior spec allows them;
 - planner states and actions;
 - ledger/run refs;
 - compatibility metadata.
@@ -156,7 +162,7 @@ completed in #166 and #167:
 4. Non-dry-run output must distinguish repo/state writes from live dotfile
    writes.
 5. Confirmed write output says what changed.
-6. Confirmed live writes say where the backup is and how to preview restore.
+6. Confirmed live writes say what changed and what safe status/diff command to run next; public backup/restore is not active v2 UX after #212.
 7. `no-baseline` becomes a human review note: `No previous sync baseline exists;
    review before confirming.` The safety uncertainty must stay visible in
    default text even when the raw internal flag is hidden.
@@ -505,9 +511,6 @@ Would read desired value from:
 Would update live file:
   $HOME/.gitconfig [user] email
 
-Backup:
-  A local backup of $HOME/.gitconfig would be created before writing.
-
 Review note:
   No previous sync baseline exists for this setting.
   This is expected on the first apply; review the paths before confirming.
@@ -520,7 +523,7 @@ To confirm:
 ```
 
 User takeaway: `apply --yes` would change the live Git config, but dry run did
-not. A backup will be created first.
+not. Public backup/restore is not part of the active quickstart workflow.
 
 ### 11. Apply saved desired value
 
@@ -545,161 +548,27 @@ Updated live file:
 
 Review note:
   No previous sync baseline existed for this setting.
-  This was a first apply; the backup below was still created before writing.
-
-Backup created:
-  run id: selected-value-YYYYMMDDTHHMMSSZ
-  contains: previous $HOME/.gitconfig
-
-To preview undo:
-  HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    restore selected-value-YYYYMMDDTHHMMSSZ --dry-run --user-id test-user
-```
-
-User takeaway: the live file changed, a backup exists, and there is an undo
-preview command.
-
-### 12. List backups
-
-Command:
-
-```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml backup list
-```
-
-Expected default output:
-
-```text
-Local backups
-
-1 restorable backup run found.
-
-selected-value-YYYYMMDDTHHMMSSZ
-  Created: 2026-06-13T00:00:00Z
-  Contains: previous $HOME/.gitconfig
-  Related setting: Git user email
-
-To inspect:
-  HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    backup show selected-value-YYYYMMDDTHHMMSSZ
-
-To preview undo:
-  HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    restore selected-value-YYYYMMDDTHHMMSSZ --dry-run --user-id test-user
-
-Backup payload contents are not printed.
-
-No files changed.
-```
-
-User takeaway: there is one restorable backup and the next recovery commands are
-visible.
-
-### 13. Show backup details
-
-Command:
-
-```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-  backup show selected-value-YYYYMMDDTHHMMSSZ
-```
-
-Expected default output:
-
-```text
-Backup selected-value-YYYYMMDDTHHMMSSZ
-
-Restore status:
-  restorable
-
-Contains backup of:
-  $HOME/.gitconfig
-
-Related setting:
-  Git user email
-
-Important:
-  Restore rolls back the backed-up file, not only one semantic Git key.
-  Backup payload contents are not printed.
-
-To preview restore:
-  HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    restore selected-value-YYYYMMDDTHHMMSSZ --dry-run --user-id test-user
-
-No files changed.
-```
-
-User takeaway: restore is possible, but it restores the backed-up file payload.
-
-### 14. Preview restore
-
-Command:
-
-```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-  restore selected-value-YYYYMMDDTHHMMSSZ --dry-run --user-id test-user
-```
-
-Expected default output:
-
-```text
-Dry run: would restore backup selected-value-YYYYMMDDTHHMMSSZ.
-
-Would restore file:
-  $HOME/.gitconfig
-
-From backup:
-  previous $HOME/.gitconfig captured before apply
-
-Important:
-  Restore would replace the backed-up file payload.
-  Values are hidden for safety.
-
-No files changed.
-
-To confirm:
-  HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    restore selected-value-YYYYMMDDTHHMMSSZ --yes --user-id test-user
-```
-
-User takeaway: restore is previewed safely and no file changed.
-
-### 15. Confirm restore
-
-Command:
-
-```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-  restore selected-value-YYYYMMDDTHHMMSSZ --yes --user-id test-user
-```
-
-Expected default output:
-
-```text
-Restored backup selected-value-YYYYMMDDTHHMMSSZ.
-
-Restored file:
-  $HOME/.gitconfig
-
-Important:
-  This replaced the live `$HOME/.gitconfig` file from the backup.
-  Values are hidden for safety.
-
-Backup before restore created:
-  run id: restore-YYYYMMDDTHHMMSSZ
-  contains: $HOME/.gitconfig as it existed immediately before restore
-
-To preview undo of this restore:
-  HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    restore restore-YYYYMMDDTHHMMSSZ --dry-run --user-id test-user
+  This was the first apply recorded by this tool for this setting.
 
 Next:
-  Check status:
+  Inspect drift later with:
   HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-    status --user-id test-user git:user.email
+    diff --user-id test-user git:user.email
 ```
 
-User takeaway: restore wrote the live file and status can be checked next.
+User takeaway: the live file changed. The safe next step is to inspect drift;
+public backup/restore is not part of the active v2 quickstart.
+
+### 12. Public backup/restore commands are not part of the active quickstart
+
+Sections that previously demonstrated `backup list`, `backup show`,
+`restore --dry-run`, and confirmed `restore` were removed from the active
+quickstart by #212. The happy path now teaches preview, diff, explicit
+confirmation, and optional external versioning of the settings folder.
+
+If a user needs to recover after applying the wrong stored setting, the active
+workflow is to inspect `status`/`diff`, correct the stored setting directly or
+through settings-folder version history when configured, and preview/apply again.
 
 ## Default versus verbose example
 
@@ -772,7 +641,6 @@ Technical details:
   subject: test-user
   profile stack: default [global]
   desired artifact: desired://user/test-user/targets/git/settings#user.email
-  backup artifact: state://backups/selected-value-YYYYMMDDTHHMMSSZ/git_user.email
   resource: user-email
   driver: ini-file
   location: home:.gitconfig
@@ -839,10 +707,10 @@ Task questions:
 - Did `save --yes` change the live Git config?
 - Did `apply --dry-run` change anything?
 - What would `apply --yes` change?
-- Was a backup created or would one be created?
+- Does the output avoid public backup/restore promises and explain write safety?
 - Was the actual Git email printed?
 - Where is the saved desired state?
-- How would the user preview undo after apply?
+- How would the user inspect drift or recover through supported workflows after apply?
 - What should the user run next at each step?
 - What is explicitly not managed?
 
@@ -858,7 +726,7 @@ Pass criteria:
 Fail criteria:
 
 - A persona cannot tell whether a command changed files.
-- A persona cannot tell what file would be changed by apply or restore.
+- A persona cannot tell what file would be changed by apply.
 - A persona thinks secrets or raw values are printed.
 - A persona must read an internal spec to know what to do next.
 
@@ -869,8 +737,8 @@ accepted.
 
 Issue #165 should use this storyboard as the UX source of truth for
 output-tier rules. Issue #166 should implement the selected-setting save/apply
-loop wording. Issue #167 should implement setup, recipe, list, and backup
-wording. Issue #168 should turn the persona questions into a reusable transcript
+loop wording. Issue #167 should implement setup, recipe, list, and baseline unsupported
+wording; #212 supersedes public backup/restore wording. Issue #168 should turn the persona questions into a reusable transcript
 review gate.
 
 This storyboard is intentionally narrow. It should unblock implementation rather

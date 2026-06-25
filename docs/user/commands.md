@@ -18,9 +18,6 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--verbose]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] sync [--yes] [--non-interactive] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] save [--dry-run] [--yes] [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] apply [--dry-run] [--yes] [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup list [--json]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] backup show <run-id> [--json]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] restore <run-id> [--dry-run] [--yes] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app create <target-id> --template <file|selected-value|native-export> ...
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app validate <target-id> [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app test <target-id> --roundtrip [--fixture <name>] [--json]
@@ -56,7 +53,7 @@ save  = sync live settings -> stored settings
 apply = sync stored settings -> live settings
 ```
 
-Mutating `sync`, `save`, `apply`, and `restore` require a v2 root and require
+Mutating `sync`, `save`, and `apply` require a v2 root and require
 `--yes` before a planned write is performed.
 
 Log file destination:
@@ -84,7 +81,7 @@ Selected-setting output tiers:
 - `--verbose` is currently implemented for v2 selected-setting `status`,
   `diff`, `save`, and `apply` only. It keeps the same default explanation and
   appends technical details such as profile stack, refs, resource/driver/selector,
-  planner state/action, desired/state URIs, run ids, and backup refs. It still
+  planner state/action, desired/state URIs, run ids, and internal diagnostic refs. It still
   redacts managed values and secret-bearing payload bytes.
 - `--json` is the stable scripting output. `--json --verbose` still writes only
   the existing JSON document to stdout; verbose prose is suppressed, not moved
@@ -143,23 +140,22 @@ location, selector, stored-settings reference, and suggested next commands. Use 
 `--profile <layer>` flags to preview extra profile layers on top of the active
 stack.
 
-## v2 backups and restore
+## v2 safety model
 
-Use backup commands after an `apply --yes` or `restore --yes` creates local
-backup evidence:
+The public v2 safety workflow is preview-first:
 
-```bash
-dotfiles-manager --config dotfiles-manager.v2.yaml backup list
-dotfiles-manager --config dotfiles-manager.v2.yaml backup show <run-id>
-dotfiles-manager --config dotfiles-manager.v2.yaml restore <run-id> --dry-run --user-id <user-id>
-dotfiles-manager --config dotfiles-manager.v2.yaml restore <run-id> --yes --user-id <user-id>
-```
+1. inspect current state with `status`;
+2. inspect the planned change with `diff` or a command-specific `--dry-run`;
+3. confirm only the intended write with `sync --yes`, `save --yes`, or
+   `apply --yes`.
 
-Restore should always be previewed first. For selected values backed by files,
-restore rolls back the whole backing file from the backup payload; it is not a
-semantic single-value rollback. Backup payload contents are not printed by
-`backup list` or `backup show`, but local backup payloads can contain actual
-managed bytes.
+The settings folder can be versioned with Git or another versioning system if
+you want history, sharing, and manual rollback of stored settings. Git is
+recommended for that purpose but is not required by the manager.
+
+The manager may keep internal pre-write recovery evidence in local state for
+some write paths, but that evidence is not a public backup/restore workflow and
+should not be treated as the normal way to manage settings.
 
 ## `status [--json] [path]`
 
@@ -354,7 +350,7 @@ dotfiles-manager recipe discover ssh --json
 ```
 
 Discovery never mutates files or app state. It does not read config contents,
-stored artifacts, backups, ledgers, profile selections, native export/import
+stored artifacts, ledgers, profile selections, native export/import
 commands, or target runtime state. It only performs PATH command lookups and
 lstat-style metadata checks of declared live config paths.
 
@@ -371,7 +367,7 @@ bundled live config path to discover.
 `add` updates the active v2 profile layer so later `status`, `diff`, `sync`,
 and the directional aliases know which supported settings to manage. It does
 **not** import values, write stored settings, write live app files, create
-backups, or update ledgers.
+update ledgers.
 
 Common examples:
 
@@ -423,7 +419,7 @@ recipes/local/<target-id>/fixtures/roundtrip/<fixture-name>/
 It copies fixture data into a temporary directory, maps named recipe locations
 to `input/live/locations/<location-id>/...`, and compares results with
 `expected/desired/` and `expected/live/`. It does not touch real app config,
-the real stored-settings root, trust records, backups, or ledgers.
+the real stored-settings root, trust records, internal state, or ledgers.
 
 Supported roundtrip drivers in this tranche are whole-file `file` resources and
 selected values backed by `ini-file`, `json-file`, `yaml-file`, `toml-file`, or
@@ -500,16 +496,15 @@ For example, `--user-id leon` writes
 Inspecting that stored settings file directly can reveal the raw safe identity value
 such as an email address or display name. The raw value is stored there because
 the manager needs an actual value to sync later. Normal command output,
-reports, ledgers, backup metadata, and JSON previews stay redacted.
+reports, ledgers, local metadata, and JSON previews stay redacted.
 
 The first live-settings-to-stored-settings sync applies only to the selected
 safe Git identity key. Repeat the preview-and-save flow for both
 `git:user.email` and `git:user.name` if you want to manage both values.
 
 `apply --yes` syncs the stored value back to `~/.gitconfig` after planning,
-backup, write, and verification. The backup is a local whole-file pre-apply
-backup under the manager's local state directory; normal output, ledgers, and
-backup metadata do not show raw Git config values.
+explicit confirmation, write, and verification. Normal output, ledgers, and
+local metadata do not show raw Git config values.
 
 ## v2 selected settings: Starship prompt options example
 
@@ -629,7 +624,7 @@ desired/user/leon/targets/zsh/artifacts/zshrc
 ```
 
 The stored artifact contains the raw file bytes because it is the file that
-will be synced later. Normal text and JSON output, diffs, ledgers, and backup
+will be synced later. Normal text and JSON output, diffs, ledgers, and local
 metadata stay metadata-only and do not print raw startup file contents.
 
 Zsh startup files can affect shell startup behavior. For `save` and `apply`
@@ -728,7 +723,7 @@ desired://user/leon/targets/tmux/artifacts/home.conf
 
 The stored artifact contains the raw tmux config bytes because it is the file
 that will be synced later. Normal text and JSON output, diffs, ledgers, and
-backup metadata stay metadata-only and do not print raw tmux config contents.
+local metadata stay metadata-only and do not print raw tmux config contents.
 
 tmux loads user configuration according to tmux's own lookup rules when the
 server starts. Existing servers/sessions may not observe a changed config until
@@ -826,7 +821,7 @@ desired://user/leon/targets/ssh/artifacts/config
 
 The stored artifact contains the raw SSH config bytes because it is the file
 that will be synced later. Normal text and JSON output, diffs, ledgers, and
-backup metadata stay metadata-only and do not print raw SSH config contents.
+local metadata stay metadata-only and do not print raw SSH config contents.
 
 For `save` and `apply`, the recipe emits this non-blocking content-review
 warning:
@@ -840,8 +835,8 @@ Review `Include`, `IdentityFile`, `CertificateFile`, `LocalCommand`,
 read referenced files, so `IdentityFile ~/.ssh/id_ed25519` is allowed as a
 directive, but the key file itself is not managed.
 
-Before save/apply persists raw bytes or creates a raw backup payload, the SSH
-recipe scans the bytes being persisted for obvious excluded material. It blocks
+Before save/apply persists raw bytes or creates internal pre-write evidence,
+the SSH recipe scans the bytes being persisted for obvious excluded material. It blocks
 with:
 
 ```text
@@ -950,7 +945,7 @@ desired://user/leon/targets/nvim/artifacts/config
 
 The stored artifact contains the raw managed config files because those are the
 files that will be synced later. Normal text and JSON output, diffs, ledgers,
-and backup metadata stay metadata-only and do not print raw file contents.
+and local metadata stay metadata-only and do not print raw file contents.
 
 Missing-state behavior is explicit:
 
@@ -962,8 +957,8 @@ Missing-state behavior is explicit:
   delete or tombstone an existing stored artifact;
 - `apply --dry-run` previews creating the live tree when a stored artifact
   exists;
-- `apply --yes` may create `~/.config/nvim`, records an absent-tree backup, and
-  verifies the result.
+- `apply --yes` may create `~/.config/nvim`, records internal pre-write
+  evidence for the absent tree, and verifies the result.
 
 File-tree apply reconciles the whole managed backing tree, not only one semantic
 setting. If a managed live path exists under `~/.config/nvim` but is absent from
@@ -973,10 +968,6 @@ confirmation. Text output shows up to 20 removal paths and then points to
 `items[].fileTree.operations[]` with slash-relative paths, metadata-only entry
 kinds, and `planned` / `applied` state. File contents are still hidden.
 
-Restore is also a whole-tree operation for file-tree backups. Preview restore
-before confirming: restoring a file-tree backup writes the backed-up managed tree
-state for that resource and can remove managed live paths that are not present in
-the backup payload.
 
 The bundled recipe deliberately does **not** manage Neovim installation, plugin
 installation, package-manager actions, runtime RPC, non-default `NVIM_APPNAME`
@@ -1023,14 +1014,15 @@ dotfiles-manager apply --yes --user-id leon test.files:config
 ```
 
 `save --yes` copies the current live file bytes or managed tree entries into the
-stored artifact after preview. `apply --yes` backs up the live file/tree, writes
-the stored artifact to the live path, and verifies the result. For file-tree
-resources, apply reconciles the whole managed backing tree: live managed paths
-that are absent from the stored artifact are removed after backup.
+stored artifact after preview. `apply --yes` captures internal pre-write evidence
+where implemented, writes the stored artifact to the live path, and verifies the
+result. For file-tree resources, apply reconciles the whole managed backing tree:
+live managed paths that are absent from the stored artifact are removed after
+explicit confirmation.
 
 Diff and normal command output are metadata-only for file and file-tree resources
 in this slice: they show refs, paths, existence, size/count/hash metadata, change
-kind, and backup/ledger refs, but they do not print raw file contents. The
+kind, and ledger/internal diagnostic refs, but they do not print raw file contents. The
 stored artifact itself contains the raw bytes because that is the state to apply
 later.
 
@@ -1047,13 +1039,10 @@ emitted.
 Delete/tombstone behavior is intentionally not supported yet. A missing live file
 or tree blocks `save`; it does not remove an existing stored artifact. A missing
 stored artifact blocks `apply`; it does not delete the live file/tree. Selected
-single-file apply still requires an existing live file so the pre-mutation backup
-has a concrete file. Selected file-tree apply may create a missing live tree when
-the named location root exists; the backup records the tree as absent.
-
-File-tree restore is also whole-tree restore from the backup payload. Always run
-`restore <run-id> --dry-run` first: confirming restore can remove managed live
-paths that are absent from the backup tree being restored.
+single-file apply still requires an existing live file so the pre-mutation
+internal capture has a concrete file. Selected file-tree apply may create a
+missing live tree when the named location root exists; internal evidence records
+the tree as absent.
 
 ## v2 sync: safe settings execution
 

@@ -85,10 +85,8 @@ The MVP command set is:
 | `status [ref]` | Compare desired, current, and last-applied state. | no |
 | `diff [ref]` | Show readable diffs or opaque metadata. | no |
 | `save [ref]` | Save or promote changed selected settings to desired artifacts. | repo |
-| `apply [ref]` | Apply desired artifacts to live state after preview/backup. | live |
+| `apply [ref]` | Apply desired artifacts to live state after preview and explicit confirmation. | live |
 | `sync` | Advanced/experimental guided save/apply/skip shortcut; not stable happy path. | chosen |
-| `backup list` | List local backups. | no |
-| `restore <run-id>` | Restore from backup after preview. | live |
 | `migrate` | Generate v2 config from v1 config after preview. | config |
 
 The stable user-facing happy path is explicit `status`, `save --dry-run`,
@@ -1132,8 +1130,9 @@ prompt/non-interactive rules in `03-profile-and-scope-resolution.md`.
 Issue #165 defines the common selected-preview output-tier contract for
 `status`, `diff`, `save`, and `apply`. It does not finalize every command's
 copy, and it does not claim `--verbose` support for `init`, `add`, `list`,
-`recipe`, `backup`, `restore`, `sync`, app-authoring commands, or legacy v1
-commands until those command renderers are explicitly wired and tested.
+`recipe`, `sync`, app-authoring commands, or legacy v1 commands until those
+command renderers are explicitly wired and tested. Public backup/restore is out
+of reset-v2 product scope per #212.
 
 Default text output is the human-first contract. It must answer, without
 requiring internal schema vocabulary:
@@ -1257,7 +1256,7 @@ Draft persisted preview envelope:
 ```yaml
 schema: dotfiles-manager.v2.preview
 schemaVersion: 1
-command: init | add | list | status | diff | save | apply | sync | backup.list | restore | migrate | recipe.explain | recipe.discover
+command: init | add | list | status | diff | save | apply | sync | migrate | recipe.explain | recipe.discover
 runId: run-...
 profileStack: [global, os/macos, user/leon]
 summary:
@@ -1270,8 +1269,8 @@ items: []
 ledgerRef: state://ledger/current/...
 ```
 
-Nested CLI commands should use stable dotted JSON identifiers, such as
-`backup.list`.
+Nested CLI commands should use stable dotted JSON identifiers when they are
+part of the active command surface.
 
 Final JSON schemas must define:
 
@@ -1280,7 +1279,7 @@ Final JSON schemas must define:
 - state code enum;
 - allowed/blocked actions;
 - message/error format;
-- ledger and backup references;
+- ledger and internal recovery-evidence references;
 - diff payload and redaction format.
 
 ## Examples

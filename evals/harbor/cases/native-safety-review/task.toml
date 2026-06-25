@@ -11,7 +11,7 @@ name = "Harbor Agent Tests"
 
 [metadata]
 issue = "121"
-purpose = "Evaluate whether native support proposals are constrained, explicit, reviewable, and fail closed around command execution, secrets, opaque payloads, lifecycle, backup, verification, and trust."
+purpose = "Evaluate whether native support proposals are constrained, explicit, reviewable, and fail closed around command execution, secrets, opaque payloads, lifecycle, internal recovery evidence, verification, and trust."
 
 [verifier]
 timeout_sec = 1200.0

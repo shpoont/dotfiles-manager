@@ -164,11 +164,11 @@ silently broaden bundled writes or discovery.
 User-facing output may show internal URI schemes:
 
 - `desired://...` points to stored settings artifacts in the settings folder;
-- `state://...` points to local state artifacts such as backups or ledger runs;
+- `state://...` points to local identity, ledger, or other internal state artifacts;
 - `recipe://...` identifies bundled or local recipe metadata.
 
 These URIs are stable references in reports, not filesystem paths by themselves.
-Use the matching command (`backup show`, `recipe explain`, `list --json`, etc.)
+Use the matching command (`recipe explain`, `list --json`, `status --json`, etc.)
 when you need details.
 
 ## Local state
@@ -183,20 +183,13 @@ macOS: ~/Library/Application Support/dotfiles-manager/v2/<settings-folder-state-
 Linux: ${XDG_STATE_HOME:-~/.local/state}/dotfiles-manager/v2/<settings-folder-state-id>/
 ```
 
-Current state subtrees include:
-
-```text
-identity/machine.yaml
-identity/users/<local-account-key>.yaml
-backups/<run-id>/backup.yaml
-backups/<run-id>/payloads/...
-ledger/ledger.jsonl
-ledger/runs/<run-id>.json
-```
+Current state subtrees include identity files, ledger/run records, and internal
+pre-write evidence where implemented. Exact internal state paths are not part of
+the public workflow contract.
 
 Normal ledger and local pre-write-evidence metadata is redacted/metadata-oriented.
-Where pre-write payloads are still implemented, they may contain the actual
-managed bytes needed for recovery. Treat the local state root as sensitive.
+Where pre-write payloads are still implemented, they may contain actual managed
+bytes. Treat the local state root as sensitive.
 
 ## Custom local recipes
 

@@ -10,7 +10,7 @@ work. Explain the normal flow before advanced concepts. Cover:
 - what preview/dry-run means;
 - when desired artifacts are updated;
 - when live state is touched;
-- trust, backups, ledgers/last-applied state, native export/import,
+- trust, ledger/last-applied state, native export/import,
   unsupported/risky settings, and secrets.
 
 Do not implement code or run live app commands.

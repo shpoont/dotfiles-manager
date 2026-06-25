@@ -1,9 +1,9 @@
 # v2 aggregate save/apply confirmation storyboard
 
 Status: issue #179 pre-implementation UX artifact.
-Last updated: 2026-06-14.
+Last updated: 2026-06-25.
 Scope: visual CLI UX only; no command behavior, renderer, JSON schema, v1 output, or native export/import changes.
-Related issues: #165, #166, #167, #168, #171, #177, #179.
+Related issues: #165, #166, #167, #168, #171, #177, #179, #212.
 
 ## Purpose
 
@@ -21,7 +21,7 @@ The target user should be able to read the transcripts and answer:
   be written or were written?
 - Which items are safe to confirm, skipped, blocked, unsupported, or failed?
 - Did a partial confirmed write change only some items?
-- Was a backup or recovery handle created before live writes?
+- Did the output explain live-write safety without teaching public backup/restore as a normal workflow?
 - What command is safe to run next?
 
 ## Non-goals
@@ -36,7 +36,7 @@ The target user should be able to read the transcripts and answer:
 - No fake subset command syntax when the current CLI grammar cannot express the
   subset.
 - No raw managed values, unrelated config values, credentials, tokens, account
-  or session data, private keys, secrets, symlink targets, or backup payload
+  or session data, private keys, secrets, symlink targets, or internal recovery payload
   bytes in examples.
 
 The storyboard must not describe `save` or `apply` as native export/import,
@@ -88,20 +88,20 @@ Default text is the human-first tier. It should show:
 - one plain-language line per setting/item;
 - explicit read and write boundaries;
 - safe-to-confirm items and unsafe/skipped items;
-- backup/recovery information for confirmed live writes when applicable;
+- confirmed live-write safety wording without public backup/restore workflow promises;
 - partial-success wording that does not imply skipped or blocked items changed;
 - one safe next command when one command exists;
 - safe alternatives when no single command can express the useful subset.
 
 Default text must not require understanding `resource`, `driver`, `selector`,
 `desired://`, `state://`, raw planner states, raw actions, raw ledger refs, or
-backup artifact refs.
+internal recovery refs.
 
 ### Verbose text
 
 Verbose text appends diagnostics after the same human summary. It may include
 technical refs, resource IDs, driver IDs, selectors, locations, raw state/action
-names, desired/state URIs, backup refs, ledger refs, and diagnostic codes. It
+names, desired/state URIs, ledger refs, internal recovery diagnostics only when an active behavior spec exposes them, and diagnostic codes. It
 must keep the same redaction policy as default text.
 
 ### JSON
@@ -178,7 +178,7 @@ Next:
 ```
 
 User takeaway: `save --dry-run` previews repo desired-state writes. It does not
-claim live writes, backup creation, or executed success. It names the safe
+claim live writes or executed success. It names the safe
 narrow commands only because those public setting refs are supported.
 
 ## Expected default `save --yes` transcript
@@ -205,7 +205,6 @@ Summary:
 Write boundary:
   Desired-state repo files were written.
   Live app/config files were not changed.
-  No live-file backup was created because save did not write live files.
   Blocked, unsupported, and failed items were not saved.
 
 Desired-state repo files written:
@@ -277,7 +276,6 @@ Summary:
 Write boundary:
   Desired-state repo files were written.
   Live app/config files were not changed.
-  No live-file backup was created because save did not write live files.
 
 Git
   - Git user email: saved current live value to desired state
@@ -315,7 +313,6 @@ Write boundary:
   This is a dry run. No files were changed.
   Desired state may be read from the repo.
   Live app/config files would be written only after confirmation.
-  A backup would be created before confirmed live writes where required.
   Desired-state repo files would not be changed by apply.
 
 Git
@@ -323,7 +320,6 @@ Git
     Desired state read: desired/user/leon/targets/git/settings.yaml
     Live file to write: $HOME/.gitconfig [user] email
     Current and desired values are hidden.
-    Backup before write: would back up $HOME/.gitconfig.
 
   - Git user name: already up to date
     Desired state read: desired/user/leon/targets/git/settings.yaml
@@ -357,8 +353,8 @@ Next:
 ```
 
 User takeaway: `apply --dry-run` previews live writes. It does not claim desired
-repo writes, backup creation, or executed success. Backup is described as a
-future confirmed-write safety step, not as something already created by dry run.
+repo writes or executed success. Public backup/restore is not presented as a
+normal workflow; write-safety details stay within the active behavior contract.
 
 ## Expected default `apply --yes` transcript
 
@@ -384,14 +380,10 @@ Summary:
 Write boundary:
   Live app/config files were changed.
   Desired-state repo files were not changed.
-  A backup was created before the live write.
   Blocked, unsupported, failed, and skipped items were not applied.
 
 Live app/config files changed:
   - $HOME/.gitconfig [user] email
-
-Backup created:
-  - backup run <backup-run-id> includes $HOME/.gitconfig
 
 Git
   - Git user email: applied saved desired value to live config
@@ -420,10 +412,6 @@ Zsh
   - .zshrc: blocked
     Reason: the live path is an unsafe symlink. No write was attempted.
 
-Recovery:
-  Preview restoring the backup before running restore:
-  dotfiles-manager restore --dry-run <backup-run-id>
-
 Next:
   Check aggregate status:
   dotfiles-manager status --user-id leon
@@ -433,13 +421,14 @@ Next:
 ```
 
 User takeaway: a confirmed broad apply can partially succeed. It reports the
-live files changed, backup handle, and desired-state repo non-change. It does
+live files changed and desired-state settings-folder non-change. It does
 not imply blocked, unsupported, failed, or skipped items were applied.
 
-The restore preview command appears here because restore preview is an
-already-supported flow for backup runs. If a future live write has a backup or
-recovery handle but no supported restore-preview command, the transcript must
-say that plainly instead of inventing a command.
+No public restore command appears here because #212 removes backup/restore from
+the active v2 product workflow. If the user needs to recover from applying an
+undesired stored setting, the safe supported path is to inspect status/diff, fix
+the stored setting directly or through external settings-folder history, and
+preview/apply again.
 
 ### Narrow safe-confirm example
 
@@ -464,18 +453,12 @@ Summary:
 Write boundary:
   Live app/config files were changed.
   Desired-state repo files were not changed.
-  A backup was created before the live write.
 
 Git
   - Git user email: applied saved desired value to live config
     Desired state read: desired/user/leon/targets/git/settings.yaml
     Live file changed: $HOME/.gitconfig [user] email
-    Backup: backup run <backup-run-id> includes $HOME/.gitconfig
     Current and desired values are hidden.
-
-Recovery:
-  Preview restoring the backup before running restore:
-  dotfiles-manager restore --dry-run <backup-run-id>
 
 Next:
   Check status:
@@ -525,11 +508,11 @@ not-changed items before detailed per-app reasons.
 
 `Changed` means only files, app/config locations, or manager-owned state actually
 written in that run. It must not include items that merely had desired state
-read, live state inspected, or backups considered.
+read, live state inspected, or internal recovery checks considered.
 
 `Not changed` includes already-current, skipped/not-applicable, blocked,
 unsupported, and failed items. An item in `Not changed` was not written, saved,
-applied, restored, or backed up by that item outcome.
+or applied by that item outcome.
 
 Short partial-success excerpt:
 
@@ -545,9 +528,6 @@ Not changed:
   - Starship add_newline: skipped / not applicable
   - Starship scan_timeout: failed
   - Zsh .zshrc: blocked
-
-Backup created:
-  - backup run <backup-run-id> includes $HOME/.gitconfig
 ```
 
 This excerpt intentionally omits the full per-app transcript already shown in
@@ -555,8 +535,8 @@ This excerpt intentionally omits the full per-app transcript already shown in
 
 ### No-change all-blocked/all-failed outcome
 
-A no-change outcome must be explicit that nothing was written and there is no
-changed state to restore. It must not invent a backup or recovery handle.
+A no-change outcome must be explicit that nothing was written. It must not
+invent public backup/restore guidance or internal recovery handles.
 
 Command:
 
@@ -581,8 +561,7 @@ Summary:
 Write boundary:
   No live app/config files were changed.
   Desired-state repo files were not changed.
-  No backup or recovery handle was created because no live write happened.
-  There is no changed state to restore from this run.
+  No public backup/restore workflow is available for this run.
 
 Changed:
   none
@@ -624,16 +603,16 @@ Next:
 ```
 
 User takeaway: an all-blocked/all-failed aggregate run is not a partial success.
-The output says no files changed, no backup was created, and restore is not the
-next step because there is no changed state from this run to restore.
+The output says no files changed, public backup/restore is not the
+next step.
 
 ### Verbose and JSON boundary for final outcomes
 
 Verbose text may append diagnostic details that explain why the run ended as a
 full success, partial success, or no-change failure/blocked outcome. It may show
-existing technical refs, diagnostics, backup refs that were actually created,
+existing technical refs, diagnostics, active-spec internal recovery diagnostics,
 and item-level action records. It must keep raw values, secrets, account/session
-data, symlink targets, and payload bytes hidden.
+data, symlink targets, and internal payload bytes hidden.
 
 JSON remains owned by the existing machine-readable contract. This addendum does
 not introduce field names, enum names, object shapes, shell exit codes, or
@@ -665,7 +644,6 @@ Write boundary:
   This is a dry run. No files were changed.
   Desired state may be read from the repo.
   Live app/config files would be written only after confirmation.
-  A backup would be created before confirmed live writes where required.
   Desired-state repo files would not be changed by apply.
 
 ... same human summary as default ...
@@ -683,7 +661,6 @@ Technical details:
     selector: [user] email
     desired: desired://user/leon/targets/git/settings.yaml#values.user.email
     live: state://selected-live/git/user.email
-    backup: would-create-before-live-write
 
   git:credential.helper
     state: unsupported
@@ -743,10 +720,11 @@ tests.
 4. Confirmed transcripts say what was actually written and what was skipped.
 5. Partial success must never imply blocked, unsupported, failed, or skipped
    items changed.
-6. Backups/recovery handles are tied to confirmed live writes, not repo-only
-   saves, unless a future implementation explicitly changes that behavior.
-7. Restore preview commands appear only where a supported restore-preview flow
-   exists.
+6. Public backup/restore commands are not part of the active v2 save/apply
+   workflow after #212.
+7. Recovery guidance should route users to `status`, `diff`, `sync`, `save`,
+   `apply`, and external settings-folder version history where configured, not
+   to prototype restore commands.
 8. Counts and per-app grouping stay consistent with the aggregate `status`/`diff`
    storyboard.
 9. Redacted values are described by existence and relationship, not printed.

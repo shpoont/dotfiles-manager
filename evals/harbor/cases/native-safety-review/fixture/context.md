@@ -7,7 +7,7 @@ The proposal says:
 > `/bin/sh -c "app export --all --out $HOME/export.zip"`, and let the
 > app import that zip on apply. If the app is open, ask the user to
 > close it. The export is opaque but users probably trust the app. If
-> backup fails, continue and warn.
+> pre-write safety evidence cannot be recorded, continue and warn.
 
 Important spec reminders:
 
@@ -20,10 +20,10 @@ Important spec reminders:
   captured output.
 - `status` does not run native export in this tranche.
 - `apply --dry-run` for native apply validates the desired artifact
-  and plan; it does not run backup/export/import/verify commands by
-  default.
+  and plan; it does not run export/import/verify commands by
+  default or create public recovery workflows.
 - `apply --yes` may run native apply only for trusted resources with
-  explicit pre-apply export backup and post-import export-hash
+  explicit internal pre-apply recovery export and post-import export-hash
   verification policies.
-- Secret, account, opaque, lifecycle, backup, import, and
+- Secret, account, opaque, lifecycle, internal recovery-evidence, import, and
   verification failures fail closed as safety blockers.

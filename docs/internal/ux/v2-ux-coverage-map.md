@@ -1,11 +1,11 @@
 # v2 UX coverage map and storyboard backlog
 
 Status: issue #171 planning artifact.
-Last updated: 2026-06-15.
+Last updated: 2026-06-25.
 Scope: UX planning only; no command behavior, renderer, JSON schema, or v1 output changes.
-Related issues: #113, #165, #166, #167, #168, #169, #171, #177, #179, #181, #183, #185, #187.
+Related issues: #113, #165, #166, #167, #168, #169, #171, #177, #179, #181, #183, #185, #187, #212.
 Pro pre-validation: <https://chatgpt.com/c/6a281d17-56ec-83ed-88d8-fc0d345b3b9f?dfm_storyboard=1781306002>.
-Reconciliation: #185 marks completed #166/#167/#177/#179/#181/#183 coverage as complete where closure evidence exists. #187 adds restore preview/confirm docs/storyboard coverage only; renderer and behavior implementation remain future work. Custom-authoring, unsupported-app depth, trust-review, lifecycle, and native export/import lanes remain open or blocked.
+Reconciliation: #185 marks completed #166/#167/#177/#179/#181/#183 coverage as complete where closure evidence exists. #212 supersedes public backup/restore UX as an active v2 product lane; older restore storyboards are historical only. Custom-authoring, unsupported-app depth, trust-review, lifecycle, and native export/import lanes remain open or blocked.
 
 ## Purpose
 
@@ -20,7 +20,7 @@ blocked lanes that must not be presented as available product support.
 The product goal is still simple from the user's perspective: a user should be
 able to ask the manager to handle common applications, keep relevant settings in
 an external repo folder, inspect diffs, save desired state, apply desired state,
-and recover safely. Advanced users should be able to author local recipes, but
+and recover stored settings through the settings-folder history when they choose external versioning. Advanced users should be able to author local recipes, but
 the happy path should not require them to learn internal nouns first.
 
 ## Relationship to #169 and #165
@@ -78,16 +78,16 @@ the happy path should not require them to learn internal nouns first.
 
 | Contract area | Current owner | Coverage status | Required rule | Next consumer |
 | --- | --- | --- | --- | --- |
-| Default text vs `--verbose` vs `--json` | #165, #166, #167, #169 | covered for selected-preview and #167 setup/recipe/list/backup implementation; future lanes remain | Default text is human-first; verbose is default plus technical details; JSON remains stable and prose-free. | future profile/custom/native lanes |
+| Default text vs `--verbose` vs `--json` | #165, #166, #167, #169, #212 | covered for selected-preview and #167 setup/recipe/list implementation; future lanes remain | Default text is human-first; verbose is default plus technical details; JSON remains stable and prose-free. Public backup/restore is not part of any tier. | future profile/custom/native lanes |
 | stdout/stderr behavior | #165, CLI spec | covered at contract level | Command-result text and JSON go to stdout. stderr is for argument parsing or unexpected process-level failures, not required explanations. | completed #166/#167 consumers; future CLI contract issues |
 | Redaction and hidden values | #165, #169, security spec | baseline covered; must be checked per future flow | Show existence, file paths, hashes/counts, and redaction reason; never print raw managed values or secret-bearing payloads in default or verbose text. Do not imply general-purpose secret scanning beyond known recipe/policy detections. | completed #166/#167/#168 consumers; future flow reviews |
 | Dry-run vs confirmed write language | #169, #165, #166, #179, #181 | covered for selected-preview implementation and aggregate storyboards; future lanes remain | Dry runs always say no files changed. Confirmed writes distinguish repo desired-state writes, live file/app writes, and manager-owned local state writes. | future implementation/profile/custom lanes |
-| Backup and restore language | #169, #167, #187, backup spec | backup list/show covered; restore preview/confirm docs/storyboard coverage complete; renderer and exact behavior implementation remain future work | Default backup and restore text says which backup or recovery handle is involved, which live files are affected, whether files changed, and whole-file/artifact restore limits. Internal backup URIs stay out of default text and belong only in supported technical surfaces. | future restore renderer/implementation work |
+| Backup/restore removal and write-safety language | #212 | active public product surface removes backup/restore commands and normal workflow language | Default, verbose, and JSON output must not teach public backup/restore as a normal workflow. Confirmed writes may mention only supported write-safety facts from active behavior specs; internal recovery evidence and internal state URIs stay out of user-facing guidance. | current output/docs cleanup and future write UX |
 | Blocked-state language | #165, #169 | baseline covered | Say why the command cannot proceed, confirm no files changed for blocked items, and give a safe next command or diagnostic path. | completed #166/#167 consumers; future blocked lanes |
 | No-baseline language | #169, #165, #166 | covered baseline | Replace raw `no-baseline` with a plain review note: this setting has not previously been applied by this tool; review paths before confirming. | completed #166 consumer; future selected-preview regressions |
 | Multi-app/multi-setting grouping | #165, #171, #177, #179, #181, #183 | aggregate docs/storyboard coverage complete; renderer implementation remains future work | Aggregate output must show counts, per-app grouping, blocked reasons, safe-to-confirm items, and safe next commands without leaking internal planner labels. | future renderer/production-readiness work |
 | Partial success / partial blocked summaries | #171, #181, status-machine spec | docs coverage complete; renderer work remains | Report changed/unchanged/blocked counts; identify succeeded items and skipped/blocked items; return appropriate partial exit semantics without implying blocked items changed. | future renderer/production-readiness work |
-| Next-command guidance | #169, #165, #171, #166, #167 | covered for single setting and #167 setup/list/backup flows; aggregate rules defined here | Give one safe next command when one command is safe. If no safe single command exists, say so and give narrower supported commands or resolution steps. | future aggregate/profile/custom/native lanes |
+| Next-command guidance | #169, #165, #171, #166, #167, #212 | covered for single setting and #167 setup/list flows; aggregate rules defined here | Give one safe next command when one command is safe. If no safe single command exists, say so and give narrower supported commands or resolution steps. | future aggregate/profile/custom/native lanes |
 | Profiles/scopes/layers | v2 profile spec, #171 | implementation exists; UX coverage incomplete | Explain active profile/layers and scope in user terms without making groups first-class in the happy path. Raw layer IDs belong in verbose. | future issue from this map |
 | Custom app authoring | app authoring issues, #171 | current internal/advanced | Keep separate from happy path. Explain it as an advanced path to add unsupported apps safely with fixture tests. | future issue from this map |
 | Lifecycle-sensitive apps | lifecycle spec, #171 | future/blocked UX lane | Do not imply the manager will stop, restart, reload, control app servers, install plugins, or run package-manager actions by default. Default must warn or block unless a future reviewed recipe explicitly supports behavior. | future issue after lifecycle recipe support |
@@ -97,19 +97,18 @@ the happy path should not require them to learn internal nouns first.
 
 | Flow | User intent | Representative commands | Coverage type | Priority | Support status | Owner / future issue | Personas | Dependencies and safety constraints | Blocks #165? |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Safe Git single-setting quickstart | Try the product safely and understand one managed value. | `init`, `add git`, `status git:user.email`, `save --dry-run`, `save --yes`, `diff`, `apply --dry-run`, `apply --yes`; quickstart-level `restore --dry-run` wording only | `must-storyboard` | P0 | current supported | #169, consumed by #165/#166 | first-time, cautious, power | Temporary HOME examples only; no raw values. Quickstart-level restore wording is covered here; full restore preview/confirm docs/storyboard coverage is owned by #187. | no, complete for quickstart scope |
+| Safe Git single-setting quickstart | Try the product safely and understand one managed value. | `init`, `add git`, `status git:user.email`, `save --dry-run`, `save --yes`, `diff`, `apply --dry-run`, `apply --yes` | `must-storyboard` | P0 | current supported | #169, consumed by #165/#166 | first-time, cautious, power | Temporary HOME examples only; no raw values. Public backup/restore wording is superseded by #212 and must not appear in active quickstart output. | no, complete for quickstart scope |
 | Selected-setting status/save/diff/apply copy | Make the implemented selected-preview loop readable by default. | `status`, `diff`, `save`, `apply` with setting or target refs | `must-storyboard` | P0 | current supported | #166, implementation/docs coverage complete | first-time, cautious, power | Must preserve #165 tier contract and redaction. | no, complete |
 | Multi-app selected status/diff | Check all selected settings and see grouped drift. | `status`, `diff`, `status git starship zsh` only if supported by selector grammar | `must-storyboard` | P0 | current supported | #177, `v2-aggregate-status-diff-storyboard.md` | first-time, cautious, power | Must show counts, per-app sections, blocked reasons, unsupported/failed states, and safe next command. Do not invent unsupported subset selectors or fake subset commands. | no, storyboard complete |
 | Multi-app save all selected settings | Save current live state for several supported settings. | `save --dry-run`, `save --yes`, target/ref narrowed saves | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must distinguish repo desired-state writes from live writes. Must show which items are safe to confirm. | no, storyboard/docs coverage complete |
-| Multi-app apply all selected settings | Apply saved desired state across supported apps. | `apply --dry-run`, `apply --yes`, narrowed applies | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must show live-write risk, backups, blocked items, and partial success semantics. | no, storyboard/docs coverage complete |
+| Multi-app apply all selected settings | Apply saved desired state across supported apps. | `apply --dry-run`, `apply --yes`, narrowed applies | `must-storyboard` | P0 | current supported | #179, `v2-aggregate-save-apply-storyboard.md` | first-time, cautious, power | Must show live-write risk, blocked items, and partial success semantics without presenting public backup/restore as normal workflow. | no, storyboard/docs coverage complete |
 | Partial success / partial blocked aggregate run | Understand that some items changed while others were skipped. | aggregate `save --yes` or `apply --yes` with mixed states | `must-storyboard` | P0 | current supported | #181, final outcome semantics addendum in `v2-aggregate-save-apply-storyboard.md` | cautious, power | Must never imply blocked items changed. Exit-state wording must stay prose-only unless a separate contract defines shell/JSON behavior. | no, docs coverage complete |
 | First setup / init | Create a v2 repo and local identity without touching real app configs. | `init --yes --machine-id ... --user-id ...`, `init --json` | `must-storyboard` | P0 | current supported | #167, implementation/docs coverage complete | first-time, cautious | Must distinguish repo files from local manager identity state and live app configs. | no, complete |
 | Explain/discover supported apps | Find what can be managed and what is excluded. | `list`, `recipe discover`, `recipe explain git`, `recipe explain ssh` | `must-storyboard` | P0 | current supported | #167, implementation/docs coverage complete | first-time, cautious, power | Must not overclaim unsupported, excluded, or native lanes. | no, complete |
 | Add one app or setting | Select a supported target safely. | `add git`, `add git:user.email`, `list` | `must-storyboard` | P0 | current supported | #167, implementation/docs coverage complete | first-time, cautious | Must explain selection vs saved desired value. | no, complete |
 | Add several supported apps/settings | Select multiple apps without requiring internal resource groups. | repeated `add <target>` commands, `list`; future multi-target `add` syntax only if explicitly labeled unsupported | `must-storyboard` | P0 | current supported | #183, `v2-repeated-add-multiple-apps-storyboard.md` | first-time, cautious, power | Must be explicit about what is selected, what is not saved yet, what is excluded, and that current `add` accepts one target at a time. | no, storyboard/docs coverage complete |
 | List selected settings across apps | Review managed surface at a glance. | `list`, `list --json` | `must-storyboard` | P0 | current supported | #167, implementation/docs coverage complete for default readable list output; #183 covers repeated-add multi-app list context | first-time, cautious, power | Must show selected apps/settings, scopes, and unsupported/blocked markers without internal IDs by default. | no, complete for #167/#183 scope |
-| Backup list/show | Find available recovery points after writes. | `backup list`, `backup show <run-id>` | `must-storyboard` | P0 | current supported | #167, implementation/docs coverage complete | cautious, power | Must separate backup run IDs from internal `state://` refs. Must explain whole-file vs semantic restore limits. | no, complete |
-| Restore preview/confirm | Preview and run recovery safely. | `restore <run-id> --dry-run`, `restore <run-id> --yes` | `must-storyboard` | P0 | current supported | #187, `v2-restore-preview-confirm-storyboard.md` | first-time, cautious, power | Docs/storyboard coverage only; not implemented restore behavior. Must identify files affected, source backup, dry-run no-write status, confirmed live writes, recovery handle when created, blocked cases, whole-file/artifact limits, and #113/native/lifecycle boundaries. | no, storyboard/docs coverage complete |
+| Public backup/restore commands | User tries old or prototype recovery commands. | `backup ...`, `restore ...` | `rule-only` | P0 | superseded by #212 | #212 | first-time, cautious, power | Must fail as unsupported/unknown public commands and point users back to status/diff/sync plus external settings-folder version history where configured. Internal recovery evidence is not a public workflow. | no, #212 cleanup |
 | Profiles and scopes basics | Understand shared, user, machine, and machine-user desired state. | `save --scope user`, `save --scope machine-user`, `list --verbose` | `must-storyboard` | P1 | current supported | new issue: `v2 UX: storyboard profiles and scopes` | first-time, power | Must explain value storage without making internal directories the first concept. | no |
 | One machine with multiple profiles/layers | Use several profiles on one machine, such as global plus project or role layers. | `--profile work`, `--profile personal`, active stack examples | `must-storyboard` | P1 | current supported | new issue: `v2 UX: storyboard multiple profiles on one machine` | power, cautious | Must clarify that one machine can use multiple profiles/layers and that layers are ordered overlays. | no |
 | Unknown profile/user/machine | Recover from identity or profile mismatch. | commands with unknown `--profile`, conflicting `--user-id`/`--machine-id` | `rule-only` | P1 | current supported | future wording issue | cautious, power | Must fail closed and explain how to inspect or initialize identity. | no |
@@ -136,13 +135,12 @@ the happy path should not require them to learn internal nouns first.
 | Unknown user or machine | Say the command cannot resolve local identity or the provided ID conflicts with local identity. Offer `init` or identity inspection guidance. | Identity record paths and conflict diagnostics. | `rule-only` | #167 baseline complete; future profile UX |
 | Conflicting profile layers | Say the same setting is selected or configured differently in multiple active layers and the tool needs a narrower profile/layer decision. | Layer order, raw layer IDs, conflict path. | `rule-only` | future profile UX |
 | No previous baseline | Say this setting has not previously been applied by this tool; review paths before confirming. | Raw `no-baseline`, ledger refs, last-applied lookup details. | `rule-only` | #166 complete |
-| Backup unavailable | Block confirmed live write if backup is required but unavailable. Say no live files changed. | Backup policy, filesystem error, state path. | `rule-only` | #167 backup baseline complete; future write-policy UX if needed |
-| Restore blocked | Say restore cannot proceed, what would be affected, and why it is unsafe or unavailable. | Backup ref, artifact refs, verification details in supported technical surfaces only. | `rule-only` | #187 docs/storyboard coverage complete; future renderer/implementation work |
-| Restore is whole-file, not semantic single-value rollback | Say restore will restore the stored file/artifact, not edit only the one selected value, whenever that matters. | Artifact/driver details in supported technical surfaces only. | `rule-only` | #187 docs/storyboard coverage complete; future renderer/implementation work |
+| Internal recovery evidence unavailable | If an active write-safety policy requires internal recovery evidence and it cannot be created, block before live writes and say no live files changed without offering a public backup command. | Policy and filesystem diagnostics in internal logs/JSON only when an active spec allows them. | `rule-only` | #212 cleanup; future write-policy UX if needed |
+| Public backup/restore command requested | Do not execute old prototype recovery commands as a normal workflow. Explain that public backup/restore is outside v2 scope and suggest `status`, `diff`, `sync`, `save`, or `apply` as appropriate. | No internal recovery payloads, backup refs, or state URIs in default text. | `rule-only` | #212 |
 | Mixed changed/unchanged/blocked aggregate run | Always show total checked, changed/unchanged/blocked counts, per-app sections, blocked reasons, and safe next command(s). | Raw states/actions per item. | `must-storyboard` | #181 docs coverage complete; future renderer work |
 | Native export/import unavailable | Say native export/import is not available yet for this app. Do not show fake export/import success mockups. | #113 blocker, candidate evaluation notes. | `future/blocked` | #113/future native UX |
 | Local recipe untrusted or changed | Say local recipe needs review before reading/writing; no target files changed. | Trust record hash, recipe path, validation diagnostics. | `rule-only` | future trust UX; #167 recipe explain baseline only |
-| Partial success after confirmed write | Say which items changed, which were skipped/blocked, whether backups were recorded, and what to do next. | Ledger run refs and per-item mutation records in verbose/JSON. Shell exit-code and JSON contract changes require a separate issue. | `must-storyboard` | #181 docs coverage complete |
+| Partial success after confirmed write | Say which items changed, which were skipped/blocked, and what to do next without presenting public backup/restore as a normal workflow. | Ledger run refs and per-item mutation records in verbose/JSON where active behavior specs allow them. Shell exit-code and JSON contract changes require a separate issue. | `must-storyboard` | #181 docs coverage complete; #212 public backup/restore cleanup |
 
 ## Multi-app default output shape
 
@@ -157,8 +155,9 @@ is finalized. The output should be scannable, safe, and action-oriented:
 4. Per-app sections with human display names.
 5. One bullet per setting/item with plain-language state.
 6. Blocked items include one safe reason line.
-7. Backup line appears when live writes happened or would happen and backup is
-   relevant.
+7. Confirmed-write wording must not present public backup/restore as a normal
+   workflow; internal recovery evidence stays internal unless a later active
+   behavior spec deliberately exposes safe metadata.
 8. Next section gives one safe command when possible.
 9. If a safe single command cannot express the subset, the output must not invent
    one or show fake syntax. It should tell the user to resolve blocked items
@@ -218,7 +217,6 @@ Default aggregate output may show:
   command;
 - user-level paths such as `$HOME/.gitconfig` or
   `desired/user/<user>/targets/git/settings.yaml`;
-- backup run IDs;
 - plain-language state and safety reasons.
 
 Default aggregate output must not require understanding:
@@ -227,7 +225,7 @@ Default aggregate output must not require understanding:
 - `desired://` or `state://` URIs;
 - raw states/actions such as `missing-desired`, `blocked-safety`,
   `would-promote`, `would-apply`;
-- raw ledger refs or backup artifact refs;
+- raw ledger refs, internal recovery refs, or internal payload refs;
 - raw lifecycle action records.
 
 Verbose aggregate output should append a technical section with those fields for
@@ -239,14 +237,14 @@ power users and debugging while preserving the same redaction policy.
 | --- | --- |
 | #165 | Already complete. It may proceed from #169 and the aggregate baseline in the CLI contract. This map does not block it. |
 | #166 | Completed. It consumed the selected-setting `status`/`diff`/`save`/`apply` readability rows plus no-baseline, blocked-state, redaction, and selected-preview wording rules. Aggregate renderer work remains separate. |
-| #167 | Completed for setup/init, discover/explain, add/list, backup list/show, baseline unsupported/error wording, and shared restore-related wording. It did **not** close full restore preview/confirm, custom app authoring, unsupported-app recipe ingestion, or trust-review UX depth; those remain future rows. |
+| #167 | Completed for setup/init, discover/explain, add/list, baseline unsupported/error wording, and shared write-safety wording. It did **not** close custom app authoring, unsupported-app recipe ingestion, or trust-review UX depth; those remain future rows. Public restore preview/confirm is superseded by #212. |
 | #168 | Completed. Adds `v2-transcript-review-gate.md` and the first checked-in review. Future single-setting and multi-app transcript work must use that gate when command text or output-tier expectations change. |
 | #177 | Completed. Aggregate selected `status`/`diff` docs/storyboard coverage is complete; implementation/renderer work remains separate. |
 | #179 | Completed. Aggregate selected `save`/`apply` confirmation docs/storyboard coverage is complete; implementation/renderer work remains separate. |
 | #181 | Completed. Aggregate final outcome semantics docs coverage is complete; implementation/renderer work remains separate. |
 | #183 | Completed. Repeated `add` flow for multiple supported apps/settings docs/storyboard coverage is complete without implying unsupported multi-target syntax. |
-| #113 | Remains blocked until a verified native target exists. This map only preserves future UX requirements and must not create native export/import mockups that look available. #187 includes only blocked restore wording for native/lifecycle cases; it does not unblock or implement native export/import. |
-| #187 | Restore preview/confirm docs/storyboard coverage is complete in `v2-restore-preview-confirm-storyboard.md` with a checked-in persona review. This is not implemented restore behavior and does not change JSON, v1 output, lifecycle, or native export/import support. |
+| #113 | Remains blocked until a verified native target exists. This map only preserves future UX requirements and must not create native export/import mockups that look available. Historical #187 restore wording does not unblock or implement native export/import. |
+| #187 | Historical restore preview/confirm docs/storyboard coverage only. #212 supersedes it for active public v2 product scope; do not implement public restore behavior from this artifact. |
 
 ## Completed storyboard artifacts and remaining backlog
 
@@ -259,9 +257,8 @@ Completed P0 storyboard/docs artifacts:
    coverage complete.
 4. `v2 UX: storyboard repeated add flow for multiple supported apps` — P0,
    #183 docs/storyboard coverage complete.
-5. `v2 UX: storyboard restore preview and confirm` — P0, #187
-   docs/storyboard coverage complete only; restore renderer/behavior
-   implementation remains future work.
+5. Public restore preview/confirm — historical only after #212; not an active
+   implementation lane.
 
 Remaining future storyboard/UX lanes to create or reuse issues for:
 
@@ -293,7 +290,7 @@ transcripts and ask the relevant personas to answer:
 - Which values are hidden or redacted?
 - Which items are safe to confirm?
 - Which items are blocked and why?
-- Was a backup created or would one be created?
+- Does the output avoid public backup/restore workflow promises and explain write safety?
 - What should the user run next?
 - What is explicitly not managed or not supported?
 
@@ -304,7 +301,7 @@ Persona emphasis by flow:
 | Single-setting quickstart | first-time, cautious, power | Basic comprehension, dry-run/write distinction, redaction. |
 | Multi-app aggregate runs | first-time, cautious, power | Counts, grouping, partial blockers, safe subset commands. |
 | Setup/discovery/add/list | first-time, cautious | No accidental live writes, clear supported/unsupported boundary. |
-| Backup/restore | first-time, cautious, power | Recovery confidence, backup IDs, whole-file restore limits, and Git-context first-time comprehension when Git examples are used. |
+| Public backup/restore removal | first-time, cautious, power | Users should not be taught prototype backup/restore commands; recovery guidance should route to status/diff/sync and external settings-folder version history where configured. |
 | Profiles/scopes | first-time, power | Where values are stored and how layers override. |
 | Custom app authoring and fixture/test roundtrip | power | Recipe safety, fixture tests, local trust, diagnostics. |
 | Lifecycle/native lanes | cautious, power | Blocked/future status and no overclaiming of app control. |

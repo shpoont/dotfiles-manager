@@ -1,5 +1,10 @@
 # v2 restore preview/confirm transcript review
 
+> [!WARNING]
+> Superseded by #212. This restore review is historical only and must not be
+> used as active public v2 product guidance.
+
+
 Status: pass.
 Reviewed on: 2026-06-15.
 Issue / PR: #187; PR was not assigned at review time.

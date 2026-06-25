@@ -1,7 +1,7 @@
 ---
 owner: Core Engineering
 document-type: v2-draft-spec
-status: Draft
+status: Superseded by #212 for public backup/restore workflow
 last-updated: 2026-06-10
 canonical-source: docs/internal/specs/v2/08-mutation-ledger-backup-restore.md
 source-concept-sections:
@@ -10,10 +10,17 @@ source-concept-sections:
   - Local backup store
   - Restore behavior
   - CLI contract v2
-authority: Draft; non-authoritative until promoted by docs/internal/specs/v2/README.md
+authority: Historical internal-design draft only; superseded by #212 for public backup/restore workflow
 ---
 
 # v2 mutation, ledger, backup, and restore
+
+> [!WARNING]
+> Superseded by #212 for the public v2 product surface. Backup/restore is not
+> an active v2 user workflow or acceptance dependency. This document is retained
+> only as historical/internal implementation background for ledger and internal
+> recovery-evidence mechanics. New public CLI/docs/tests must not cite it as an
+> active backup/restore contract.
 
 ## Purpose
 

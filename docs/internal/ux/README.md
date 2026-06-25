@@ -1,6 +1,6 @@
 # Internal UX artifacts
 
-This directory contains pre-implementation UX artifacts for v2 command output.
+This directory contains pre-implementation UX artifacts for v2 command output. Public backup/restore storyboards created before #212 are historical only, not active product guidance.
 These files are not runtime contracts by themselves; they define expected user
 experience and review criteria that implementation issues convert into code,
 tests, and command documentation.
@@ -22,13 +22,12 @@ tests, and command documentation.
   storyboard for selecting several supported apps/settings through the current
   repeated `add <target>` flow, without implying unsupported multi-target add
   syntax.
-- `v2-restore-preview-confirm-storyboard.md` — high-fidelity terminal
-  storyboard for restore dry-run, confirmed restore, recovery handles,
-  whole-file/artifact restore limits, and blocked restore cases; docs/storyboard
-  coverage only, not implemented behavior.
+- `v2-restore-preview-confirm-storyboard.md` — historical pre-#212 terminal
+  storyboard for prototype restore UX. It is retained only as background and
+  must not be used to implement active public v2 backup/restore behavior.
 - `reviews/` — checked-in completed transcript reviews, starting with the safe
   Git email quickstart review required by #168 and the aggregate status/diff
   review required by #177 plus the aggregate save/apply review required by
   #179, final outcome semantics review required by #181, repeated add
-  multi-app review required by #183, and restore preview/confirm review
-  required by #187.
+  multi-app review required by #183, and historical restore preview/confirm review
+  required by #187 before #212 superseded that public workflow.

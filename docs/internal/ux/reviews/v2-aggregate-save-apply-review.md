@@ -1,5 +1,11 @@
 # v2 aggregate save/apply transcript review
 
+> [!WARNING]
+> Superseded in part by #212. Findings about public backup/restore commands or
+> restore-preview next steps are historical only and must not be used as active
+> v2 product guidance.
+
+
 Status: pass.
 Reviewed on: 2026-06-14.
 Issue / PR: #179; PR was not assigned at review time.
