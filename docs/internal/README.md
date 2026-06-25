@@ -1,13 +1,17 @@
 ---
 owner: Documentation Maintainer (TBD)
 status: Reference
-last-updated: 2026-06-04
+last-updated: 2026-06-25
 canonical-source: docs/internal/README.md
 ---
 
 # Internal documentation
 
-This is the canonical internal documentation for `dotfiles-manager` implementation.
+This is the canonical internal documentation index for `dotfiles-manager`.
+
+For agent/operator workflow, start at the repository root `AGENTS.md`. That file
+references the external Project Execution Standard and defines the required
+reading order for active work.
 
 ## 1) High-level scope
 
@@ -62,6 +66,8 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 
 ## 6) Process
 
+- `../../AGENTS.md` — root agent/operator entrypoint for applying the external
+  Project Execution Standard in this repo
 - `process/documentation-governance.md` — documentation ownership/change policy
 - `process/v2-execution-standards-tailoring.md` — repo-specific tailoring for
   applying the Project Execution Standards to v2 reset work
@@ -75,15 +81,27 @@ This is the canonical internal documentation for `dotfiles-manager` implementati
 
 ## Canonicality
 
-If documents disagree, precedence is:
+For active v2 reset work, precedence is:
+
+1. the external Project Execution Standard referenced by root `AGENTS.md`;
+2. `process/v2-execution-standards-tailoring.md`;
+3. GitHub issue #209 plus
+   `project/v2-reset-execution-record.md`;
+4. the active GitHub issue contract for the specific work item;
+5. v2 specs, contracts, UX artifacts, tests, and fixtures that are not marked
+   stale or superseded.
+
+The older v1 decisions, contracts, decision matrix, and acceptance checklist are
+historical or legacy-behavior references for v2 unless the v2 execution record
+or active issue contract explicitly reaffirms them. If v1-era docs conflict with
+the v2 reset direction, stop and reconcile the conflict through the active issue
+contract before implementation.
+
+For legacy v1 maintenance outside the v2 reset, use this narrower precedence
+unless the active issue says otherwise:
 
 1. `specs/decisions.md`
 2. `contracts/*`
 3. `specs/decision-matrix.md`
 4. `engineering/acceptance-checklist.md`
 5. other summaries/overviews
-
-The v2 package under `specs/v2/` is the implementation-prep and audit source for
-the scoped v2 local-settings-manager release candidate. Current v1 file-sync
-behavior remains governed by the v1 decisions/contracts above where the legacy
-commands are still supported.

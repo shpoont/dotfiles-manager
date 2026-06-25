@@ -1,7 +1,7 @@
 ---
 owner: Project Owner + Work Manager
 status: Process tailoring
-last-updated: 2026-06-23
+last-updated: 2026-06-25
 canonical-source: docs/internal/process/v2-execution-standards-tailoring.md
 ---
 
@@ -21,6 +21,18 @@ This tailoring applies to all v2 reset work, including:
 - app/native import/export drivers;
 - documentation;
 - tests, fixtures, validation, release, and acceptance.
+
+
+## Agent entrypoint
+
+The repository root `AGENTS.md` is the operational entrypoint for agents and
+maintainers. It does not replace or summarize the external Project Execution
+Standard. Instead, it points to the external standard, this tailoring document,
+the v2 execution record, and the active GitHub issue contract in the required
+reading order.
+
+If the external standard is unavailable, agents must stop and ask for a decision
+instead of proceeding from memory, chat history, or copied fragments.
 
 ## Source-of-truth rules
 
