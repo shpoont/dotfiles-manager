@@ -78,7 +78,10 @@ jobs:
 
   macos-integration:
     name: macos-integration
-    runs-on: macos-latest
+    # Keep the sandbox lane on macOS 15 while GitHub migrates macos-latest to
+    # macOS 26. The current Go 1.22 lane aborts on the macOS 26 image before
+    # package tests execute; see #245.
+    runs-on: macos-15
     needs:
       - static-checks
     steps:
