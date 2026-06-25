@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-10
+last-updated: 2026-06-25
 canonical-source: docs/internal/specs/v2/05-desired-artifacts-and-uris.md
 source-concept-sections:
   - Desired artifact lifecycle rules
@@ -233,7 +233,7 @@ tree against the desired payload hash/normalizer, and passes only that temp
 payload root to the reviewed import operation. Import operation schemas must not
 expose live named-location roots through typed input, output, temp, argv, or
 environment channels. Desired input, copied input,
-pre-apply backup export, and post-import verification export must all reject
+pre-apply recovery export, and post-import verification export must all reject
 symlinks, special files, path escapes, missing declared outputs, oversized
 payloads, and excessive entry counts before they are used.
 
@@ -241,8 +241,8 @@ payloads, and excessive entry counts before they are used.
 
 1. A selected setting may start with no desired artifact.
 2. `save` may create a desired artifact after preview and prompts.
-3. `apply` must require a desired artifact unless the operation is a restore or
-   a driver-supported create from defaults.
+3. `apply` must require a desired artifact unless a driver-supported create from
+   reviewed defaults is explicitly allowed by an active behavior spec.
 4. Desired artifacts must be validated before use.
 5. Desired artifacts must not store forbidden secrets.
 6. Opaque artifacts require explicit opt-in, metadata, and limited diff.
@@ -273,7 +273,7 @@ Logical schemes:
 | --- | --- |
 | `target://` | Logical target or setting reference. |
 | `desired://` | Canonical desired-state repository reference. |
-| `state://` | Observed state, ledgers, backups, and caches. |
+| `state://` | Observed state, ledgers, internal recovery evidence, and caches. |
 | `temp://` | Ephemeral per-run workspace data. |
 | `secret://` | External secret reference, never secret material. |
 | `recipe://` | Recipe definition or recipe-owned resource. |

@@ -79,7 +79,7 @@ Do not manage secrets, credentials, private keys, tokens, account exports,
 generated caches, or application runtime state unless a specific reviewed recipe
 explicitly says that item is supported. The current v2 surface is not a secret
 manager, package manager, plugin installer, app controller, or general account
-backup tool.
+archival tool.
 
 ## Legacy v1 compatibility
 

@@ -1,5 +1,10 @@
 # v2 aggregate final outcome semantics transcript review
 
+> [!WARNING]
+> Superseded in part by #212. Findings about public backup/restore handles are
+> historical only and must not be used as active v2 product guidance.
+
+
 Status: pass.
 Reviewed on: 2026-06-14.
 Issue / PR: #181; PR was not assigned at review time.

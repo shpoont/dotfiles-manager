@@ -64,26 +64,18 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 
 	applyOut := runUX167Text(t, []string{"apply", "--yes", "--user-id", "leon", "git:user.email"})
 	require.Contains(t, applyOut, "Git user email")
+	require.NotContains(t, strings.ToLower(applyOut), "backup")
+	require.NotContains(t, strings.ToLower(applyOut), "restore")
 
-	backupList := runUX167Text(t, []string{"backup", "list"})
-	require.Contains(t, backupList, "Backups")
-	require.Contains(t, backupList, "Can restore:")
-	require.Contains(t, backupList, "git:user.email — User email")
-	require.Contains(t, backupList, "Preview restore:")
-	require.Contains(t, backupList, "Backup payload contents are stored for restore but are not printed.")
-	require.Contains(t, backupList, "Use --verbose for technical details or --json for machine-readable output.")
+	for _, args := range [][]string{{"backup", "list"}, {"restore", "some-run", "--dry-run"}} {
+		_, _, err := runSelectedPreviewTextCLI(t, args)
+		require.Error(t, err, "args=%v", args)
+		require.Contains(t, err.Error(), "unknown command", "args=%v", args)
+	}
 
-	backupJSON := runUX167JSON(t, []string{"backup", "list", "--json"})
-	backups := backupJSON["backups"].([]any)
-	require.NotEmpty(t, backups)
-	runID := backups[0].(map[string]any)["runId"].(string)
-	backupShow := runUX167Text(t, []string{"backup", "show", runID})
-	require.Contains(t, backupShow, "Backup "+runID)
-	require.Contains(t, backupShow, "To the value from before the apply run.")
-
-	defaultTranscript := strings.Join([]string{initOut, discoverOut, explainOut, addDryRunOut, addOut, listBeforeSave, listAfterSave, backupList, backupShow}, "\n---\n")
-	for _, forbidden := range []string{"state://identity", "desired://", "recipe://", "resource=", "driver=", "sourceLayer=", "selector=", "credential-helper-secret", "private@example.com", "desired@example.com"} {
-		require.NotContains(t, defaultTranscript, forbidden)
+	defaultTranscript := strings.Join([]string{initOut, discoverOut, explainOut, addDryRunOut, addOut, listBeforeSave, listAfterSave, applyOut}, "\n---\n")
+	for _, forbidden := range []string{"state://identity", "desired://", "recipe://", "resource=", "driver=", "sourceLayer=", "selector=", "credential-helper-secret", "private@example.com", "desired@example.com", "backup", "restore"} {
+		require.NotContains(t, strings.ToLower(defaultTranscript), strings.ToLower(forbidden))
 	}
 
 	verboseTranscript := strings.Join([]string{
@@ -92,8 +84,6 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 		runUX167Text(t, []string{"recipe", "explain", "git", "--verbose"}),
 		runUX167Text(t, []string{"add", "git", "--setting", "user.email", "--scope", "user", "--dry-run", "--yes", "--verbose"}),
 		runUX167Text(t, []string{"list", "--user-id", "leon", "--verbose"}),
-		runUX167Text(t, []string{"backup", "list", "--verbose"}),
-		runUX167Text(t, []string{"backup", "show", runID, "--verbose"}),
 	}, "\n---\n")
 	for _, expected := range []string{"state://identity", "recipe://bundled/git", "resource=", "driver=", "sourceLayer=", "selector="} {
 		require.Contains(t, verboseTranscript, expected)
@@ -107,8 +97,6 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 		{"recipe", "explain", "git", "--json"},
 		{"add", "git", "--setting", "user.email", "--scope", "user", "--dry-run", "--yes", "--json"},
 		{"list", "--user-id", "leon", "--json"},
-		{"backup", "list", "--json"},
-		{"backup", "show", runID, "--json"},
 	} {
 		payload := runUX167JSON(t, args)
 		require.NotEmpty(t, payload["schema"], args)
@@ -119,8 +107,6 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 		{"recipe", "explain", "git", "--json", "--verbose"},
 		{"add", "git", "--setting", "user.email", "--scope", "user", "--dry-run", "--yes", "--json", "--verbose"},
 		{"list", "--user-id", "leon", "--json", "--verbose"},
-		{"backup", "list", "--json", "--verbose"},
-		{"backup", "show", runID, "--json", "--verbose"},
 	} {
 		payload, stdout := runUX167JSONRaw(t, args)
 		require.NotEmpty(t, payload["schema"], args)

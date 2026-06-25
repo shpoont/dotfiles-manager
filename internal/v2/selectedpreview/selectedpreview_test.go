@@ -2021,9 +2021,9 @@ func TestSelectedPreviewTextHelperBranches(t *testing.T) {
 	applyWithBackup := baseReport(CommandApply, false, nil)
 	applyWithBackup.Summary = Summary{Status: SummaryChanged, Changed: 1, Applied: 1}
 	applyWithBackup.Items = []Item{{TargetRef: "file.app", SettingRef: "file.app:identity.email", Mutation: &MutationInfo{RunID: "run-backup", BackupRefs: []string{"state://backups/run-backup/item"}}}}
-	require.Equal(t, "Live files changed after backup.", fileChangeLine(applyWithBackup))
+	require.Equal(t, "Live files changed.", fileChangeLine(applyWithBackup))
 	require.True(t, reportHasBackupRefs(applyWithBackup))
-	require.Contains(t, backupSummaryLine(applyWithBackup, applyWithBackup.Items[0]), "backup run run-backup")
+	require.Empty(t, backupSummaryLine(applyWithBackup, applyWithBackup.Items[0]))
 
 	saveChanged := baseReport(CommandSave, false, nil)
 	saveChanged.Summary = Summary{Status: SummaryChanged, Changed: 1, Saved: 1}
@@ -2031,9 +2031,9 @@ func TestSelectedPreviewTextHelperBranches(t *testing.T) {
 	require.Equal(t, "No files changed.", fileChangeLine(nil))
 	require.Equal(t, "No visible diff.", diffText(Item{}))
 	require.Equal(t, "custom message", diffText(Item{Diff: &DiffInfo{Kind: "custom", Message: "custom message"}}))
-	require.Equal(t, "A local backup would be created before writing.", backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply}))
-	require.Equal(t, "A local backup of $HOME/.gitconfig would be created before writing.", backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply, Resource: ResourceInfo{LocationID: "home", RelPath: ".gitconfig"}}))
-	require.Equal(t, "No backup was needed for this item.", backupSummaryLine(baseReport(CommandApply, false, nil), Item{Mutation: &MutationInfo{RunID: "run"}}))
+	require.Empty(t, backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply}))
+	require.Empty(t, backupSummaryLine(baseReport(CommandApply, true, nil), Item{PlannedAction: PlannedActionWouldApply, Resource: ResourceInfo{LocationID: "home", RelPath: ".gitconfig"}}))
+	require.Empty(t, backupSummaryLine(baseReport(CommandApply, false, nil), Item{Mutation: &MutationInfo{RunID: "run"}}))
 
 	require.Equal(t, "Status", commandTitle(CommandStatus))
 	require.Equal(t, "Save (sync live settings -> stored settings)", commandTitle(CommandSave))
@@ -2111,7 +2111,7 @@ func TestSelectedPreviewDefaultNarrativeBranchMatrix(t *testing.T) {
 	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandSave, Items: []Item{{SettingRef: "git:user.email", Mutation: &MutationInfo{}}}}), "\n"), "diff git:user.email")
 	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandDiff, Items: []Item{{SettingRef: "git:user.email", Current: Snapshot{Exists: true}, Desired: DesiredInfo{Snapshot: Snapshot{Exists: true}}}}}), "\n"), "sync git:user.email")
 	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandApply, DryRun: true, Items: []Item{{SettingRef: "git:user.email", PlannedAction: PlannedActionWouldApply}}}), "\n"), "apply --yes git:user.email")
-	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandApply, Items: []Item{{Mutation: &MutationInfo{RunID: "run-restore"}}}}), "\n"), "restore run-restore --dry-run")
+	require.Contains(t, strings.Join(nextCommandLines(&Report{Command: CommandApply, Items: []Item{{SettingRef: "git:user.email", Mutation: &MutationInfo{RunID: "run"}}}}), "\n"), "diff git:user.email")
 	require.Nil(t, nextCommandLines(&Report{Command: CommandStatus, Items: []Item{{State: v2status.StateUnchanged}}}))
 }
 
@@ -2219,7 +2219,7 @@ func TestAdditionalPreviewHelperBranchesForLiveWriteUX(t *testing.T) {
 	require.Contains(t, richText, "Technical details:")
 	require.Contains(t, richText, "MODE: DRY RUN")
 	require.Contains(t, richText, "profile: global -> user/leon")
-	require.Contains(t, richText, "backups=state://backups/run-rich/items/config-email")
+	require.NotContains(t, richText, "backups=state://backups")
 	require.Contains(t, richText, "warning[safe.warning]")
 
 	_, err := normalizeRepoRoot(filepath.Join(t.TempDir(), "missing"))

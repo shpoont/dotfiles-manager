@@ -20,7 +20,7 @@ product/spec gaps, not to ad-hoc workarounds.
 # Safety and v1/v2 boundaries
 
 V1 remains preserved while v2 is built beside it. Safety, trust,
-redaction, lifecycle, backup, ledger, and native-operation boundaries
+redaction, lifecycle, internal recovery evidence, ledger, and native-operation boundaries
 must cite `docs/internal/specs/v2/09-security-redaction-trust.md` and
 `docs/internal/specs/v2/11-mvp-acceptance-tests.md`.
 

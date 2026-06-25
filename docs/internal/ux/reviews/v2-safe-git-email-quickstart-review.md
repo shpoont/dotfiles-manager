@@ -1,5 +1,10 @@
 # v2 safe Git email quickstart transcript review
 
+> [!WARNING]
+> Superseded in part by #212. Findings about public backup/restore commands are
+> historical only and must not be used as active v2 product guidance.
+
+
 Status: pass.
 Reviewed on: 2026-06-14.
 Issue / PR: #168 review for the #167 safe setup/discover/add/list/backup UX slice; PR was not assigned at review time.

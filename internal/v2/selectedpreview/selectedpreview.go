@@ -213,7 +213,7 @@ type MutationInfo struct {
 	Result       string           `json:"result"`
 	RunID        string           `json:"runId,omitempty"`
 	LedgerRef    string           `json:"ledgerRef,omitempty"`
-	BackupRefs   []string         `json:"backupRefs,omitempty"`
+	BackupRefs   []string         `json:"-"` // internal recovery evidence; not part of public v2 JSON
 	Verification VerificationInfo `json:"verification"`
 	ArtifactRefs MutationRefs     `json:"artifactRefs,omitempty"`
 }
@@ -227,8 +227,8 @@ type VerificationInfo struct {
 type MutationRefs struct {
 	RunRecord     string `json:"runRecord,omitempty"`
 	Ledger        string `json:"ledger,omitempty"`
-	Backup        string `json:"backup,omitempty"`
-	BackupPayload string `json:"backupPayload,omitempty"`
+	Backup        string `json:"-"` // internal recovery evidence; not part of public v2 JSON
+	BackupPayload string `json:"-"` // internal recovery evidence; not part of public v2 JSON
 }
 
 const (
@@ -265,7 +265,7 @@ type NativeExportInfo struct {
 	Redaction         string   `json:"redaction"`
 	ReviewRequired    bool     `json:"reviewRequired,omitempty"`
 	ApplySupported    bool     `json:"applySupported,omitempty"`
-	BackupPolicy      string   `json:"backupPolicy,omitempty"`
+	BackupPolicy      string   `json:"-"` // internal recovery evidence; not part of public v2 JSON
 	VerifyPolicy      string   `json:"verifyPolicy,omitempty"`
 	Limitations       []string `json:"limitations,omitempty"`
 	StagingRoot       string   `json:"-"`
@@ -466,9 +466,6 @@ func singleItemDefaultText(report *Report, item Item) []string {
 		if removalLines := fileTreeRemovalDefaultLines(report, item); len(removalLines) > 0 {
 			lines = append(lines, removalLines...)
 		}
-		if backup := backupSummaryLine(report, item); backup != "" {
-			lines = append(lines, "Backup:", "  "+backup, "")
-		}
 	default:
 		lines = append(lines, "Live value:")
 		lines = append(lines, liveValueLines(item)...)
@@ -568,9 +565,6 @@ func technicalText(report *Report) string {
 		}
 		if item.Mutation != nil {
 			lines = append(lines, fmt.Sprintf("    mutation=%s verified=%t run=%s", item.Mutation.Result, item.Mutation.Verification.Verified, item.Mutation.RunID))
-			if len(item.Mutation.BackupRefs) > 0 {
-				lines = append(lines, "    backups="+strings.Join(item.Mutation.BackupRefs, ","))
-			}
 		}
 		for _, action := range item.Lifecycle {
 			lifecycleLine := fmt.Sprintf("    lifecycle phase=%s action=%s mode=%s result=%s", action.Phase, action.Action, action.Mode, action.Result)
@@ -863,22 +857,7 @@ func diffText(item Item) string {
 }
 
 func backupSummaryLine(report *Report, item Item) string {
-	if item.Mutation == nil {
-		if report != nil && report.DryRun && report.Command == CommandApply && item.PlannedAction == PlannedActionWouldApply {
-			if label := strings.TrimSpace(livePathLabel(item)); label != "" {
-				return "A local backup of " + label + " would be created before writing."
-			}
-			return "A local backup would be created before writing."
-		}
-		return ""
-	}
-	if len(item.Mutation.BackupRefs) == 0 {
-		return "No backup was needed for this item."
-	}
-	if strings.TrimSpace(item.Mutation.RunID) != "" {
-		return "Local backup recorded for restore as backup run " + item.Mutation.RunID + "."
-	}
-	return "Local backup recorded for restore."
+	return ""
 }
 
 func fileTreeRemovalDefaultLines(report *Report, item Item) []string {
@@ -963,9 +942,6 @@ func noBaselineReviewLines(report *Report, item Item) []string {
 	lines := []string{"Review note:", "  This setting has not previously been applied by this tool."}
 	if report != nil && report.Command == CommandApply && item.Mutation != nil {
 		lines[1] = "  This was the first apply recorded by this tool for this setting."
-		if len(item.Mutation.BackupRefs) > 0 {
-			lines = append(lines, "  A backup was created before writing.")
-		}
 		return append(lines, "")
 	}
 	if report != nil && (report.Command == CommandDiff || report.Command == CommandApply) {
@@ -994,9 +970,6 @@ func fileChangeLine(report *Report) string {
 		}
 	case CommandApply:
 		if report.Summary.Applied > 0 || report.Summary.Changed > 0 {
-			if reportHasBackupRefs(report) {
-				return "Live files changed after backup."
-			}
 			return "Live files changed."
 		}
 	}
@@ -1059,8 +1032,8 @@ func nextCommandLines(report *Report) []string {
 		if report.DryRun && item.PlannedAction == PlannedActionWouldApply {
 			return []string{"To confirm:", "  " + selectedCommandLine(report, CommandApply, []string{"--yes"}, ref)}
 		}
-		if item.Mutation != nil && item.Mutation.RunID != "" {
-			return []string{"Next:", "  Preview restore if needed:", "  " + restoreCommandLine(report, item.Mutation.RunID, []string{"--dry-run"})}
+		if item.Mutation != nil {
+			return []string{"Next:", "  Inspect drift later with:", "  " + selectedCommandLine(report, CommandDiff, nil, ref)}
 		}
 	}
 	return nil
@@ -1074,14 +1047,6 @@ func selectedCommandLine(report *Report, command string, commandFlags []string, 
 	if strings.TrimSpace(ref) != "" {
 		args = append(args, ref)
 	}
-	return shellCommandLine(args)
-}
-
-func restoreCommandLine(report *Report, runID string, commandFlags []string) string {
-	args := commandPrefixArgs(report)
-	args = append(args, "restore", strings.TrimSpace(runID))
-	args = append(args, nonEmptyArgs(commandFlags)...)
-	args = append(args, selectedContextArgs(report)...)
 	return shellCommandLine(args)
 }
 

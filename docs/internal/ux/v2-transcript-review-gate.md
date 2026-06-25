@@ -1,7 +1,7 @@
 # v2 UX transcript review gate
 
 Status: issue #168 process artifact.
-Last updated: 2026-06-14.
+Last updated: 2026-06-25.
 Scope: v2 CLI UX review only; no command behavior, JSON schema, or v1 output changes.
 Related issues: #165, #166, #167, #168, #169, #171.
 Pro pre-validation: <https://chatgpt.com/c/6a2e5e89-61bc-83eb-b148-22a7718eeb6a>.
@@ -17,7 +17,7 @@ before/after command transcripts and confirm that a normal user can understand:
 - whether the command changed anything;
 - what will happen before a confirmed write;
 - where desired state lives in user-level terms;
-- how to preview, apply, and recover safely;
+- how to preview, apply, inspect drift, and recover through supported workflows such as settings-folder version history when configured;
 - what is explicitly unsupported or intentionally hidden.
 
 The gate is deliberately lightweight. It can be run by ChatGPT Pro, another
@@ -55,7 +55,7 @@ required, the PR should say why.
 - Do not weaken safety warnings or omit write-risk information to make output
   shorter.
 - Do not print raw managed values, unrelated config values, private keys,
-  tokens, credentials, account/session data, or backup payload bytes to satisfy
+  tokens, credentials, account/session data, or internal recovery payload bytes to satisfy
   a clarity question.
 - Do not claim native export/import, lifecycle automation, app restart, plugin
   installation, package-manager actions, or unsupported app coverage unless a
@@ -72,7 +72,7 @@ Reviewers must evaluate the output tiers separately.
 Default text is the human-first path. A first-time user should not need the v2
 spec, an internal glossary, or implementation terms to answer the review
 questions. Default text may show app names, setting refs when they are useful
-for next commands, user-level paths, backup run IDs, and repo paths such as
+for next commands, user-level paths, and settings-folder paths such as
 `desired/user/<user-id>/targets/<app>/...`. It should not require understanding
 raw planner states, driver IDs, resource IDs, selectors, `desired://`,
 `state://`, or internal ledger refs.
@@ -101,7 +101,7 @@ persona-specific findings.
 | Persona | What they care about | Typical failure signs |
 | --- | --- | --- |
 | Git-literate first-time user | Understands shell/Git, but not dotfiles-manager internals. Wants to know what to run next. | Output starts with implementation nouns, hides the managed app/setting, or assumes profile/layer knowledge. |
-| Cautious non-expert Mac user | Can copy commands, but worries about touching real files and losing data. | Dry-run/write status is ambiguous, backups/restore are unclear, or warnings are removed for brevity. |
+| Cautious non-expert Mac user | Can copy commands, but worries about touching real files and losing data. | Dry-run/write status is ambiguous, write-risk guidance is unclear, or warnings are removed for brevity. |
 | Advanced dotfiles/power user | Wants scriptability, auditability, exact refs in the right tier, and stable automation contracts. | Default is too noisy, verbose lacks diagnostics, or JSON/prose boundaries are mixed. |
 
 ## Required review package
@@ -131,14 +131,14 @@ extra explanation from the implementer:
 3. Did this command change anything? If yes, what changed?
 4. If it was a dry run, is it obvious that no files changed?
 5. Where was desired state saved, in user-level terms?
-6. What live file would be touched by apply or restore?
-7. Was a backup created, or would one be created before a confirmed write?
+6. What live file would be touched by apply?
+7. Does the output avoid promising public backup/restore, and does it explain confirmed-write safety without exposing internal recovery evidence?
 8. How would the user preview before applying?
-9. How would the user undo or restore after applying?
+9. How would the user inspect drift or recover using supported workflows after applying?
 10. What command should the user run next?
 11. What is explicitly not supported, not managed, blocked, or excluded?
 12. Were raw managed values, unrelated config values, secrets, credentials,
-    account/session data, or backup payload bytes printed?
+    account/session data, or internal recovery payload bytes printed?
 13. For verbose output: are diagnostics available without weakening redaction?
 14. For JSON output: is stdout still JSON-only and suitable for scripts?
 
@@ -194,7 +194,7 @@ Result: <pass | pass with copy changes | fail>
 - Managed app/setting/file:
 - Change/no-change status:
 - Desired-state location:
-- Preview/apply/restore next step:
+- Preview/apply/sync next step:
 - Unsupported or excluded behavior:
 - Notes:
 
@@ -203,7 +203,7 @@ Result: <pass | pass with copy changes | fail>
 Result: <pass | pass with copy changes | fail>
 
 - Dry-run/write clarity:
-- Backup/restore clarity:
+- Write-safety/recovery clarity:
 - Risk and safety wording:
 - Redaction/value exposure:
 - Notes:
@@ -214,7 +214,7 @@ Result: <pass | pass with copy changes | fail>
 
 - Verbose diagnostics:
 - JSON/scriptability:
-- Audit/backup/ledger clarity:
+- Audit/ledger/internal-boundary clarity:
 - Unsupported/internal-boundary clarity:
 - Notes:
 
@@ -227,10 +227,10 @@ Result: <pass | pass with copy changes | fail>
 | Did the command change anything? |  |  |
 | Is dry-run no-write obvious? |  |  |
 | Where is desired state saved? |  |  |
-| What would apply/restore touch? |  |  |
-| Was/would backup be created? |  |  |
+| What would apply touch? |  |  |
+| Is public backup/restore avoided? |  |  |
 | How to preview before apply? |  |  |
-| How to undo/restore after apply? |  |  |
+| How to inspect drift or recover after apply? |  |  |
 | What command should run next? |  |  |
 | What is unsupported/excluded/blocked? |  |  |
 | Were raw values/secrets/payloads hidden? |  |  |

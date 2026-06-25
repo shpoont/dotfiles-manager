@@ -58,7 +58,7 @@ issue before documentation or implementation can show it as supported behavior.
 - No fake selector syntax, fake app-subset syntax, or fake multi-target `add`
   syntax as a current feature.
 - No raw managed values, credentials, keys, tokens, credential helpers, history,
-  cache/session data, plugin state, or backup payload bytes in examples.
+  cache/session data, plugin state, or internal recovery payload bytes in examples.
 
 ## Output-tier boundary
 
@@ -295,7 +295,7 @@ Saved as desired state:
 
 Applied to live app config:
   a later apply command writes saved desired state back to live files, with the
-  safety and backup behavior covered by the save/apply storyboards.
+  safety behavior covered by the save/apply storyboards.
 ```
 
 Selection changes manager profile state only. It does not save current live

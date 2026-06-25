@@ -14,7 +14,7 @@ Important spec reminders:
 - `apply` writes desired artifacts back to live state only after
   preview/confirmation and safety checks.
 - Dry-run must not change desired artifacts or live state.
-- Live apply uses backups/ledgers where supported.
+- Live writes use preview, explicit confirmation, verification, and ledger/last-applied evidence; old recovery commands are not part of the happy path.
 - Native export/import is constrained, reviewed, and not implied by
   every recipe.
 - Secrets, account sessions, cookies, opaque app databases, caches,

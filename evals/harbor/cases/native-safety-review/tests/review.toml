@@ -7,20 +7,20 @@ timeout = 600
 
 [[criterion]]
 name = "requirements"
-description = "Inspect /app/solution.md. Does it reject unsafe native import/export and require reviewed argv-style operations, secret/account exclusions, opaque diff handling, lifecycle constraints including stop/reopen side effects, trust, backup, verification, explicit opt-in, manager-owned temp roots, and fail-closed blockers?"
+description = "Inspect /app/solution.md. Does it reject unsafe native import/export and require reviewed argv-style operations, secret/account exclusions, opaque diff handling, lifecycle constraints including stop/reopen side effects, trust, internal recovery evidence, verification, explicit opt-in, manager-owned temp roots, and fail-closed blockers?"
 type = "binary"
 weight = 2.0
 
 [[criterion]]
 name = "native_safety_judgment"
-description = "Rate whether the answer identifies arbitrary command execution, inherited environment/PATH, opaque or oversized payloads, secret/account-data capture, lifecycle stop/reopen side effects, native opt-in bypasses, and backup/verification weaknesses as blockers rather than prompts to paper over."
+description = "Rate whether the answer identifies arbitrary command execution, inherited environment/PATH, opaque or oversized payloads, secret/account-data capture, lifecycle stop/reopen side effects, native opt-in bypasses, and internal recovery-evidence/verification weaknesses as blockers rather than prompts to paper over."
 type = "likert"
 points = 5
 weight = 1.5
 
 [[criterion]]
 name = "test_mapping"
-description = "Rate whether the answer maps Harbor judgment back to deterministic schema, CLI, command-runner, backup/ledger, lifecycle, redaction, and unsafe just-run-it regression tests instead of treating subjective review as proof of implementation correctness."
+description = "Rate whether the answer maps Harbor judgment back to deterministic schema, CLI, command-runner, internal recovery evidence/ledger, lifecycle, redaction, and unsafe just-run-it regression tests instead of treating subjective review as proof of implementation correctness."
 type = "likert"
 points = 5
 weight = 1.0

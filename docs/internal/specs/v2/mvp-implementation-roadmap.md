@@ -9,6 +9,11 @@ authority: Non-authoritative planning roadmap; not part of formal specs 00-11
 
 # v2 MVP implementation roadmap
 
+> [!WARNING]
+> This roadmap is historical/non-authoritative. #212 supersedes roadmap items
+> that present backup/restore as a public v2 product workflow. Internal recovery
+> evidence may remain as implementation detail only.
+
 ## Purpose
 
 This roadmap turns the draft v2 spec package into an implementation sequence for
@@ -185,18 +190,18 @@ Scope:
 - desired artifacts;
 - dry-run preview;
 - local ledger skeleton;
-- backup before apply where supported.
+- internal pre-write recovery evidence where supported (#212: not a public backup feature).
 
 Agent issues should cover:
 
 1. `custom.files` bundled recipe.
-2. `file` driver detect/read/normalize/diff/preview/backup/apply/verify/restore.
+2. `file` driver detect/read/normalize/diff/preview/apply/verify; internal recovery evidence is implementation detail.
 3. `file-tree` driver include/exclude globs and metadata policy.
 4. Path traversal and unsafe symlink rejection.
 5. `init`, `add custom.files`, `list`, `status`, `diff`, `save --dry-run`, and
    `apply --dry-run` for the slice.
 6. Real `save` and `apply` for the slice after preview.
-7. `backup list` and `restore` for supported file resources.
+7. Superseded by #212: no public `backup list` or `restore` workflow in v2.
 
 Relevant specs:
 
@@ -210,8 +215,8 @@ Exit gate:
 
 - the first vertical-slice gate in `11-mvp-acceptance-tests.md` passes;
 - dry-run mutates nothing;
-- apply creates backup where supported;
-- restore is verified for supported file resources.
+- apply records internal pre-write evidence where supported;
+- public backup/restore verification is superseded by #212.
 
 ### Milestone 3: status, diff, preview, JSON, and exits
 
@@ -242,20 +247,18 @@ Exit gate:
 - every canonical status state has a fixture;
 - `sync` cannot silently merge.
 
-### Milestone 4: mutation ledger, backup, and restore hardening
+### Milestone 4: mutation ledger and internal recovery-evidence hardening
 
-Goal: make live writes auditable and recoverable.
+Goal: make live writes auditable and internally recoverable without exposing a public backup/restore workflow.
 
 Agent issues should cover:
 
 1. Local ledger schema and persistence.
-2. Backup metadata and payload storage.
+2. Internal recovery-evidence metadata and payload storage.
 3. Ledger commit only after verified success.
 4. Partial failure recording.
-5. Restore preview.
-6. Backup-before-restore.
-7. Retention and cleanup policy.
-8. Driver compatibility checks for restore.
+5. Retention and cleanup policy for internal evidence.
+6. Driver compatibility checks for internal recovery evidence.
 
 Relevant specs:
 
@@ -267,8 +270,8 @@ Relevant specs:
 Exit gate:
 
 - no unverified success is recorded;
-- supported restore works from backup;
-- unsupported restore fails clearly.
+- internal recovery evidence remains implementation-only per #212;
+- no public backup/restore acceptance dependency remains.
 
 ### Milestone 5: structured drivers and initial bundled recipes
 
@@ -365,7 +368,7 @@ Exit gate:
 
 - v1 parity fixtures pass;
 - migration is preview-first and reversible;
-- dogfood run can apply and restore core CLI/editor settings.
+- dogfood run can apply core CLI/editor settings and verify internal recovery evidence where applicable.
 
 ## AI-agent issue authoring rules
 
@@ -404,7 +407,7 @@ Recommended initial GitHub batch:
 5. Implement `custom.files` recipe and file driver vertical slice.
 6. Implement status state derivation fixtures.
 7. Implement dry-run preview and JSON envelope snapshots.
-8. Implement ledger/backup skeleton for file resources.
+8. Implement ledger/internal-recovery skeleton for file resources.
 9. Implement v1 migration dry-run fixture.
 
 Do not recreate deleted old issues verbatim. Re-author them only when they can
@@ -436,8 +439,8 @@ The MVP is production-ready only when:
 - v1 parity for current dotfile use cases is proven;
 - the custom.files vertical slice passes all gates;
 - dry-run is trustworthy;
-- live apply previews, backs up, verifies, and records ledgers;
-- restore works for supported drivers;
+- live apply previews, verifies, records ledgers, and keeps any recovery evidence internal;
+- public backup/restore workflow superseded by #212;
 - secret/redaction/trust tests pass;
 - unsupported state fails visibly;
 - CI passes on a clean checkout;

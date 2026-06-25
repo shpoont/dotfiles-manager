@@ -25,7 +25,7 @@ spec-referenced, testable v2 contract.
 - exact v2 spec references;
 - explicit v1 preservation and v2-only boundaries;
 - safety invariants for trust, redaction, lifecycle, native
-  execution, backups, and ledgers when relevant;
+  execution, internal recovery evidence, and ledgers when relevant;
 - deterministic tests complemented by the Harbor judgment case;
 - a mapping from failing Harbor cases back to product/spec gaps.
 
@@ -42,7 +42,7 @@ spec-referenced, testable v2 contract.
 - Go unit and integration tests for implemented behavior;
 - CLI text/JSON contract tests and snapshots;
 - schema fixtures;
-- redaction, path-safety, backup, ledger, and native-operation
+- redaction, path-safety, internal recovery evidence, ledger, and native-operation
   safety regression tests.
 
 ## Out of scope

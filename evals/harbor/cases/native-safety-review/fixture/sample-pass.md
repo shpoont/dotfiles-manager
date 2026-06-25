@@ -12,10 +12,10 @@ Secrets, tokens, credentials, account sessions, and opaque captured
 data require exclusions, redaction, metadata-only diffability, and
 explicit opt-in where allowed.
 
-Lifecycle quit/reopen must be declared and checked. Import needs a
-real backup policy before write and post-import export verification.
+Lifecycle quit/reopen must be declared and checked. Import needs
+internal pre-write recovery evidence before write and post-import export verification.
 Trust must be bundled/reviewed or external trust evidence. Missing
-trust, lifecycle, backup, import, or verification support must fail
+trust, lifecycle, internal recovery-evidence, import, or verification support must fail
 closed with a safety blocker such as exit 5. Harbor complements
-deterministic tests for schema, command runner, backup, ledger, and
+deterministic tests for schema, command runner, internal recovery evidence, ledger, and
 secret leakage behavior.

@@ -35,7 +35,7 @@ The target user should be able to read the aggregate transcript and answer:
 - No fake subset command syntax when the current CLI grammar cannot express the
   subset.
 - No raw managed values, unrelated config values, credentials, tokens, account
-  or session data, private keys, secrets, or backup payload bytes in examples.
+  or session data, private keys, secrets, or internal recovery payload bytes in examples.
 
 ## Storyboard setup
 
@@ -80,7 +80,7 @@ Default text is the human-first tier. It should show:
 
 Default text must not require understanding `resource`, `driver`, `selector`,
 `desired://`, `state://`, raw planner states, raw actions, raw ledger refs, or
-backup artifact refs.
+internal recovery artifact refs.
 
 ### Verbose text
 

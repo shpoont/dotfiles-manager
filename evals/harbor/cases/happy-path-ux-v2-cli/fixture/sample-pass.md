@@ -11,8 +11,7 @@ touched.
 Desired data is the manager-owned copy of selected settings. Dry-run
 is preview only. `save` updates desired data; `apply` writes live
 files only after confirmation and safety checks. Trust controls which
-recipes can write. Backups and the ledger/last-applied record explain
-what changed and support restore paths where available.
+recipes can write. Ledger/last-applied records explain what changed. Old recovery commands are not part of the normal v2 user workflow.
 
 # What is not touched
 
