@@ -1,7 +1,7 @@
 ---
 owner: Project Owner + Work Manager
 status: Active project record
-last-updated: 2026-06-25
+last-updated: 2026-06-26
 canonical-source: docs/internal/project/v2-reset-execution-record.md
 project-issue: 209
 ---
@@ -50,11 +50,13 @@ The product should let a user:
   the public command workflow, user-facing docs/outputs, and v2 acceptance
   dependency; lower-level internal recovery/snapshot/ledger mechanics remain
   implementation details for now.
-- v1 is historical reference only; no v1 migration roadmap is in scope. The
-  broader legacy public CLI surface remains an open gate in #213/#226.
-- Current v2 implementation and docs are partially reset-aligned after #210 and
-  #221-#225, but the combined v2 product is not production-accepted until the
-  remaining gates are completed or explicitly deferred.
+- v1 is historical reference only; no v1 migration roadmap is in scope. #213
+  and #226 are complete; PR #247 hides retained legacy v1 public commands from
+  the normal v2 help surface and separates them from v2 product acceptance.
+- Current v2 implementation and docs are partially reset-aligned after #210,
+  #221-#225, #212, and #213/#226. Parent #211 is ready for separate parent
+  acceptance review, but the combined v2 product is not production-accepted
+  until remaining gates are completed or explicitly deferred.
 
 ## Explicit non-goals
 
@@ -68,7 +70,7 @@ The product should let a user:
 
 ## Standards maturity snapshot
 
-As of 2026-06-25:
+As of 2026-06-26:
 
 - The Project Execution Standards scaffold is adopted (#217 / PR #218).
 - Phase 2 audit/discovery is closed (#219 / PR #220). The audit was accepted for
@@ -77,10 +79,10 @@ As of 2026-06-25:
 - Phase 3 resequencing has been substantially executed: broad reset areas were
   split into focused children (#221-#231) where needed.
 - Product vocabulary is accepted (#210).
-- The focused sync split is complete (#221-#225), and #212 has removed the
-  public backup/restore contradiction. Parent #211 remains open because
-  #213/#226 still affects production-ready sync acceptance through legacy/v1
-  public-surface policy.
+- The focused sync split is complete (#221-#225), #212 has removed the public
+  backup/restore contradiction, and #213/#226 has separated hidden legacy v1
+  commands from the v2 happy path. Parent #211 remains open only for separate
+  parent acceptance review and closure.
 - Reconciliation pass #238 closed the source-of-truth drift introduced by several
   rapid issue closures. The project is scaffold-adopted and is following the
   standards in current work, but it is not yet fully v2-accepted.
@@ -93,13 +95,13 @@ As of 2026-06-25:
 | #217 | Enabler scaffold | Tier 1 | Complete | PR #218 merged; standards scaffold installed. |
 | #219 | Discovery / audit | Tier 1 | Complete | Phase 2 audit closed; follow-up splits/edits produced #221-#231. |
 | #210 | Delivery-design | Tier 1 | Complete | Product model and vocabulary accepted. |
-| #211 | Parent delivery area | Tier 2 overall | Open parent | Sync children #221-#225 and #212 are complete; #213/#226 remains a public-scope gate before production-ready sync acceptance. |
+| #211 | Parent delivery area | Tier 2 overall | Open parent / ready for acceptance review | Sync children #221-#225, #212, and #213/#226 are complete; needs separate parent acceptance decision before closure. |
 | #212 | Product-scope cleanup gate | Tier 1 | Complete | PR #243 removed public backup/restore workflow; issue closed 2026-06-25. |
-| #213 | Product-scope cleanup gate | Tier 1 | Open | Remove v1 migration from the v2 roadmap; broadened by #226 for legacy public CLI surface policy. |
+| #213 | Product-scope cleanup gate | Tier 1 | Complete | PR #247 removed v1 migration from the active v2 roadmap/user-facing happy path and closed 2026-06-26. |
 | #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | Use #227 before #228/#229; remote writes require trust/write-authority model first. |
 | #215 | Parent delivery area | Tier 1/Tier 2 | Open parent | Use #230 before #231; Homebrew Bundle remains an example, not a dependency. |
 | #216 | Documentation delivery | Tier 1 | Open | Production docs depend on accepted behavior/examples from remaining gates. |
-| #226 | Delivery-design cleanup | Tier 1 | Open child of #213 | Decide legacy v1 public CLI surface policy. |
+| #226 | Delivery-design cleanup | Tier 1 | Complete | PR #247 hides retained legacy v1 commands from root help, labels direct help as legacy compatibility, and closed 2026-06-26. |
 | #227 | Discovery/design | Discovery/Tier 1 | Open child of #214 | Specify catalog/tap trust and origin model. |
 | #228 | Delivery | Tier 1 | Open child of #214 | Implement built-in/local catalog discovery after #227. |
 | #229 | Delivery | Tier 2 | Open child of #214 | Implement remote catalog management after #227. |
@@ -107,7 +109,7 @@ As of 2026-06-25:
 | #231 | Delivery | Tier 2 | Open child of #215 | Implement apply-from-storage flow after sync model/UX is accepted. |
 | #238 | Cleanup / enabler | Tier 1 | Complete | PR #239 reconciled #209 and this execution record with live state; no runtime changes. |
 
-## Reconciliation inventory: 2026-06-25
+## Reconciliation inventory: 2026-06-26
 
 This inventory was generated from live GitHub issue/project state before editing
 #209 or this file. It is intentionally conservative: closed child issues prove
@@ -119,15 +121,15 @@ child-scope completion, not automatic parent closure.
 | #217 | Closed / Done | Phase 1 scaffold | Issue closed 2026-06-23; PR #218 merged | Checked | No further action. |
 | #219 | Closed / Done | Phase 2 audit | Issue closed 2026-06-23; PR #220 merged; follow-up splits recorded | Checked with conservative note | Audit/discovery closed for sequencing; product gates remain in follow-up issues. |
 | #210 | Closed / Done | Vocabulary/product model | Issue closed 2026-06-23 | Checked | No further action unless later vocabulary drift appears. |
-| #211 | Open / Todo | Sync parent | Children #221-#225 closed; #212 closed | Keep parent open with checked children/gates | Remains open until public-scope gate #213/#226 is resolved or explicitly deferred. |
+| #211 | Open / Todo | Sync parent | Children #221-#225, #212, and #213/#226 closed | Keep parent open pending separate acceptance review | Public-scope gates are resolved; next action is parent acceptance review/closure decision. |
 | #221 | Closed / Done | Sync child | Issue closed 2026-06-23 | Checked under #211 | Read-only status/diff contract complete. |
 | #222 | Closed / Done | Sync child | PR #234 merged; issue closed 2026-06-23 | Checked under #211 | Smart-sync planning/conflict UX complete. |
 | #223 | Closed / Done | Sync child | PR #235 merged; issue closed 2026-06-23 | Checked under #211 | Mutating sync execution/confirmation complete for that slice. |
 | #224 | Closed / Done | Sync child | PR #236 merged; issue closed 2026-06-23 | Checked under #211 | Partial/many-app UX fixtures complete. |
 | #225 | Closed / Done | Sync child | PR #237 merged; issue closed 2026-06-24 | Checked under #211 | Save/apply alias policy complete. |
 | #212 | Closed / Done | Product-scope gate | PR #243 merged 2026-06-25; issue closed | Checked | Public backup/restore workflow removed; lower-level internal recovery mechanics remain implementation details. |
-| #213 | Open / Todo | Product-scope gate | Live issue open | Open | Paired legacy-v1 roadmap gate; coordinate with #226. |
-| #226 | Open / Todo | Child of #213 | Live issue open | Open under #213 | Decide retained/hidden/deleted legacy v1 public CLI surface. |
+| #213 | Closed / Done | Product-scope gate | PR #247 merged; issue closed 2026-06-26 | Checked | No further action unless future v1 migration/deprecation work is explicitly reintroduced. |
+| #226 | Closed / Done | Child of #213 | PR #247 merged; issue closed 2026-06-26 | Checked under #213 | Retained legacy v1 commands are hidden from normal help and separated from v2 acceptance. |
 | #214 | Open / Todo | Catalog parent | Children #227-#229 open | Keep parent open with children | Do not implement remote writes before #227 trust/origin model. |
 | #227 | Open / Todo | Catalog child | Live issue open | Open under #214 | Specify catalog/tap trust and origin model. |
 | #228 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement built-in/local catalog discovery after #227. |
@@ -136,15 +138,15 @@ child-scope completion, not automatic parent closure.
 | #230 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Specify new-computer UX/output before implementation. |
 | #231 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Implement apply-from-storage after accepted UX/model. |
 | #216 | Open / Todo | Production docs | Live issue open | Open | Rewrite after accepted behavior/examples; current docs are not final production docs. |
-| #238 | Closed / Done | Standards reconciliation | PR #239 merged; final evidence comment recorded | Checked | No further action; continue with #213/#226. |
+| #238 | Closed / Done | Standards reconciliation | PR #239 merged; final evidence comment recorded | Checked | No further action; keep #209 and this record current after closures. |
 
 ## Open parent rationale
 
 - #209 remains open because it is the project charter and closes only when the
   combined reset outcome is accepted.
-- #211 remains open because its focused sync children are complete and #212 is
-  closed, but #213/#226 still affects whether the sync-first UX can be treated
-  as production-ready from a legacy/v1 public-surface perspective.
+- #211 remains open because it requires a separate parent acceptance review. Its
+  focused sync children are complete, #212 is closed, and #213/#226 no longer
+  blocks the sync-first UX from a legacy/v1 public-surface perspective.
 - #214 remains open as the catalog parent; #227 must settle origin/trust/write
   authority before #228/#229 implementation.
 - #215 remains open as the bootstrap parent; #230 must specify UX/output before
@@ -172,7 +174,7 @@ Before starting any work item:
 | --- | --- | --- | --- |
 | Source-of-truth records drift behind live tracker state | Keep #209 and this record updated after each closure; #238 reconciled the current drift | Work Manager | Monitoring |
 | Backup/restore remains visible as a public v2 scope contradiction | #212 / PR #243 removed the public workflow and accepted outputs | Work Manager | Closed |
-| Legacy v1 commands/migration can leak into v2 happy path | Execute #213/#226 next | Work Manager | Open |
+| Legacy v1 commands/migration can leak into v2 happy path | #213/#226 / PR #247 hide retained legacy commands from normal help and remove v1 migration from v2 user docs | Work Manager | Closed |
 | Remote recipe catalogs can execute untrusted writes | Complete #227 before #228/#229 remote write behavior | Work Manager | Open |
 | Production docs could describe unverified behavior | Keep #216 open until behavior/examples are accepted | Docs owner | Open |
 | Branches from closed PRs may be reused accidentally | Enforce branch rule and start from `main` | Executor | Active |
@@ -181,7 +183,7 @@ Before starting any work item:
 
 | Claim / gate | Evidence link | Date | Limits |
 | --- | --- | --- | --- |
-| Active reset issues were initially #209-#216 | GitHub issue list read during transformation planning | 2026-06-23 | Historical baseline; superseded by the 2026-06-25 inventory above. |
+| Active reset issues were initially #209-#216 | GitHub issue list read during transformation planning | 2026-06-23 | Historical baseline; superseded by the 2026-06-26 inventory above. |
 | Phase 1 scaffold passed validation | PR #218 checks, local scaffold checks, and Pro review conversation | 2026-06-23 | Validates process scaffold only, not current v2 product behavior. |
 | Project Owner accepted the Phase 1 source-of-truth decision | User confirmation: "We are good to go" after explicit acceptance prompt | 2026-06-23 | Acceptance is for #209 + this file as source of truth and PR #218 merge approval. |
 | Phase 1 scaffold was merged | PR #218 squash merge `1bbb484eb958d5477937da675da76482a43a8845` | 2026-06-23 | Merge validates process scaffold only. |
@@ -193,6 +195,7 @@ Before starting any work item:
 | Save/apply alias policy accepted | PR #237 squash merge `4f7ca3846c4bb4de5f6d5cc98c91318a70b5e15e`; issue #225 closed | 2026-06-24 | Alias policy only; backup/restore and legacy public-surface cleanup deferred. |
 | Standards reconciliation completed | PR #239 squash merge `1e2eafeebe26adbb5cd3bc1ad70ec39a93abd5ec`; issue #238 closed / Done | 2026-06-24 | Records state only; product gates remain open. |
 | Public backup/restore workflow removed | PR #243 squash merge `04ba7114fb00479fa736b00850a9aa85e8a55a69`; issue #212 closed; final Pro verdict acceptable | 2026-06-25 | Removes public product surface only; lower-level internal recovery/snapshot/ledger mechanics remain implementation details. |
+| Legacy v1 public surface separated from v2 happy path | PR #247 squash merge `3bc34d970358854abaca2491ed1f2ef91f8b325b`; issues #213 and #226 closed after Project Owner acceptance | 2026-06-26 | Retains direct legacy command invocation for compatibility; future deletion, warnings, or formal deprecation require separate explicit issue. |
 
 ## Phase 1 acceptance state
 
@@ -244,16 +247,17 @@ Phase 3 recontract/resequence:
 
 Recommended next product issue:
 
-- #213/#226 — remove v1 migration from the v2 roadmap and decide the broader
-  legacy public CLI surface policy.
+- #211 — perform separate parent acceptance review for the status/diff/sync
+  primary UX parent now that #221-#225, #212, and #213/#226 are complete.
 
-Reason: #212 is closed. #211 still names #213/#226 as a production-readiness
-gate because legacy/v1 public-surface policy can leak into the sync-first v2
-happy path.
+Reason: public backup/restore and legacy-v1 public-surface contradictions have
+been removed from the v2 happy path. Parent #211 should be accepted, closed, or
+reopened with explicit exceptions before downstream catalog/bootstrap/docs work
+treats sync as production-ready.
 
 Paired follow-up:
 
-- #227 — specify catalog/tap trust and origin model after the legacy surface gate
+- #227 — specify catalog/tap trust and origin model after #211 parent acceptance
   is resolved or explicitly deferred.
 
 Do not edit runtime behavior, CLI help, tests, specs, or end-user docs as part
