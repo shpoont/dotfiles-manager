@@ -98,13 +98,13 @@ As of 2026-06-26:
 | #211 | Parent delivery area | Tier 2 overall | Complete | Accepted and closed 2026-06-26 after #221-#225, #212, and #213/#226 completed. |
 | #212 | Product-scope cleanup gate | Tier 1 | Complete | PR #243 removed public backup/restore workflow; issue closed 2026-06-25. |
 | #213 | Product-scope cleanup gate | Tier 1 | Complete | PR #247 removed v1 migration from the active v2 roadmap/user-facing happy path and closed 2026-06-26. |
-| #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | Use #227 before #228/#229; remote writes require trust/write-authority model first. |
+| #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | #227 completed the trust/origin model; use #228 before #229 where built-in/local discovery behavior is needed. Remote writes still require #229 write-gate implementation. |
 | #215 | Parent delivery area | Tier 1/Tier 2 | Open parent | Use #230 before #231; Homebrew Bundle remains an example, not a dependency. |
 | #216 | Documentation delivery | Tier 1 | Open | Production docs depend on accepted behavior/examples from remaining gates. |
 | #226 | Delivery-design cleanup | Tier 1 | Complete | PR #247 hides retained legacy v1 commands from root help, labels direct help as legacy compatibility, and closed 2026-06-26. |
-| #227 | Discovery/design | Discovery/Tier 1 | Open child of #214 | Specify catalog/tap trust and origin model. |
-| #228 | Delivery | Tier 1 | Open child of #214 | Implement built-in/local catalog discovery after #227. |
-| #229 | Delivery | Tier 2 | Open child of #214 | Implement remote catalog management after #227. |
+| #227 | Discovery/design | Discovery/Tier 1 | Complete | PR #250 merged; issue accepted and closed 2026-06-26. |
+| #228 | Delivery | Tier 1 | Open child of #214 | Implement built-in/local catalog discovery against the accepted #227 model. |
+| #229 | Delivery | Tier 2 | Open child of #214 | Implement remote catalog management with write gates against the accepted #227 model. |
 | #230 | UX/design | Tier 1 | Open child of #215 | Specify new-computer UX and output. |
 | #231 | Delivery | Tier 2 | Open child of #215 | Implement apply-from-storage flow after sync model/UX is accepted. |
 | #238 | Cleanup / enabler | Tier 1 | Complete | PR #239 reconciled #209 and this execution record with live state; no runtime changes. |
@@ -121,7 +121,7 @@ child-scope completion, not automatic parent closure.
 | #217 | Closed / Done | Phase 1 scaffold | Issue closed 2026-06-23; PR #218 merged | Checked | No further action. |
 | #219 | Closed / Done | Phase 2 audit | Issue closed 2026-06-23; PR #220 merged; follow-up splits recorded | Checked with conservative note | Audit/discovery closed for sequencing; product gates remain in follow-up issues. |
 | #210 | Closed / Done | Vocabulary/product model | Issue closed 2026-06-23 | Checked | No further action unless later vocabulary drift appears. |
-| #211 | Closed / Done | Sync parent | Children #221-#225, #212, and #213/#226 closed; Project Owner accepted #211 closure | Checked | Parent accepted and closed 2026-06-26; next action is #227 catalog/tap trust model. |
+| #211 | Closed / Done | Sync parent | Children #221-#225, #212, and #213/#226 closed; Project Owner accepted #211 closure | Checked | Parent accepted and closed 2026-06-26; catalog work moved through #227 and now continues with #228/#229. |
 | #221 | Closed / Done | Sync child | Issue closed 2026-06-23 | Checked under #211 | Read-only status/diff contract complete. |
 | #222 | Closed / Done | Sync child | PR #234 merged; issue closed 2026-06-23 | Checked under #211 | Smart-sync planning/conflict UX complete. |
 | #223 | Closed / Done | Sync child | PR #235 merged; issue closed 2026-06-23 | Checked under #211 | Mutating sync execution/confirmation complete for that slice. |
@@ -130,10 +130,10 @@ child-scope completion, not automatic parent closure.
 | #212 | Closed / Done | Product-scope gate | PR #243 merged 2026-06-25; issue closed | Checked | Public backup/restore workflow removed; lower-level internal recovery mechanics remain implementation details. |
 | #213 | Closed / Done | Product-scope gate | PR #247 merged; issue closed 2026-06-26 | Checked | No further action unless future v1 migration/deprecation work is explicitly reintroduced. |
 | #226 | Closed / Done | Child of #213 | PR #247 merged; issue closed 2026-06-26 | Checked under #213 | Retained legacy v1 commands are hidden from normal help and separated from v2 acceptance. |
-| #214 | Open / Todo | Catalog parent | Children #227-#229 open | Keep parent open with children | Do not implement remote writes before #227 trust/origin model. |
-| #227 | Open / Todo | Catalog child | Live issue open | Open under #214 | Specify catalog/tap trust and origin model. |
-| #228 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement built-in/local catalog discovery after #227. |
-| #229 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement remote catalog management with write gates after #227. |
+| #214 | Open / Todo | Catalog parent | #227 closed; #228/#229 open | Keep parent open with children | Built-in/local discovery and remote write-gate implementation remain. |
+| #227 | Closed / Done | Catalog child | PR #250 merged; issue closed after Project Owner acceptance | Checked under #214 | Trust/origin/write-authority model complete for downstream implementation. |
+| #228 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement built-in/local catalog discovery against the accepted #227 model. |
+| #229 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement remote catalog management with write gates against the accepted #227 model. |
 | #215 | Open / Todo | Bootstrap parent | Children #230-#231 open | Keep parent open with children | Bootstrap must reuse sync model; Homebrew Bundle is example only. |
 | #230 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Specify new-computer UX/output before implementation. |
 | #231 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Implement apply-from-storage after accepted UX/model. |
@@ -144,8 +144,8 @@ child-scope completion, not automatic parent closure.
 
 - #209 remains open because it is the project charter and closes only when the
   combined reset outcome is accepted.
-- #214 remains open as the catalog parent; #227 must settle origin/trust/write
-  authority before #228/#229 implementation.
+- #214 remains open as the catalog parent; #227 settled origin/trust/write
+  authority, while #228/#229 implementation remains open.
 - #215 remains open as the bootstrap parent; #230 must specify UX/output before
   #231 implementation.
 - #216 remains open because production end-user documentation depends on
@@ -172,7 +172,7 @@ Before starting any work item:
 | Source-of-truth records drift behind live tracker state | Keep #209 and this record updated after each closure; #238 reconciled the current drift | Work Manager | Monitoring |
 | Backup/restore remains visible as a public v2 scope contradiction | #212 / PR #243 removed the public workflow and accepted outputs | Work Manager | Closed |
 | Legacy v1 commands/migration can leak into v2 happy path | #213/#226 / PR #247 hide retained legacy commands from normal help and remove v1 migration from v2 user docs | Work Manager | Closed |
-| Remote recipe catalogs can execute untrusted writes | Complete #227 before #228/#229 remote write behavior | Work Manager | Open |
+| Remote recipe catalogs can execute untrusted writes | #227 defines the trust/origin/write-authority model; #229 must enforce it before any remote catalog can write live settings | Work Manager | Design complete / implementation open |
 | Production docs could describe unverified behavior | Keep #216 open until behavior/examples are accepted | Docs owner | Open |
 | Branches from closed PRs may be reused accidentally | Enforce branch rule and start from `main` | Executor | Active |
 
@@ -194,6 +194,7 @@ Before starting any work item:
 | Public backup/restore workflow removed | PR #243 squash merge `04ba7114fb00479fa736b00850a9aa85e8a55a69`; issue #212 closed; final Pro verdict acceptable | 2026-06-25 | Removes public product surface only; lower-level internal recovery/snapshot/ledger mechanics remain implementation details. |
 | Legacy v1 public surface separated from v2 happy path | PR #247 squash merge `3bc34d970358854abaca2491ed1f2ef91f8b325b`; issues #213 and #226 closed after Project Owner acceptance | 2026-06-26 | Retains direct legacy command invocation for compatibility; future deletion, warnings, or formal deprecation require separate explicit issue. |
 | Status/diff/sync parent gate accepted | Issue #211 closure comment after Project Owner selected option 1 to accept and close #211 | 2026-06-26 | Parent acceptance only; the combined v2 product remains open until catalog, bootstrap, and production documentation gates are complete or deferred. |
+| Catalog trust/origin model accepted | PR #250 squash merge `696e235d82856295c04c31941ca31e63e1935e67`; issue #227 closure record after Project Owner accepted closure | 2026-06-26 | Specifies design and handoff requirements only; #228/#229 still need implementation and runtime verification. |
 
 ## Phase 1 acceptance state
 
@@ -238,6 +239,7 @@ Phase 3 recontract/resequence:
 - [x] #214 split into catalog children #227-#229.
 - [x] #215 split into bootstrap children #230-#231.
 - [x] #213 expanded with legacy public-surface child #226.
+- [x] #227 catalog/tap trust and origin model accepted.
 - [ ] Close or explicitly keep parent issues based on remaining gates. Current
       decision: #211 is closed; keep #214/#215 open as parent issues for the
       reasons above.
@@ -246,16 +248,16 @@ Phase 3 recontract/resequence:
 
 Recommended next product issue:
 
-- #227 — specify catalog/tap trust and origin model.
+- #228 — implement built-in and local catalog discovery.
 
-Reason: #211 is accepted and closed, so the sync-first parent gate is no longer
-blocking downstream work. Catalog work is the next planned dependency, and remote
-write behavior must not be implemented before recipe origin, trust, update, and
-write-authority rules are explicit.
+Reason: #227 is accepted and closed, so the catalog trust/origin model is now
+available as the design input. #228 is the next lower-risk catalog slice and
+should normalize bundled/local discovery before #229 adds remote catalog
+management and remote write gates.
 
 Paired follow-up:
 
-- #230 — specify new-computer UX/output can proceed after or alongside #227 when
+- #230 — specify new-computer UX/output can proceed alongside #228 when
   the work is kept separate from catalog trust/write-authority decisions.
 
 Do not edit runtime behavior, CLI help, tests, specs, or end-user docs as part
