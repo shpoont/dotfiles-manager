@@ -19,8 +19,7 @@ If you are new, start here:
 3. [`configuration.md`](./configuration.md) — v2 settings-folder layout, profiles,
    scopes, stored settings, and local state.
 4. [`commands.md`](./commands.md) — command reference and examples.
-5. [`faq.md`](./faq.md) — practical answers, recovery, limitations, and legacy
-   compatibility.
+5. [`faq.md`](./faq.md) — practical answers, recovery, and limitations.
 
 ## Happy path
 
@@ -49,11 +48,10 @@ evidence; see the internal engineering docs for gate details.
 | SSH | Primary user config file `~/.ssh/config` only | `desired/<scope>/<subject>/targets/ssh/artifacts/config` in the settings folder | private/public keys, certificates, known_hosts, authorized_keys, agents, includes, chmod repair |
 | Neovim | Default config tree `~/.config/nvim` on Linux/macOS | `desired/<scope>/<subject>/targets/nvim/artifacts/config/` in the settings folder | plugins, generated state, caches, swap/undo/session files, non-default `NVIM_APPNAME` or process `XDG_CONFIG_HOME` without explicit location override |
 | Local app authoring | Draft and validate local recipes plus synthetic roundtrip fixtures | `recipes/local/<target-id>/...` and fixture trees | no public recipe marketplace; native export/import and arbitrary scripts are not promoted by default |
-| Legacy v1 file sync | Existing `.dotfiles-manager.yaml` `status`/`diff`/`deploy`/`import` compatibility | v1 `source` directories | v1 is file sync, not the v2 selected-settings model |
 
-`custom.files` exists as a low-level bundled target and is used by migration and
-internal dogfood flows, but public live-write adoption for arbitrary custom file
-sets is not the recommended first-user path in this tranche.
+`custom.files` exists as a low-level bundled target for internal/dogfood flows,
+but public live-write adoption for arbitrary custom file sets is not the
+recommended first-user path in this tranche.
 
 ## What is stored
 
@@ -80,18 +78,5 @@ generated caches, or application runtime state unless a specific reviewed recipe
 explicitly says that item is supported. The current v2 surface is not a secret
 manager, package manager, plugin installer, app controller, or general account
 archival tool.
-
-## Legacy v1 compatibility
-
-The v1 file-sync commands remain available for existing `.dotfiles-manager.yaml`
-configs:
-
-- `status`
-- `diff`
-- `deploy`
-- `import`
-
-Use v2 docs and `dotfiles-manager.v2.yaml` for new local-settings-manager
-workflows. Use v1 docs/sections only for existing source/target file syncs.
 
 For deeper implementation/spec details, see [`../internal/README.md`](../internal/README.md).

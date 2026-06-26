@@ -110,8 +110,7 @@ version is:
 - Zsh, tmux, and SSH selected whole-file resources;
 - Neovim selected file-tree resource;
 - local app authoring for reviewed/validated local recipes and synthetic
-  roundtrip fixtures;
-- legacy v1 file sync compatibility.
+  roundtrip fixtures.
 
 ## Does v2 support native export/import for apps like Raycast?
 
@@ -129,42 +128,9 @@ recipe marketplace or arbitrary script execution system.
 
 ## What is `custom.files`?
 
-`custom.files` is a low-level file/file-tree target used by migration and
-internal dogfood flows. It has no app-specific semantics and does not classify
-secrets for you. It is not the recommended first-user path for managing a new
-application.
-
-## How does v1 compatibility work?
-
-Existing `.dotfiles-manager.yaml` file-sync configs still use:
-
-```bash
-dotfiles-manager status
-dotfiles-manager diff
-dotfiles-manager deploy --dry-run
-dotfiles-manager import --dry-run
-```
-
-v1 `deploy` means source to target. v1 `import` means target to source. v2 uses
-`dotfiles-manager.v2.yaml`, profiles, scopes, selected settings, stored
-settings, and sync.
-
-## How do I migrate v1 file syncs?
-
-Preview first:
-
-```bash
-dotfiles-manager migrate --dry-run
-```
-
-Plain `migrate` writes a generated migration run under:
-
-```text
-migrations/v1-to-v2/<run-id>/generated/
-```
-
-It does not replace active root v2 config automatically. Review and promote the
-generated files explicitly.
+`custom.files` is a low-level file/file-tree target used by internal/dogfood
+flows. It has no app-specific semantics and does not classify secrets for you.
+It is not the recommended first-user path for managing a new application.
 
 ## Does `status` or `diff` write files?
 

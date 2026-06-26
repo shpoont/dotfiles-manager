@@ -23,25 +23,15 @@ dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app validate <target-id> 
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] app test <target-id> --roundtrip [--fixture <name>] [--json]
 ```
 
-Legacy v1 file-sync commands remain available for `.dotfiles-manager.yaml`:
-
-```text
-dotfiles-manager [--config <.dotfiles-manager.yaml>] status [--json] [path]
-dotfiles-manager [--config <.dotfiles-manager.yaml>] diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]
-dotfiles-manager [--config <.dotfiles-manager.yaml>] deploy [--dry-run] [--json] [path]
-dotfiles-manager [--config <.dotfiles-manager.yaml>] import [--dry-run] [--json] [path]
-dotfiles-manager [--config <.dotfiles-manager.yaml>] migrate [--dry-run] [--json]
-```
-
 Config is resolved in this order:
 1. `--config <path>`
 2. `DOTFILES_MANAGER_CONFIG`
-3. `./.dotfiles-manager.yaml` in the current working directory for legacy v1
-   commands; v2 commands expect `dotfiles-manager.v2.yaml` and can detect a v2
-   root for supported preview paths when no v1 config is present.
+3. for supported v2 preview paths, a settings-folder root containing
+   `dotfiles-manager.v2.yaml` may be detected from the current directory.
 
-No parent-directory search is performed for v1 config discovery.
-`version`/`--version` do not require config resolution.
+For scripts and mutating workflows, pass `--config <dotfiles-manager.v2.yaml>`
+explicitly so the intended settings folder is unambiguous. `version` and
+`--version` do not require config resolution.
 
 For v2 selected-setting commands, scripts should pass `--config
 <dotfiles-manager.v2.yaml>` explicitly. The normal v2 workflow is
@@ -157,185 +147,51 @@ The manager may keep internal pre-write recovery evidence in local state for
 some write paths, but that evidence is not a public backup/restore workflow and
 should not be treated as the normal way to manage settings.
 
-## `status [--json] [path]`
+## `status [--json] [--verbose] [target[:setting]]`
 
-Reports:
-- deploy drift (source → target)
-- import drift (target → source on manifest paths)
-- incoming unmanaged candidates
-- removable unmanaged candidates
-- removable missing-manifest candidates
+`status` compares selected live app settings with stored settings in the
+settings folder. It is read-only and does not write live app files or stored
+settings.
 
-`status` does not write files.
+Use it to answer:
 
-Candidate-set scanning is opt-in:
-- unmanaged/removal candidate discovery runs only when related pattern lists are configured
-- with default empty pattern lists, `status` compares manifest paths only
-- when enabled, discovery starts from literal pattern roots (for example `.codex/skills/**` starts at `.codex/skills`)
-- wildcard-first patterns (for example `**/*.tmp`) can still require broad scans
+- is the selected setting managed?
+- does the live app setting exist?
+- does the stored setting exist?
+- is one side newer or missing?
+- what should I inspect next before writing?
 
-Example text output shape:
+Example:
 
-```text
-reminder: deploy applies source -> target; import applies target -> source
-sync[0] target=~/.config/nvim source=./source/nvim
-deploy[2] (source -> target)
-  can create   lua/init.lua (file->missing)
-import[1] (target -> source)
-  can update   lua/init.lua (file->file)
-hint: same path in deploy/import: lua/init.lua
-remove-missing[1]
-  can remove   lua/legacy.lua (file)
-summary deploy=2 import=1 remove-missing=1
+```bash
+dotfiles-manager status --user-id leon git:user.email
 ```
 
-## `diff [--json] [--direction <both|deploy|import>] [--context <N>] [--patch] [path]`
+Default text output is human-first and redacts raw managed values. It names the
+selected setting, explains whether a safe direction appears available, and
+suggests the next command. Use `--json` for stable scripting output. Use
+`--verbose` only when you need troubleshooting metadata such as profile stack,
+refs, resources, selectors, and internal diagnostic references.
 
-Behavior:
-- preview-only command (no filesystem writes)
-- shows unified patch-style diffs for candidate operations
-- default direction is `both`
-- `--direction deploy` limits phases to deploy + remove-unmanaged
-- `--direction import` limits phases to import + incoming-unmanaged + remove-missing
-- `--context <N>` controls unified hunk context lines (default `3`, must be `>= 0`)
-- binary/type-change/oversize entries are reported with reason text (no patch body)
-- per-file patch body is omitted when it exceeds 1 MiB
+## `diff [--json] [--verbose] [target[:setting]]`
 
-Flag notes:
-- `--dry-run` is not supported on `diff` (it is already preview-only)
-- in JSON mode, patch text is included only with `--patch`
-- `--patch` is not supported without `--json`
+`diff` previews the selected managed change between live settings and stored
+settings. It is read-only and does not write either side.
 
-Example text output shape:
+Use it after `status` when you need more detail before deciding whether to run
+`sync`, `save`, or `apply`.
 
-```text
-reminder: deploy diff compares target -> source; import diff compares source -> target
-sync[0] target=~/.config/nvim source=./source/nvim
-deploy-diff[1] (source -> target)
-  path: lua/init.lua (file->file)
---- target/lua/init.lua
-+++ source/lua/init.lua
-@@ -1 +1 @@
--target
-+source
-summary deploy-diff=1 unified=1
+Example:
+
+```bash
+dotfiles-manager diff --user-id leon git:user.email
 ```
 
-## `deploy [--dry-run] [--json] [path]`
-
-Behavior:
-- copy/update managed content source → target
-- replace type mismatches (file/dir/symlink)
-- then remove unmanaged target paths matching `on.deploy.remove-unmanaged`
-- if remove patterns are empty/missing, no unmanaged paths are removed
-- with empty remove patterns, deploy does not perform unmanaged target-tree scanning
-- with remove patterns present, scanning starts from literal pattern roots when available
-
-`--dry-run` plans and reports operations without writing.
-
-Example text output shape:
-
-```text
-sync[0] target=~/.config/nvim source=./source/nvim
-copy[2]
-  update       lua/init.lua (file)
-  create       lua/keymaps.lua (file)
-remove-unmanaged[1]
-  remove       tmp/old.lua (file)
-summary dry-run=true copied=2 remove-unmanaged=1
-```
-
-## `import [--dry-run] [--json] [path]`
-
-Behavior:
-- update managed content target → source
-- optionally add unmanaged target files via `on.import.add-unmanaged.include/exclude`
-- optionally remove source paths missing in target via `on.import.remove-missing.include/exclude`
-- replace type mismatches (file/dir/symlink)
-- unmanaged add/remove-missing candidate discovery is include-gated
-- with default empty include lists, import evaluates manifest paths only (no unmanaged target-tree scan)
-- with add-unmanaged includes present, scanning starts from literal include roots when available
-
-`--dry-run` plans and reports operations without writing.
-
-Example text output shape:
-
-```text
-sync[0] target=~/.config/nvim source=./source/nvim
-update-managed[1]
-  update       lua/init.lua (file)
-add-unmanaged[1]
-  add          lua/new-plugin.lua (file)
-remove-missing[1]
-  remove       lua/legacy.lua (file)
-summary dry-run=true updated-managed=1 added-unmanaged=1 removed-missing=1
-```
-
-## `migrate [--dry-run] [--json]`
-
-Behavior:
-- reads existing v1 `.dotfiles-manager.yaml` `syncs:`
-- shows each legacy source and target exactly as configured
-- shows expanded source/target paths separately
-- proposes v2 `custom.files` setting refs, driver, stored artifact binding, and generated file paths
-- does not delete or rewrite the v1 config
-- `migrate --dry-run` is preview-only and writes nothing
-- plain `migrate` writes only a new migration run directory:
-
-```text
-migrations/v1-to-v2/<run-id>/
-  migration-plan.yaml
-  generated/
-    dotfiles-manager.v2.yaml
-    profiles/
-      stacks/legacy.yaml
-      layers/legacy.yaml
-    recipes/local/custom.files/recipe.yaml
-    desired/user/legacy/targets/custom.files/artifacts/...
-```
-
-Plain `migrate` does **not** write active v2 paths at the repository root. It
-does not create or replace root-level `dotfiles-manager.v2.yaml`, `profiles/`,
-`desired/`, or `recipes/`. The generated files live under the migration run's
-`generated/` directory so they can be reviewed, diffed, copied, or promoted by
-a later explicit step.
-
-Plain `migrate` also keeps `.dotfiles-manager.yaml` byte-for-byte unchanged.
-If any legacy sync cannot be represented safely, migration is blocked and no
-final run directory is produced by default.
-
-JSON output uses v2-style field casing (`schemaVersion`, `dryRun`,
-`configPath`, `generatedFiles`) rather than the v1 command envelope.
-
-Dry-run text output shape:
-
-```text
-MODE: DRY RUN (no writes)
-migration run=dry-run config=/repo/.dotfiles-manager.yaml
-v1 config action: leave unchanged
-v1 command behavior: unchanged
-
-sync[0]
-  legacy source: dotfiles/git/.gitconfig
-  legacy target: .gitconfig
-  expanded source: /repo/dotfiles/git/.gitconfig
-  expanded target: /home/user/.gitconfig
-  proposed: custom.files:sync-0 driver=file
-  artifact binding: desired://user/legacy/targets/custom.files/artifacts/sync-0
-  v1 config: leave-unchanged
-  result: planned
-  generated files:
-    migrations/v1-to-v2/dry-run/generated/desired/user/legacy/targets/custom.files/artifacts/sync-0
-summary syncs=1 planned=1 blocked=0 files=1 file-trees=0 generated-files=6 status=ok
-```
-
-Plain migrate text output uses the same item mapping, but starts with:
-
-```text
-MODE: MIGRATE (writes generated output only)
-migration run=<run-id> config=/repo/.dotfiles-manager.yaml
-output: /repo/migrations/v1-to-v2/<run-id>
-```
+Default text output stays safe for normal terminal use: selected scalar values
+and secret-bearing payload bytes are not printed. Whole-file and file-tree
+resources show metadata, existence, size/count/hash-style signals, and planned
+change categories instead of dumping raw managed content. Use `--json` for
+machine-readable preview data. Use `--verbose` only for troubleshooting metadata.
 
 ## v2 target discovery
 
@@ -1078,44 +934,41 @@ should win.
 The settings folder is local storage. It can be versioned and shared with Git,
 but Git is not required for `sync`.
 
-## `[path]` scoping
+## Target and setting scoping
 
-`[path]` can be absolute, `~`-based, or relative.
+Selected-setting commands accept an optional ref:
 
-A sync is selected only when `[path]` is:
-- exactly the sync target, or
-- inside the sync target subtree
+- `target` scopes the command to all selected settings for one app/tool;
+- `target:setting` scopes the command to one selected setting.
 
-Target matching uses post-expansion target roots (after `$VAR`/`${VAR}` resolution).
+Examples:
 
-If `[path]` matches no syncs, command fails.
+```bash
+dotfiles-manager status git
+dotfiles-manager status git:user.email
+dotfiles-manager diff starship:add_newline
+dotfiles-manager sync --yes ssh:config
+```
+
+If the ref is not selected in the active profile, the command fails without
+writing anything.
 
 ## Output and exit codes
 
 - `version`/`--version` output one line:
   `dotfiles-manager version=<version> commit=<sha> date=<utc-rfc3339-z> channel=<stable|prerelease|snapshot|dev> provenance=<source>`.
 - `version`/`--version` exit `0` and do not require config.
-- text mode prints per-sync sections with exact file operations.
-- status text includes one concise direction reminder line once per run.
-- diff text includes one concise direction reminder line once per run.
-- every sync header uses:
-  - `sync[idx] target=~/<target> source=./<source>`
-- sync headers show configured path text (placeholders stay visible if present in config)
-- when `[path]` scopes into a subpath, header appends:
-  - `scope=<sync-relative-prefix>`
-- text mode only prints non-empty phase blocks.
-- status phase headers include direction:
-  - `deploy[n] (source -> target)`
-  - `import[n] (target -> source)`
-- diff phase headers include direction context per phase block.
-- status prints `hint: same path in deploy/import: ...` when a path appears in both direction blocks.
-- text summary line only includes non-zero categories.
-- status actions are potential, human-readable phrases (`can create`, `can update`, `can replace type`, `can add`, `can remove`).
-- deploy/import actions remain actual execution verbs (`create`, `update`, `replace_type`, `add`, `remove`).
-- diff actions remain potential candidate wording and include diff metadata fields (`diff_kind`, labels, patch availability).
-- `--json` returns machine-readable output (`schema_version: "4.0"`), with:
-  - `syncs[].operations[]` for exact per-file operations
-  - command-specific summary counts (fixed key set; zero values retained)
+- text mode is human-first for v2 selected settings: it names selected refs,
+  describes live/stored-setting state, hides raw managed values, and suggests a
+  safe next command.
+- `status` and `diff` are preview-only and exit `0` on successful inspection,
+  including when drift is present.
+- `sync`, `save`, and `apply` require explicit confirmation for writes.
+- `sync` chooses only safe one-sided changes automatically. Conflicts and
+  first-time missing-baseline cases require an explicit direction through
+  `save` or `apply`.
+- `--json` returns machine-readable output with stable schema fields for the
+  selected-setting workflow.
 - Exit `0` on success (including `status`/`diff` with drift).
 - Non-zero on validation/runtime errors.
 - Commands are fail-fast on runtime errors.

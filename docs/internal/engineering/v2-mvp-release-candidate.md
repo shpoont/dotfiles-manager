@@ -2,7 +2,7 @@
 title: v2 MVP release-candidate evidence
 status: historical-superseded
 owner: Engineering Operations
-last_reviewed: 2026-06-11
+last_reviewed: 2026-06-25
 audited_commit: 1849bdab9ae8ad41cbdc7cc2ef00224cba5c6824
 ---
 
@@ -12,6 +12,11 @@ audited_commit: 1849bdab9ae8ad41cbdc7cc2ef00224cba5c6824
 > [`v2-release-candidate-issue-192.md`](./v2-release-candidate-issue-192.md),
 > which re-verified the release-candidate surface after the #189/#190/#191
 > production-readiness corrections. Keep this file as historical evidence only.
+>
+> Current reset note: #213/#226 supersede any release-candidate wording in this
+> file that treated v1 migration, v1 compatibility, or backup/restore as part
+> of the active v2 product promise. The current v2 public surface is
+> `status -> diff -> sync`; retained v1 commands are hidden compatibility only.
 
 
 This document records the release-candidate audit for GitHub issue

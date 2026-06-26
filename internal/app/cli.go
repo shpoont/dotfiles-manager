@@ -116,7 +116,7 @@ func newStatusCmd(opts *rootOptions) *cobra.Command {
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "status [path-or-ref]",
+		Use:   "status [ref]",
 		Short: "Show drift and candidate operations",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -145,8 +145,14 @@ func newDeployCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "deploy [path]",
-		Short: "Apply source -> target sync",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Legacy v1 compatibility: apply source -> target file sync",
+		Long: `Legacy v1 compatibility command for existing file-sync users and scripts.
+
+This command is hidden from the normal v2 help because the v2 public workflow is
+status -> diff -> sync. New local-settings-manager workflows should use sync, or
+the save/apply directional aliases, with dotfiles-manager.v2.yaml.`,
+		Hidden: true,
+		Args:   cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCommand(cmd, opts, commandOptions{
 				Name:       "deploy",
@@ -169,8 +175,14 @@ func newImportCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "import [path]",
-		Short: "Apply target -> source sync",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Legacy v1 compatibility: apply target -> source file sync",
+		Long: `Legacy v1 compatibility command for existing file-sync users and scripts.
+
+This command is hidden from the normal v2 help because the v2 public workflow is
+status -> diff -> sync. New local-settings-manager workflows should use sync, or
+the save/apply directional aliases, with dotfiles-manager.v2.yaml.`,
+		Hidden: true,
+		Args:   cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCommand(cmd, opts, commandOptions{
 				Name:       "import",
@@ -197,7 +209,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "diff [path-or-ref]",
+		Use:   "diff [ref]",
 		Short: "Show unified patch previews for candidate changes",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -218,6 +230,7 @@ func newDiffCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	cmd.Flags().StringVar(&direction, "direction", diffDirectionBoth, "Diff direction: both|deploy|import")
+	_ = cmd.Flags().MarkHidden("direction")
 	cmd.Flags().IntVar(&contextLines, "context", diffDefaultContextLines, "Unified diff context lines (>= 0)")
 	cmd.Flags().BoolVar(&includePatch, "patch", false, "Include patch body in JSON output")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Unsupported for diff (validation error)")
@@ -611,8 +624,15 @@ func newMigrateCmd(opts *rootOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Preview or generate v1 syncs as v2 custom.files entries",
-		Args:  cobra.NoArgs,
+		Short: "Legacy v1 compatibility: preview generated output for v1 syncs",
+		Long: `Legacy v1 compatibility command for existing file-sync users and scripts.
+
+This command is hidden from the normal v2 help because v1 migration is not part
+of the active v2 roadmap. It remains callable for compatibility, but new
+local-settings-manager workflows should use dotfiles-manager.v2.yaml with
+status -> diff -> sync.`,
+		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrateCommand(cmd, opts, dryRun, jsonOutput)
 		},
@@ -632,7 +652,7 @@ func newMigrateParityCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "parity",
-		Short: "Check a generated v1-to-v2 migration run for parity",
+		Short: "Legacy v1 compatibility: check a generated migration run for parity",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrateParityCommand(cmd, runDir, jsonOutput, yamlOutput)
@@ -651,7 +671,7 @@ func newMigratePromotePreviewCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "promote-preview",
-		Short: "Preview optional promotion from generated custom.files entries to known targets",
+		Short: "Legacy v1 compatibility: preview optional promotion of generated entries",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigratePromotePreviewCommand(cmd, runDir, jsonOutput)

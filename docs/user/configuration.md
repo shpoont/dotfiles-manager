@@ -21,9 +21,6 @@ Some preview commands can find a v2 root when the current directory is inside a
 settings folder containing `dotfiles-manager.v2.yaml`. Mutating commands should be
 run from the intended settings folder and should use explicit `--config` in scripts.
 
-Legacy v1 file sync still uses `.dotfiles-manager.yaml`; see the legacy section
-at the end of this file.
-
 ## Settings-folder control plane
 
 `dotfiles-manager init` creates this minimal settings-folder scaffold:
@@ -212,26 +209,3 @@ does not touch real app config.
 Native export/import and arbitrary scripts are not promoted for general public
 use in this tranche. A native or command-backed recipe needs explicit reviewed
 metadata and safety behavior before docs should present it as supported.
-
-## Legacy v1 configuration
-
-Existing file-sync workflows use `.dotfiles-manager.yaml` with `syncs[]`:
-
-```yaml
-syncs:
-  - target: .config/nvim
-    source: .config/nvim
-```
-
-v1 commands are still available for that config:
-
-```bash
-dotfiles-manager status
-dotfiles-manager diff
-dotfiles-manager deploy --dry-run
-dotfiles-manager import --dry-run
-```
-
-Use `migrate --dry-run` to inspect a generated v2 migration plan. Plain
-`migrate` writes generated output under `migrations/v1-to-v2/<run-id>/` for
-review; it does not replace active root v2 files automatically.

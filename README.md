@@ -14,9 +14,6 @@ directional compatibility aliases:
 - `save` = sync live settings -> stored settings;
 - `apply` = sync stored settings -> live settings.
 
-The legacy v1 file-sync workflow (`.dotfiles-manager.yaml` with `status`,
-`diff`, `deploy`, and `import`) remains available for existing configs.
-
 ---
 
 ## Current v2 workflow
@@ -42,8 +39,7 @@ Bundled v2 support is experimental and intentionally narrow:
 - Starship selected root TOML values;
 - Zsh, tmux, and SSH selected whole-file resources;
 - Neovim config-tree resource;
-- local recipe authoring and synthetic roundtrip fixtures for advanced users;
-- legacy v1 file-sync compatibility.
+- local recipe authoring and synthetic roundtrip fixtures for advanced users.
 
 Do not manage secrets, credentials, private keys, tokens, account exports,
 generated caches, or runtime state unless a reviewed recipe explicitly says that
