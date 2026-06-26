@@ -54,9 +54,9 @@ The product should let a user:
   and #226 are complete; PR #247 hides retained legacy v1 public commands from
   the normal v2 help surface and separates them from v2 product acceptance.
 - Current v2 implementation and docs are partially reset-aligned after #210,
-  #221-#225, #212, and #213/#226. Parent #211 is ready for separate parent
-  acceptance review, but the combined v2 product is not production-accepted
-  until remaining gates are completed or explicitly deferred.
+  #211, #212, #221-#225, and #213/#226. Parent #211 is accepted and closed,
+  but the combined v2 product is not production-accepted until remaining gates
+  are completed or explicitly deferred.
 
 ## Explicit non-goals
 
@@ -80,9 +80,9 @@ As of 2026-06-26:
   split into focused children (#221-#231) where needed.
 - Product vocabulary is accepted (#210).
 - The focused sync split is complete (#221-#225), #212 has removed the public
-  backup/restore contradiction, and #213/#226 has separated hidden legacy v1
-  commands from the v2 happy path. Parent #211 remains open only for separate
-  parent acceptance review and closure.
+  backup/restore contradiction, #213/#226 has separated hidden legacy v1
+  commands from the v2 happy path, and parent #211 is accepted/closed for the
+  status/diff/sync primary UX gate.
 - Reconciliation pass #238 closed the source-of-truth drift introduced by several
   rapid issue closures. The project is scaffold-adopted and is following the
   standards in current work, but it is not yet fully v2-accepted.
@@ -95,7 +95,7 @@ As of 2026-06-26:
 | #217 | Enabler scaffold | Tier 1 | Complete | PR #218 merged; standards scaffold installed. |
 | #219 | Discovery / audit | Tier 1 | Complete | Phase 2 audit closed; follow-up splits/edits produced #221-#231. |
 | #210 | Delivery-design | Tier 1 | Complete | Product model and vocabulary accepted. |
-| #211 | Parent delivery area | Tier 2 overall | Open parent / ready for acceptance review | Sync children #221-#225, #212, and #213/#226 are complete; needs separate parent acceptance decision before closure. |
+| #211 | Parent delivery area | Tier 2 overall | Complete | Accepted and closed 2026-06-26 after #221-#225, #212, and #213/#226 completed. |
 | #212 | Product-scope cleanup gate | Tier 1 | Complete | PR #243 removed public backup/restore workflow; issue closed 2026-06-25. |
 | #213 | Product-scope cleanup gate | Tier 1 | Complete | PR #247 removed v1 migration from the active v2 roadmap/user-facing happy path and closed 2026-06-26. |
 | #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | Use #227 before #228/#229; remote writes require trust/write-authority model first. |
@@ -121,7 +121,7 @@ child-scope completion, not automatic parent closure.
 | #217 | Closed / Done | Phase 1 scaffold | Issue closed 2026-06-23; PR #218 merged | Checked | No further action. |
 | #219 | Closed / Done | Phase 2 audit | Issue closed 2026-06-23; PR #220 merged; follow-up splits recorded | Checked with conservative note | Audit/discovery closed for sequencing; product gates remain in follow-up issues. |
 | #210 | Closed / Done | Vocabulary/product model | Issue closed 2026-06-23 | Checked | No further action unless later vocabulary drift appears. |
-| #211 | Open / Todo | Sync parent | Children #221-#225, #212, and #213/#226 closed | Keep parent open pending separate acceptance review | Public-scope gates are resolved; next action is parent acceptance review/closure decision. |
+| #211 | Closed / Done | Sync parent | Children #221-#225, #212, and #213/#226 closed; Project Owner accepted #211 closure | Checked | Parent accepted and closed 2026-06-26; next action is #227 catalog/tap trust model. |
 | #221 | Closed / Done | Sync child | Issue closed 2026-06-23 | Checked under #211 | Read-only status/diff contract complete. |
 | #222 | Closed / Done | Sync child | PR #234 merged; issue closed 2026-06-23 | Checked under #211 | Smart-sync planning/conflict UX complete. |
 | #223 | Closed / Done | Sync child | PR #235 merged; issue closed 2026-06-23 | Checked under #211 | Mutating sync execution/confirmation complete for that slice. |
@@ -144,9 +144,6 @@ child-scope completion, not automatic parent closure.
 
 - #209 remains open because it is the project charter and closes only when the
   combined reset outcome is accepted.
-- #211 remains open because it requires a separate parent acceptance review. Its
-  focused sync children are complete, #212 is closed, and #213/#226 no longer
-  blocks the sync-first UX from a legacy/v1 public-surface perspective.
 - #214 remains open as the catalog parent; #227 must settle origin/trust/write
   authority before #228/#229 implementation.
 - #215 remains open as the bootstrap parent; #230 must specify UX/output before
@@ -196,6 +193,7 @@ Before starting any work item:
 | Standards reconciliation completed | PR #239 squash merge `1e2eafeebe26adbb5cd3bc1ad70ec39a93abd5ec`; issue #238 closed / Done | 2026-06-24 | Records state only; product gates remain open. |
 | Public backup/restore workflow removed | PR #243 squash merge `04ba7114fb00479fa736b00850a9aa85e8a55a69`; issue #212 closed; final Pro verdict acceptable | 2026-06-25 | Removes public product surface only; lower-level internal recovery/snapshot/ledger mechanics remain implementation details. |
 | Legacy v1 public surface separated from v2 happy path | PR #247 squash merge `3bc34d970358854abaca2491ed1f2ef91f8b325b`; issues #213 and #226 closed after Project Owner acceptance | 2026-06-26 | Retains direct legacy command invocation for compatibility; future deletion, warnings, or formal deprecation require separate explicit issue. |
+| Status/diff/sync parent gate accepted | Issue #211 closure comment after Project Owner selected option 1 to accept and close #211 | 2026-06-26 | Parent acceptance only; the combined v2 product remains open until catalog, bootstrap, and production documentation gates are complete or deferred. |
 
 ## Phase 1 acceptance state
 
@@ -241,24 +239,24 @@ Phase 3 recontract/resequence:
 - [x] #215 split into bootstrap children #230-#231.
 - [x] #213 expanded with legacy public-surface child #226.
 - [ ] Close or explicitly keep parent issues based on remaining gates. Current
-      decision: keep #211/#214/#215 open as parent issues for the reasons above.
+      decision: #211 is closed; keep #214/#215 open as parent issues for the
+      reasons above.
 
 ## Current next gate
 
 Recommended next product issue:
 
-- #211 — perform separate parent acceptance review for the status/diff/sync
-  primary UX parent now that #221-#225, #212, and #213/#226 are complete.
+- #227 — specify catalog/tap trust and origin model.
 
-Reason: public backup/restore and legacy-v1 public-surface contradictions have
-been removed from the v2 happy path. Parent #211 should be accepted, closed, or
-reopened with explicit exceptions before downstream catalog/bootstrap/docs work
-treats sync as production-ready.
+Reason: #211 is accepted and closed, so the sync-first parent gate is no longer
+blocking downstream work. Catalog work is the next planned dependency, and remote
+write behavior must not be implemented before recipe origin, trust, update, and
+write-authority rules are explicit.
 
 Paired follow-up:
 
-- #227 — specify catalog/tap trust and origin model after #211 parent acceptance
-  is resolved or explicitly deferred.
+- #230 — specify new-computer UX/output can proceed after or alongside #227 when
+  the work is kept separate from catalog trust/write-authority decisions.
 
 Do not edit runtime behavior, CLI help, tests, specs, or end-user docs as part
 of standards-record maintenance except where necessary to keep the project
