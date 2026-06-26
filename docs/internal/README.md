@@ -69,6 +69,8 @@ reading order for active work.
 - `../../AGENTS.md` — root agent/operator entrypoint for applying the external
   Project Execution Standard in this repo
 - `process/documentation-governance.md` — documentation ownership/change policy
+- `process/legacy-v1-public-surface-policy.md` — #213/#226 decision for hidden
+  legacy v1 command compatibility during the v2 reset
 - `process/v2-execution-standards-tailoring.md` — repo-specific tailoring for
   applying the Project Execution Standards to v2 reset work
 

@@ -1,13 +1,21 @@
 ---
 title: v2 release-candidate verification for issue 192
-status: release-candidate-evidence
+status: historical-superseded
 owner: Engineering Operations
-last_reviewed: 2026-06-15
+last_reviewed: 2026-06-25
 issue: https://github.com/shpoont/dotfiles-manager/issues/192
 audited_commit: d0b705b0da15a1375a34bdf7e81fb1bd19e6b704
 ---
 
 # v2 release-candidate verification for issue #192
+
+> Current reset note: this #192 release-candidate evidence predates the v2 reset
+> cleanup in #212 and #213/#226. It remains useful historical evidence for the
+> commands and builds tested at that time, but it is not the current v2 product
+> promise. Any wording here that treated v1 migration, v1 compatibility, or
+> backup/restore as part of the release-candidate surface is superseded. The
+> current v2 public surface is `status -> diff -> sync`; retained v1 commands
+> are hidden compatibility only.
 
 This document records the non-publishing release-candidate verification for
 GitHub issue [#192](https://github.com/shpoont/dotfiles-manager/issues/192),
