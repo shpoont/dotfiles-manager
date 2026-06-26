@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-11
+last-updated: 2026-06-26
 canonical-source: docs/internal/specs/v2/06-recipe-schema.md
 source-concept-sections:
   - Recipe
@@ -46,7 +46,9 @@ Extracted from the concept sections covering:
 
 Deliberate non-decisions:
 
-- remote recipe catalog is deferred;
+- remote recipe catalog runtime implementation is deferred to #228/#229,
+  while catalog trust/origin/write-authority is owned by
+  `17-catalog-trust-origin-model.md`;
 - arbitrary recipe scripts are deferred and not MVP.
 
 ## Terms owned by this spec
@@ -66,7 +68,7 @@ Deliberate non-decisions:
 
 ### Recipe responsibilities
 
-Local repository recipes are stored at:
+Local settings-folder recipes are stored at:
 
 ```text
 recipes/local/<recipe-id>/recipe.yaml
@@ -352,8 +354,9 @@ Bundled recipes are trusted by distribution. User-local recipes require explicit
 external local-state trust before write-capable behavior. A caller-provided
 `Trusted: true` flag is not enough for local recipes; write safety must use
 private evaluated trust evidence whose current recipe and write-surface
-fingerprints are rechecked at use. Downloaded recipe catalog support is
-post-MVP and requires signed review/update policy before use.
+fingerprints are rechecked at use. Downloaded recipe catalog runtime support
+is deferred to #229 and must conform to the trust/origin/write-authority model
+in `17-catalog-trust-origin-model.md` before use.
 
 ## Derived schema boundaries, not final schemas
 
@@ -369,7 +372,7 @@ Persisted objects:
 | Named location | yes | `recipes/local/<recipe-id>/recipe.yaml#/locations` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Defaults and override permission. |
 | Resource declaration | partial | `recipes/local/<recipe-id>/recipe.yaml#/resources` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Driver spec owns operation semantics. |
 | Native operation | partial | `recipes/local/<recipe-id>/recipe.yaml#/nativeOperations` or bundled catalog equivalent | `schemas/v2/recipe.schema.json` | Security spec owns command safety. |
-| Trust record | no | `<state-root>/trust/trust-record.yaml` local state outside the repository | `schemas/v2/trust-record.schema.json` | Security spec owns trust persistence and invalidation. |
+| Trust record | no | `<state-root>/trust/trust-record.yaml` local state outside the settings folder | `schemas/v2/trust-record.schema.json` | Security spec owns trust persistence and invalidation. |
 
 The recipe schema uses the fully qualified identifier
 `dotfiles-manager.v2.recipe` and has its own version context independent from
@@ -478,8 +481,8 @@ inspectable only if validation can isolate them without ambiguity.
 
 ## Out of scope
 
-- remote recipe catalog;
-- signed downloads;
+- remote recipe catalog runtime implementation;
+- signed download runtime implementation;
 - arbitrary recipe scripts;
 - broad app reverse engineering;
 - launchd writes;

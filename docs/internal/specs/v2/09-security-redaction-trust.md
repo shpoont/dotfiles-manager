@@ -2,7 +2,7 @@
 owner: Core Engineering
 document-type: v2-draft-spec
 status: Draft
-last-updated: 2026-06-10
+last-updated: 2026-06-26
 canonical-source: docs/internal/specs/v2/09-security-redaction-trust.md
 source-concept-sections:
   - Security/privacy/trust model
@@ -159,7 +159,9 @@ trust record; caller-set booleans or hashes are not sufficient.
 Recipe changes that broaden write scope, add native operations, change
 sensitivity, or change lifecycle behavior must require review before writes.
 
-Remote recipe catalog, signed downloads, and update trust are post-MVP.
+Remote recipe catalog runtime implementation, signed downloads, and update
+mechanics are deferred to #229; the accepted catalog trust/origin/write-authority
+model is owned by `17-catalog-trust-origin-model.md`.
 
 ### Recipe explanation safety
 
@@ -177,8 +179,9 @@ code `5`.
 
 ### Trust-record storage
 
-Trust records are local-only state, not repository desired data. They live under
-the platform local state root from `01-repository-layout.md`:
+Trust records are local-only state, not stored settings and not portable
+settings-folder data. They live under a platform local state root outside the
+settings folder:
 
 ```text
 <state-root>/trust/trust-record.yaml
@@ -211,13 +214,14 @@ localRecipes:
 ```
 
 The canonical schema file is `schemas/v2/trust-record.schema.json`. The record
-must not be written inside the repository, `desired/`, profile files, recipe
-files, or desired artifact payloads. The MVP trust evaluator must reject a
-state root that resolves inside the repository. It must also reject symlinked
-trust state paths when reading or writing trust records, including symlinked
-state roots, `trust/` directories, and `trust-record.yaml` files. A future
-in-repo local-state override, if ever supported, requires a separate opt-in
-design and must still be ignored by normal synced repository content.
+must not be written inside the settings folder, stored settings, profile
+files, recipe files, or stored artifact payloads. The MVP trust evaluator must
+reject a state root that resolves inside the settings folder. It must also
+reject symlinked trust state paths when reading or writing trust records,
+including symlinked state roots, `trust/` directories, and `trust-record.yaml`
+files. A future in-settings-folder local-state override, if ever supported,
+requires a separate opt-in design and must still be ignored by normal synced
+settings-folder content.
 
 Trust-record fingerprints are metadata-only:
 
@@ -297,8 +301,8 @@ Unreviewed command-backed save/apply is deferred.
 
 
 Native apply has an additional trust boundary: the reviewed import operation
-must receive only a manager-owned temp copy of the desired payload, never the
-repository desired artifact path. Local native recipes must have matching trust
+must receive only a manager-owned temp copy of the stored payload, never the
+settings-folder stored artifact path. Local native recipes must have matching trust
 evidence for the exact native-operation write surface, including import and
 verify declarations. `--yes` confirms the reviewed action but must not override
 trust mismatch, lifecycle handling gaps, missing backup/verification policy,
@@ -372,15 +376,15 @@ metadata safely because it is metadata-only.
 
 Filesystem and process assumptions:
 
-- local state, cache, and temp roots are the platform-specific roots defined by
-  `01-repository-layout.md`;
+- local state, cache, and temp roots are platform-specific roots outside the
+  settings folder;
 - no root/sudo writes;
 - no writes outside declared named locations;
 - no system service-manager mutation in MVP;
 - no TCC/privacy automation;
 - path traversal is rejected;
 - unsafe symlink traversal is rejected;
-- case-conflict behavior is tested before repository or live writes;
+- case-conflict behavior is tested before settings-folder or live writes;
 - app databases are unmanaged unless a reviewed driver says otherwise;
 - atomic write/replace behavior is used where supported by the platform and
   filesystem;
@@ -464,7 +468,7 @@ blocked trust or policy decisions.
 - persistent secret-manager integration beyond runtime prompts;
 - TCC automation;
 - browser/session migration;
-- remote recipe catalog trust;
+- remote recipe catalog runtime implementation;
 - root/sudo writes;
 - arbitrary scripts.
 

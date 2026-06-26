@@ -2,7 +2,7 @@
 owner: Product + Core Engineering
 document-type: v2-package-index
 status: Active reset index; not a runtime behavior contract
-last-updated: 2026-06-23
+last-updated: 2026-06-26
 canonical-source: docs/internal/specs/v2/README.md
 source-issue: 210
 authority: Source-of-truth map for active, draft, and superseded v2 planning specs; implementation authority requires explicitly Active behavior specs.
@@ -36,7 +36,9 @@ Required constraints:
   old backup/restore surfaces.
 - v1 migration is out of the active v2 roadmap; #213/#226 own legacy public
   surface policy.
-- Remote catalog writes wait for #214/#227 trust and write-authority rules.
+- Catalog-sourced write planning/execution, especially remote catalog
+  writes, must follow the #227 trust and write-authority model in
+  `17-catalog-trust-origin-model.md`.
 
 ## Status taxonomy
 
@@ -60,7 +62,7 @@ Required constraints:
 | `03-profile-and-scope-resolution.md` | Draft reusable input | Keep profile/scope mechanics, but #210 vocabulary labels apply. |
 | `04-status-conflict-state-machine.md` | Draft reusable input | State-derivation reference only; it still uses older public wording and is not normative for public reset-v2 output. |
 | `05-desired-artifacts-and-uris.md` | Draft reusable input | Keep internal artifact/URI mechanics; normal output must follow #210 internal URI policy. |
-| `06-recipe-schema.md` | Draft reusable input | Keep recipe/named-location concepts; catalog/trust updates belong to #214/#227. |
+| `06-recipe-schema.md` | Draft reusable input | Keep recipe/named-location concepts; catalog/trust runtime implementation belongs to #228/#229 and must follow `17-catalog-trust-origin-model.md`. |
 | `07-driver-interface.md` | Draft reusable input | Keep deterministic driver model; native import/export remains reviewed recipe/driver capability. |
 | `08-mutation-ledger-backup-restore.md` | Superseded for product scope | Backup/restore is not active v2 product scope; #212 decides delete/quarantine/internal safety evidence. |
 | `09-security-redaction-trust.md` | Draft reusable input | Must incorporate sensitive stored-settings wording from #210 before promotion. |
@@ -71,6 +73,7 @@ Required constraints:
 | `14-smart-sync-execution-contract.md` | Active behavior spec | Source of truth for mutating smart-sync execution, confirmation, refusal, and execution reporting from #223. |
 | `15-partial-many-app-sync-fixtures-contract.md` | Active behavior spec | Source of truth for partial and many-app sync UX fixture coverage from #224; no new selector or driver implementation authority. |
 | `16-save-apply-alias-policy.md` | Active behavior spec | Source of truth for #225 `save`/`apply` public alias policy; `sync` remains primary. |
+| `17-catalog-trust-origin-model.md` | Active behavior spec | Source of truth for #227 catalog/tap source, recipe origin, trust, update, disabling/removal, provenance, collision, and write-authority model; #228/#229 implementation must conform. |
 | `mvp-implementation-roadmap.md` | Superseded planning artifact | Replaced by #209 execution record, #219 audit, and updated issue set. |
 
 ## Promotion rule
@@ -117,6 +120,8 @@ are reconciled with the active behavior specs in this index.
   smart-sync planning/execution semantics.
 - #212 owns backup/restore removal or quarantine.
 - #213 and #226 own legacy v1 public-surface policy.
-- #214 and #227-#229 own catalogs/taps.
+- #227 owns the catalog/tap trust and origin model in
+  `17-catalog-trust-origin-model.md`; #228/#229 own implementation against
+  that model.
 - #215 and #230-#231 own new-computer bootstrap.
 - #216 owns production end-user docs after accepted behavior exists.

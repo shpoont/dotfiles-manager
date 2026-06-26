@@ -2,7 +2,7 @@
 owner: Product + Core Engineering
 document-type: v2-vocabulary-source
 status: Active vocabulary source; not a runtime behavior contract
-last-updated: 2026-06-23
+last-updated: 2026-06-26
 canonical-source: docs/internal/specs/v2/00-vocabulary.md
 source-issue: 210
 authority: Authoritative v2 vocabulary for planning, specs, issues, CLI text, examples, and docs; behavior still requires promoted behavior specs.
@@ -195,8 +195,9 @@ Optional local or remote catalogs are future expansion points. Catalogs are a
 public noun only when users manage recipe sources; they are not a prerequisite
 for ordinary bundled-app sync.
 
-Remote catalogs require explicit origin, trust, update, disable/remove, and
-write-authority rules before recipes from them can write live settings.
+Remote catalogs require the explicit origin, trust, update, disable/remove,
+and write-authority rules in `17-catalog-trust-origin-model.md` before recipes
+from them can write live settings.
 
 ## Scopes and profile language
 
@@ -249,9 +250,11 @@ sensitivity policy, and optional native import/export capability.
 
 ### Catalog metadata
 
-A source of recipes. The bundled/default catalog comes first. Remote catalogs are
-future work and require explicit origin, trust, update, disable/remove, and
-write-authority rules before they can write live settings.
+A source of recipes. The bundled/default catalog comes first. Remote catalog
+runtime support is future work and must follow the origin, trust, update,
+disable/remove, and write-authority model in
+`17-catalog-trust-origin-model.md` before remote recipes can write live
+settings.
 
 ### Named location
 

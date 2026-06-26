@@ -2,7 +2,7 @@
 owner: Product + Core Engineering
 document-type: v2-draft-spec
 status: Draft reset layout source; not a runtime behavior contract
-last-updated: 2026-06-23
+last-updated: 2026-06-26
 canonical-source: docs/internal/specs/v2/01-settings-storage-layout.md
 source-issue: 210
 supersedes: docs/internal/specs/v2/01-repository-layout.md
@@ -122,8 +122,9 @@ travel with the settings folder.
 
 The settings folder may contain user-local recipes under `recipes/local/` when
 the user intentionally authors or vendors them. Bundled recipes come from the
-manager. Remote catalogs are future work and require #214/#227 trust and origin
-rules before remote recipes can write live settings.
+manager. Remote catalog runtime support is future work and must follow the
+#227 trust and origin model in `17-catalog-trust-origin-model.md` before remote
+recipes can write live settings.
 
 ## Git-optional behavior
 
