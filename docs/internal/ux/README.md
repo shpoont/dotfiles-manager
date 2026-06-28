@@ -22,6 +22,10 @@ tests, and command documentation.
   storyboard for selecting several supported apps/settings through the current
   repeated `add <target>` flow, without implying unsupported multi-target add
   syntax.
+- `v2-catalog-discovery-storyboard.md` — pre-implementation terminal
+  storyboard for #228 built-in/local catalog discovery using the flattened
+  normal-user `list`, `search`, and `explain` surface, with `catalog ...` and
+  advanced `recipe ...` boundaries.
 - `v2-restore-preview-confirm-storyboard.md` — historical pre-#212 terminal
   storyboard for prototype restore UX. It is retained only as background and
   must not be used to implement active public v2 backup/restore behavior.
