@@ -41,10 +41,10 @@ type Options struct {
 
 type Summary struct {
 	Status  string `json:"status"`
-	Apps    int    `json:"apps,omitempty"`
-	Managed int    `json:"managed,omitempty"`
-	Matches int    `json:"matches,omitempty"`
-	Failed  int    `json:"failed,omitempty"`
+	Apps    int    `json:"apps"`
+	Managed int    `json:"managed"`
+	Matches int    `json:"matches"`
+	Failed  int    `json:"failed"`
 }
 
 type Report struct {

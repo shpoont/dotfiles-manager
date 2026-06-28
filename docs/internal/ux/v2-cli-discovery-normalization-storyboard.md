@@ -7,6 +7,7 @@ related-issues:
   - 228
 related-prs:
   - 253
+  - 254
 ---
 
 # v2 CLI discovery normalization storyboard

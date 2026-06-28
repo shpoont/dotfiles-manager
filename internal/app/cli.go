@@ -576,10 +576,10 @@ func newSearchCmd(opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search supported apps/tools",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppSearchCommand(cmd, opts, v2appdiscovery.Options{
-				Query:       args[0],
+				Query:       firstArg(args),
 				MachineID:   v2Flags.machineID,
 				UserID:      v2Flags.userID,
 				ExtraLayers: append([]string(nil), v2Flags.profiles...),

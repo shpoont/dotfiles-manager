@@ -110,6 +110,36 @@ func TestDiscoverySearchMatchesAndNoMatches(t *testing.T) {
 	require.Contains(t, stdout, "dotfiles-manager list")
 	require.Contains(t, stdout, "No live settings were read or changed.")
 	require.Contains(t, stdout, "No stored settings were changed.")
+
+	payload, _, stderr, err := runDiscoveryJSONCLI(t, []string{"search", "shell", "--json"})
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.Equal(t, "dotfiles-manager.v2.apps", payload["schema"])
+	require.Equal(t, "search", payload["command"])
+	require.Equal(t, "app-search", payload["runId"])
+	summary := payload["summary"].(map[string]any)
+	require.Equal(t, "ok", summary["status"])
+	require.Equal(t, float64(0), summary["apps"])
+	require.Equal(t, float64(0), summary["managed"])
+	require.Equal(t, float64(0), summary["matches"])
+	require.Equal(t, float64(0), summary["failed"])
+	require.Empty(t, payload["apps"].([]any))
+	requireNoDiscoveryState(t, projectDir)
+}
+
+func TestDiscoverySearchJSONEmptyQueryHasStableError(t *testing.T) {
+	projectDir := t.TempDir()
+	setCWD(t, projectDir)
+	setTempHome(t)
+
+	payload, _, stderr, err := runDiscoveryJSONCLI(t, []string{"search", "--json"})
+	require.Error(t, err)
+	require.Empty(t, stderr)
+	require.Equal(t, "dotfiles-manager.v2.apps", payload["schema"])
+	require.Equal(t, "search", payload["command"])
+	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
+	require.Equal(t, float64(1), payload["summary"].(map[string]any)["failed"])
+	require.Equal(t, "search.query.invalid", payload["error"].(map[string]any)["code"])
 	requireNoDiscoveryState(t, projectDir)
 }
 

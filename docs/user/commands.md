@@ -236,10 +236,12 @@ dotfiles-manager recipe discover git
 dotfiles-manager recipe discover ssh --json
 ```
 
-Discovery never mutates files or app state. It does not read config contents,
-stored artifacts, ledgers, profile selections, native export/import
-commands, or target runtime state. It only performs PATH command lookups and
-lstat-style metadata checks of declared live config paths.
+`recipe discover` never mutates files or app state. Unlike top-level `list`,
+which may read profile-selection metadata to show managed/not-managed state,
+`recipe discover` does not read config contents, stored artifacts, ledgers,
+profile selections, native export/import commands, or target runtime state. It
+only performs PATH command lookups and lstat-style metadata checks of declared
+live config paths.
 
 Summary states are `unsupported-platform`, `ambiguous`, `config-present`,
 `installed`, `config-missing`, and `not-applicable`. JSON also includes separate
