@@ -73,13 +73,13 @@ except IndexError as exc:
     raise SystemExit("root help missing Available Commands block") from exc
 
 positions = {}
-for command in ("init", "add", "list", "status", "diff", "sync", "save", "apply"):
+for command in ("init", "list", "search", "explain", "add", "status", "diff", "sync", "save", "apply"):
     match = re.search(rf"^  {command}\s", commands_block, re.MULTILINE)
     if not match:
         raise SystemExit(f"root help missing Available Commands row for {command}")
     positions[command] = match.start()
-if not (positions["init"] < positions["add"] < positions["list"] < positions["status"] < positions["diff"] < positions["sync"] < positions["save"] < positions["apply"]):
-    raise SystemExit("root help must list the v2 journey as init/add/list/status/diff/sync before save/apply")
+if not (positions["init"] < positions["list"] < positions["search"] < positions["explain"] < positions["add"] < positions["status"] < positions["diff"] < positions["sync"] < positions["save"] < positions["apply"]):
+    raise SystemExit("root help must list v2 commands as init/list/search/explain/add/status/diff/sync before save/apply")
 
 checks = [
     (save, "save", "live settings to stored settings", "Preview syncing live settings to stored settings without writing"),
