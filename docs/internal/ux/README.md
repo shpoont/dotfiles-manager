@@ -26,6 +26,10 @@ tests, and command documentation.
   storyboard for #228 built-in/local catalog discovery using the flattened
   normal-user `list`, `search`, and `explain` surface, with `catalog ...` and
   advanced `recipe ...` boundaries.
+- `v2-cli-discovery-normalization-storyboard.md` — pre-implementation
+  storyboard for the #252 focused discovery slice that changes normal `list`,
+  adds `search` and top-level `explain`, and preserves selected-settings list
+  behavior behind an explicit compatibility path.
 - `v2-restore-preview-confirm-storyboard.md` — historical pre-#212 terminal
   storyboard for prototype restore UX. It is retained only as background and
   must not be used to implement active public v2 backup/restore behavior.

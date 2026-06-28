@@ -57,12 +57,12 @@ identity under the settings folder by default.
 ### Inspect available Git support
 
 ```bash
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml recipe discover git
-HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml recipe explain git
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml list
+HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml explain git
 ```
 
-`recipe explain git` should show `git:user.email` and `git:user.name`, and it
-should state that credential sections, signing keys, includes, aliases, and
+`explain git` should show `git:user.email` and `git:user.name`, and it should
+state that credential sections, signing keys, includes, aliases, and
 repository-local `.git/config` are not managed.
 
 ### Select one setting
@@ -72,7 +72,7 @@ HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
   add git --setting user.email --scope user --profile global --yes
 
 HOME="$DFM_HOME" "$DFM" --config dotfiles-manager.v2.yaml \
-  list --user-id docs-user
+  list --settings --user-id docs-user
 ```
 
 The selected setting is `git:user.email`. With `--scope user`, stored settings
@@ -157,7 +157,7 @@ mkdir -p ~/dotfiles-manager-v2
 cd ~/dotfiles-manager-v2
 
 dotfiles-manager init --machine-id <your-machine-id> --user-id <your-user-id>
-dotfiles-manager --config dotfiles-manager.v2.yaml recipe explain git
+dotfiles-manager --config dotfiles-manager.v2.yaml explain git
 
 dotfiles-manager --config dotfiles-manager.v2.yaml \
   add git --setting user.email --scope user --profile global --dry-run
@@ -197,17 +197,18 @@ you need to force one explicit direction.
 
 ## 4) Next targets
 
-After Git, inspect other bundled targets with:
+After Git, inspect other supported apps/tools with:
 
 ```bash
-dotfiles-manager recipe list
-dotfiles-manager recipe explain starship
-dotfiles-manager recipe explain zsh
-dotfiles-manager recipe explain tmux
-dotfiles-manager recipe explain ssh
-dotfiles-manager recipe explain nvim
+dotfiles-manager list
+dotfiles-manager search starship
+dotfiles-manager explain starship
+dotfiles-manager explain zsh
+dotfiles-manager explain tmux
+dotfiles-manager explain ssh
+dotfiles-manager explain nvim
 ```
 
-Read each recipe's exclusions before adding it. Do not select files that contain
+Read each app's exclusions before adding it. Do not select files that contain
 secrets, private keys, tokens, generated caches, or app/account exports unless a
 reviewed recipe explicitly says that item is supported.

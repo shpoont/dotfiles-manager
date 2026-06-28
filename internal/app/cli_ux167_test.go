@@ -49,7 +49,7 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 	require.Contains(t, addOut, "No live app config was changed")
 	require.Contains(t, addOut, "Preview explicit sync from live settings to stored settings")
 
-	listBeforeSave := runUX167Text(t, []string{"list", "--user-id", "leon"})
+	listBeforeSave := runUX167Text(t, []string{"list", "--settings", "--user-id", "leon"})
 	require.Contains(t, listBeforeSave, "Selected settings")
 	require.Contains(t, listBeforeSave, "git:user.email — User email")
 	require.Contains(t, listBeforeSave, "Stored settings: not stored yet")
@@ -58,7 +58,7 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 	desiredPath := filepath.Join(repoRoot, "desired", "user", "leon", "targets", "git", "settings.yaml")
 	writeCLIFile(t, desiredPath, "schema: dotfiles-manager.v2.desired-settings\nschemaVersion: 1\nvalues:\n  user.email:\n    intent: set\n    kind: string\n    value: desired@example.com\n")
 
-	listAfterSave := runUX167Text(t, []string{"list", "--user-id", "leon"})
+	listAfterSave := runUX167Text(t, []string{"list", "--settings", "--user-id", "leon"})
 	require.Contains(t, listAfterSave, "Stored settings: stored")
 	require.Contains(t, listAfterSave, "Inspect drift:")
 
@@ -83,7 +83,7 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 		runUX167Text(t, []string{"recipe", "discover", "git", "--verbose"}),
 		runUX167Text(t, []string{"recipe", "explain", "git", "--verbose"}),
 		runUX167Text(t, []string{"add", "git", "--setting", "user.email", "--scope", "user", "--dry-run", "--yes", "--verbose"}),
-		runUX167Text(t, []string{"list", "--user-id", "leon", "--verbose"}),
+		runUX167Text(t, []string{"list", "--settings", "--user-id", "leon", "--verbose"}),
 	}, "\n---\n")
 	for _, expected := range []string{"state://identity", "recipe://bundled/git", "resource=", "driver=", "sourceLayer=", "selector="} {
 		require.Contains(t, verboseTranscript, expected)
@@ -96,7 +96,7 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 		{"recipe", "discover", "git", "--json"},
 		{"recipe", "explain", "git", "--json"},
 		{"add", "git", "--setting", "user.email", "--scope", "user", "--dry-run", "--yes", "--json"},
-		{"list", "--user-id", "leon", "--json"},
+		{"list", "--settings", "--user-id", "leon", "--json"},
 	} {
 		payload := runUX167JSON(t, args)
 		require.NotEmpty(t, payload["schema"], args)
@@ -106,7 +106,7 @@ func TestV2SetupRecipeListAndBackupDefaultUXIsReadable(t *testing.T) {
 		{"recipe", "discover", "git", "--json", "--verbose"},
 		{"recipe", "explain", "git", "--json", "--verbose"},
 		{"add", "git", "--setting", "user.email", "--scope", "user", "--dry-run", "--yes", "--json", "--verbose"},
-		{"list", "--user-id", "leon", "--json", "--verbose"},
+		{"list", "--settings", "--user-id", "leon", "--json", "--verbose"},
 	} {
 		payload, stdout := runUX167JSONRaw(t, args)
 		require.NotEmpty(t, payload["schema"], args)

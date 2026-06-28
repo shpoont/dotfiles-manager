@@ -8,11 +8,14 @@ Common v2 local-settings-manager commands:
 dotfiles-manager --version
 dotfiles-manager version
 dotfiles-manager init [--dry-run] [--json] [--machine-id <id>] [--user-id <id>] [--non-interactive] [--yes]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] search <query> [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] explain <app> [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
+dotfiles-manager [--config <dotfiles-manager.v2.yaml>] list --settings [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe list [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe discover [target] [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] recipe explain <target> [--json]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] add <target> [--setting <id>] [--scope <scope>] [--profile <layer>] [--dry-run] [--yes] [--non-interactive] [--json]
-dotfiles-manager [--config <dotfiles-manager.v2.yaml>] list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] status [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] diff [--json] [--verbose] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
 dotfiles-manager [--config <dotfiles-manager.v2.yaml>] sync [--yes] [--non-interactive] [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>] [target[:setting]]
@@ -117,18 +120,38 @@ Identity files are written under the platform-specific v2 local state root and
 are reported as `state://identity/...` references. `init --dry-run` previews the
 plan; `init --json` emits `dotfiles-manager.v2.init`.
 
-## v2 `list`
+## v2 `list`, `search`, and `explain`
 
-`list` shows selected managed settings in the resolved profile:
+`list` is the normal discovery command for supported apps/tools. It is read-only
+and can run before a settings folder is initialized:
 
 ```bash
+dotfiles-manager list
 dotfiles-manager --config dotfiles-manager.v2.yaml list --user-id docs-user
 ```
 
-It prints the selected ref, scope, subject, source layer, resource driver, named
-location, selector, stored-settings reference, and suggested next commands. Use repeated
-`--profile <layer>` flags to preview extra profile layers on top of the active
-stack.
+It shows each supported app/tool and whether the current settings folder already
+manages settings for it. It does not read live app values or change stored
+settings.
+
+Use `search` to find supported apps/tools and `explain` to see what one app can
+manage before selecting it:
+
+```bash
+dotfiles-manager search git
+dotfiles-manager explain git
+```
+
+The previous selected-settings list is still available explicitly:
+
+```bash
+dotfiles-manager --config dotfiles-manager.v2.yaml list --settings --user-id docs-user
+```
+
+`list --settings` prints the selected ref, scope, subject, source layer, resource
+driver, named location, selector, stored-settings reference, and suggested next
+commands. Use repeated `--profile <layer>` flags to preview extra profile layers
+on top of the active stack.
 
 ## v2 safety model
 
@@ -195,9 +218,17 @@ machine-readable preview data. Use `--verbose` only for troubleshooting metadata
 
 ## v2 target discovery
 
-`recipe list` remains static bundled metadata. To inspect whether bundled
-targets appear installed or configured, use the explicit read-only discovery
-command:
+Normal users should start with the flattened app/tool discovery commands:
+
+```bash
+dotfiles-manager list
+dotfiles-manager search git
+dotfiles-manager explain git
+```
+
+Advanced recipe-author/debugging commands remain under `recipe`. To inspect
+whether bundled targets appear installed or configured, use the explicit
+read-only recipe discovery command:
 
 ```bash
 dotfiles-manager recipe discover --json
