@@ -165,8 +165,8 @@ User-facing output may show internal URI schemes:
 - `recipe://...` identifies bundled or local recipe metadata.
 
 These URIs are stable references in reports, not filesystem paths by themselves.
-Use the matching command (`recipe explain`, `list --json`, `status --json`, etc.)
-when you need details.
+Use the matching command (`explain`, `list --json`, `list --settings --json`,
+`status --json`, etc.) when you need details.
 
 ## Local state
 

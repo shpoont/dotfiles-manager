@@ -88,18 +88,19 @@ Some write paths may keep internal pre-write recovery evidence in local state,
 but that evidence is not a public backup/restore workflow and should not replace
 reviewing the current `status` / `diff` result.
 
-## How do I know what an app recipe manages?
+## How do I know what a supported app/tool manages?
 
 Use:
 
 ```bash
-dotfiles-manager recipe list
-dotfiles-manager recipe discover <target>
-dotfiles-manager recipe explain <target>
+dotfiles-manager list
+dotfiles-manager search <query>
+dotfiles-manager explain <app>
 ```
 
-`recipe explain` shows settings, resources, drivers, lifecycle notes, and "do
-not manage" exclusions. Read it before adding a target.
+`explain` shows settings, resources, lifecycle notes, and "do not manage"
+exclusions in app/tool language. Read it before adding a target. Advanced recipe
+authoring/debugging commands remain available as `recipe ...`.
 
 ## What targets are supported now?
 

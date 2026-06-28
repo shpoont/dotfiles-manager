@@ -16,6 +16,7 @@ import (
 	"github.com/shpoont/dotfiles-manager/internal/logging"
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2appauthor "github.com/shpoont/dotfiles-manager/internal/v2/appauthor"
+	v2appdiscovery "github.com/shpoont/dotfiles-manager/internal/v2/appdiscovery"
 	v2initcmd "github.com/shpoont/dotfiles-manager/internal/v2/initcmd"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
@@ -81,14 +82,16 @@ optional.`,
 
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newInitCmd(opts))
-	rootCmd.AddCommand(newRecipeCmd(opts))
-	rootCmd.AddCommand(newAddCmd(opts))
 	rootCmd.AddCommand(newListCmd(opts))
+	rootCmd.AddCommand(newSearchCmd(opts))
+	rootCmd.AddCommand(newExplainCmd(opts))
+	rootCmd.AddCommand(newAddCmd(opts))
 	rootCmd.AddCommand(newStatusCmd(opts))
 	rootCmd.AddCommand(newDiffCmd(opts))
 	rootCmd.AddCommand(newSyncCmd(opts))
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
+	rootCmd.AddCommand(newRecipeCmd(opts))
 	rootCmd.AddCommand(newAppCmd(opts))
 	rootCmd.AddCommand(newDeployCmd(opts))
 	rootCmd.AddCommand(newImportCmd(opts))
@@ -534,14 +537,74 @@ func newAppTestCmd(opts *rootOptions) *cobra.Command {
 func newListCmd(opts *rootOptions) *cobra.Command {
 	var jsonOutput bool
 	var verbose bool
+	var settings bool
 	v2Flags := &selectedPreviewFlagOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List managed v2 settings in the active profile",
+		Short: "List supported apps/tools",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runListCommand(cmd, opts, v2listcmd.Options{
+			listOpts := v2listcmd.Options{
+				MachineID:   v2Flags.machineID,
+				UserID:      v2Flags.userID,
+				ExtraLayers: append([]string(nil), v2Flags.profiles...),
+			}
+			if settings {
+				return runListCommand(cmd, opts, listOpts, jsonOutput, verbose)
+			}
+			return runAppListCommand(cmd, opts, v2appdiscovery.Options{
+				MachineID:   listOpts.MachineID,
+				UserID:      listOpts.UserID,
+				ExtraLayers: listOpts.ExtraLayers,
+			}, jsonOutput, verbose)
+		},
+	}
+
+	cmd.Flags().BoolVar(&settings, "settings", false, "List selected managed settings instead of supported apps")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
+	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
+func newSearchCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var verbose bool
+	v2Flags := &selectedPreviewFlagOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search supported apps/tools",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppSearchCommand(cmd, opts, v2appdiscovery.Options{
+				Query:       firstArg(args),
+				MachineID:   v2Flags.machineID,
+				UserID:      v2Flags.userID,
+				ExtraLayers: append([]string(nil), v2Flags.profiles...),
+			}, jsonOutput, verbose)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
+	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
+func newExplainCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var verbose bool
+	v2Flags := &selectedPreviewFlagOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "explain <app>",
+		Short: "Explain support for one app/tool",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppExplainCommand(cmd, opts, v2appdiscovery.Options{
+				Query:       args[0],
 				MachineID:   v2Flags.machineID,
 				UserID:      v2Flags.userID,
 				ExtraLayers: append([]string(nil), v2Flags.profiles...),
@@ -558,7 +621,7 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 func newRecipeCmd(opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recipe",
-		Short: "Inspect v2 recipe metadata",
+		Short: "Advanced: inspect recipe metadata for authors/debugging",
 	}
 	cmd.AddCommand(newRecipeListCmd(opts))
 	cmd.AddCommand(newRecipeExplainCmd(opts))
@@ -1118,6 +1181,75 @@ func runListCommand(cmd *cobra.Command, opts *rootOptions, listOpts v2listcmd.Op
 	return err
 }
 
+func runAppListCommand(cmd *cobra.Command, opts *rootOptions, appOpts v2appdiscovery.Options, jsonOutput bool, verbose bool) error {
+	repoRoot, repoRootSet, rootErr := appDiscoveryRepoRoot(opts, "list")
+	if rootErr != nil {
+		report := v2appdiscoveryErrorReport(v2appdiscovery.ListCommand, v2appdiscovery.ListRunID, v2appdiscovery.CodeRepoInvalid, rootErr.Error())
+		_ = emitAppDiscoveryReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
+		return &v2appdiscovery.Error{Code: v2appdiscovery.CodeRepoInvalid, Message: rootErr.Error(), Exit: 2}
+	}
+	appOpts.RepoRoot = repoRoot
+	appOpts.RepoRootSet = repoRootSet
+	report, err := v2appdiscovery.List(appOpts)
+	if emitErr := emitAppDiscoveryReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func runAppSearchCommand(cmd *cobra.Command, opts *rootOptions, appOpts v2appdiscovery.Options, jsonOutput bool, verbose bool) error {
+	repoRoot, repoRootSet, rootErr := appDiscoveryRepoRoot(opts, "search")
+	if rootErr != nil {
+		report := v2appdiscoveryErrorReport(v2appdiscovery.SearchCommand, v2appdiscovery.SearchRunID, v2appdiscovery.CodeRepoInvalid, rootErr.Error())
+		_ = emitAppDiscoveryReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
+		return &v2appdiscovery.Error{Code: v2appdiscovery.CodeRepoInvalid, Message: rootErr.Error(), Exit: 2}
+	}
+	appOpts.RepoRoot = repoRoot
+	appOpts.RepoRootSet = repoRootSet
+	report, err := v2appdiscovery.Search(appOpts)
+	if emitErr := emitAppDiscoveryReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func runAppExplainCommand(cmd *cobra.Command, opts *rootOptions, appOpts v2appdiscovery.Options, jsonOutput bool, verbose bool) error {
+	repoRoot, repoRootSet, rootErr := appDiscoveryRepoRoot(opts, "explain")
+	if rootErr != nil {
+		report := v2appdiscoveryExplainErrorReport(v2appdiscovery.CodeRepoInvalid, rootErr.Error(), nil)
+		_ = emitAppExplainReport(cmd.OutOrStdout(), report, jsonOutput, verbose)
+		return &v2appdiscovery.Error{Code: v2appdiscovery.CodeRepoInvalid, Message: rootErr.Error(), Exit: 2}
+	}
+	appOpts.RepoRoot = repoRoot
+	appOpts.RepoRootSet = repoRootSet
+	report, err := v2appdiscovery.Explain(appOpts)
+	if emitErr := emitAppExplainReport(cmd.OutOrStdout(), report, jsonOutput, verbose); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func appDiscoveryRepoRoot(opts *rootOptions, operation string) (string, bool, error) {
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		if !isExplicitV2Config(opts.configPath) {
+			return "", false, fmt.Errorf("--config for v2 %s must point to %s", operation, v2resolution.RootConfigFile)
+		}
+		root, err := repoRootFromExplicitV2Config(opts.configPath)
+		if err != nil {
+			return "", false, err
+		}
+		return root, true, nil
+	}
+	root, err := v2resolution.FindRoot("")
+	if err != nil {
+		if strings.Contains(err.Error(), "v2 repository root not found") {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return root, true, nil
+}
+
 func runSelectedPreviewCommand(cmd *cobra.Command, opts *rootOptions, commandOpts commandOptions, repoRoot string) error {
 	stateRoot, err := v2ledger.DefaultStateRoot(repoRoot)
 	if err != nil {
@@ -1241,6 +1373,40 @@ func emitListReport(stdout io.Writer, report *v2listcmd.Report, jsonOutput bool,
 	return err
 }
 
+func emitAppDiscoveryReport(stdout io.Writer, report *v2appdiscovery.Report, jsonOutput bool, verbose bool) error {
+	if jsonOutput {
+		payload, err := v2appdiscovery.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2appdiscovery.Text(report))
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2appdiscovery.Text(report))
+	return err
+}
+
+func emitAppExplainReport(stdout io.Writer, report *v2appdiscovery.ExplainReport, jsonOutput bool, verbose bool) error {
+	if jsonOutput {
+		payload, err := v2appdiscovery.ExplainJSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	if verbose {
+		_, err := fmt.Fprintln(stdout, v2appdiscovery.ExplainVerboseText(report))
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2appdiscovery.ExplainText(report))
+	return err
+}
+
 func v2initcmdErrorReport(code string, message string) *v2initcmd.Report {
 	report := &v2initcmd.Report{
 		Schema:        v2initcmd.Schema,
@@ -1267,6 +1433,32 @@ func v2listcmdErrorReport(code string, message string) *v2listcmd.Report {
 		Diagnostics:   []v2listcmd.Diagnostic{{Code: code, Severity: "error", Message: message}},
 	}
 	return report
+}
+
+func v2appdiscoveryErrorReport(command string, runID string, code string, message string) *v2appdiscovery.Report {
+	return &v2appdiscovery.Report{
+		Schema:        v2appdiscovery.AppsSchema,
+		SchemaVersion: v2appdiscovery.SchemaVersion,
+		Command:       command,
+		RunID:         runID,
+		Summary:       v2appdiscovery.Summary{Status: "error", Failed: 1},
+		Apps:          []v2appdiscovery.App{},
+		Diagnostics:   []v2appdiscovery.Diagnostic{{Code: code, Severity: "error", Message: message}},
+		Error:         &v2appdiscovery.ErrorObject{Code: code, Message: message},
+	}
+}
+
+func v2appdiscoveryExplainErrorReport(code string, message string, details map[string]any) *v2appdiscovery.ExplainReport {
+	return &v2appdiscovery.ExplainReport{
+		Schema:        v2appdiscovery.AppSchema,
+		SchemaVersion: v2appdiscovery.SchemaVersion,
+		Command:       v2appdiscovery.ExplainCommand,
+		RunID:         v2appdiscovery.ExplainRunID,
+		Summary:       v2appdiscovery.Summary{Status: "error", Failed: 1},
+		App:           v2appdiscovery.ExplainApp{Settings: []v2appdiscovery.ExplainSetting{}, DoNotManage: []string{}},
+		Diagnostics:   []v2appdiscovery.Diagnostic{{Code: code, Severity: "error", Message: message}},
+		Error:         &v2appdiscovery.ErrorObject{Code: code, Message: message, Details: details},
+	}
 }
 
 func emitSelectedPreviewReport(stdout io.Writer, report *v2selectedpreview.Report, jsonOutput bool, verbose bool) error {

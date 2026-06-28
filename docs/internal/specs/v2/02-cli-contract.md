@@ -292,32 +292,61 @@ destination profile layer, target discovery, scope, resource, driver, named
 location, selector summary, desired artifact binding, and next actions. It must
 not require users to understand internal resource grouping nouns.
 
-### `list` managed-selection contract
+### `list`, `search`, and `explain` app-discovery contract
 
-`list` is the normal command for showing what the active profile currently
-manages:
+`list` is the normal command for showing supported apps/tools and whether the
+active settings folder manages anything for each app:
 
 ```text
 dotfiles-manager list [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
+dotfiles-manager search <query> [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
+dotfiles-manager explain <app> [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
+```
+
+`list` without `--settings` is read-only supported-app discovery. It can run
+before initialization and then reports built-in apps as `not-managed`. When a v2
+settings folder is present, it may read profile-selection metadata to compute
+`managed` / `not-managed`; it must not read live target values, write stored
+settings, create identity records, bootstrap state, write backups or ledgers,
+launch apps, or run native export/import commands.
+
+`search <query>` uses the same app list and filters by ID, display name, aliases,
+and summary. No matches exit `0` with an empty `apps` array. Empty query exits
+`2` with `search.query.invalid`.
+
+`explain <app>` is the normal app/tool-oriented explanation path. It may reuse
+recipe metadata internally, but default text must not be recipe-oriented. Unknown
+apps exit `2` with `explain.app.notSupported`.
+
+`list --profile <layer>` and the matching flags on `search`/`explain` are
+overlay flags, matching `status`, `diff`, `save`, `apply`, and `sync`: each
+repeatable value is appended to the active profile stack for this read-only
+view. It does not write the named layer.
+
+`list --json` uses `schema: dotfiles-manager.v2.apps`, `command: list`, and
+`runId: app-list`. `search --json` uses the same schema with `command: search`,
+`runId: app-search`, and `query`. `explain --json` uses
+`schema: dotfiles-manager.v2.app`, `command: explain`, and `runId: app-explain`.
+
+### `list --settings` managed-selection compatibility contract
+
+`list --settings` is the explicit compatibility path for showing what the active
+profile currently manages:
+
+```text
+dotfiles-manager list --settings [--json] [--machine-id <id>] [--user-id <id>] [--profile <layer>]...
 ```
 
 It lists only managed selections from the active profile stack plus any explicit
-repeatable `--profile` overlay layers. It must not show the bundled recipe
-catalog; static supported-target discovery remains under `recipe list` and
-install/config probing remains under `recipe discover`.
+repeatable `--profile` overlay layers. It is read-only. It must not create
+identity records, bootstrap state, read live target values, write desired
+artifacts, write backups or ledgers, launch apps, or run native export/import
+commands. If identity is missing for a selected scope, `list --settings` still
+returns the managed row with `subject.resolved: false`, a stable `missing`
+identity list, no desired URI, and a `partial` summary. Missing identity is not
+an implicit request to run `init`.
 
-`list` is read-only. It must not create identity records, bootstrap state, read
-live target values, write desired artifacts, write backups or ledgers, launch
-apps, or run native export/import commands. If identity is missing for a
-selected scope, `list` still returns the managed row with
-`subject.resolved: false`, a stable `missing` identity list, no desired URI, and
-a `partial` summary. Missing identity is not an implicit request to run `init`.
-
-`list --profile <layer>` is an overlay flag, matching `status`, `diff`,
-`save`, `apply`, and `sync`: each repeatable value is appended to the active
-profile stack for this read-only view. It does not write the named layer.
-
-`list --json` uses:
+`list --settings --json` preserves the previous selected-settings JSON contract:
 
 ```yaml
 schema: dotfiles-manager.v2.list
@@ -452,18 +481,19 @@ dotfiles-manager app test <target-id> --roundtrip
 ```
 
 `recipe list`, `recipe discover [target]`, and `recipe explain <target>` are
-included in the MVP as read-only advanced commands. `recipe list` shows static
-bundled target metadata and does not resolve active profile selection or inspect
-installation state. `recipe discover` is the explicit opt-in live metadata
-probe for target install/config state. `recipe explain` explains target support,
-selected settings, settings groups, resources, drivers, lifecycle policy,
-redaction behavior, support levels, and capability limits without reading live
-target state.
+included in the MVP as read-only advanced commands for recipe authors and
+debugging. `recipe list` shows static bundled target metadata and does not
+resolve active profile selection or inspect installation state. `recipe discover`
+is the explicit opt-in live metadata probe for target install/config state.
+`recipe explain` explains target support, selected settings, settings groups,
+resources, drivers, lifecycle policy, redaction behavior, support levels, and
+capability limits without reading live target state. Normal users should prefer
+top-level `list`, `search`, and `explain` for discovery.
 
 Advanced app-authoring commands are for recipe authors and power users, not the
 normal app-management happy path. They define and test local recipe metadata
 only. Normal users should still start with `add <target>` for supported bundled
-targets.
+targets until `manage` is implemented.
 
 ### `app create <target-id>` local recipe draft contract
 

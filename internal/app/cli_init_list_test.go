@@ -60,7 +60,7 @@ selections:
 `)
 	setCWD(t, repoRoot)
 
-	payload, stdout, stderr, err := runRootJSONCLI(t, []string{"list", "--json", "--user-id", "leon", "--profile", "work"}, "")
+	payload, stdout, stderr, err := runRootJSONCLI(t, []string{"list", "--settings", "--json", "--user-id", "leon", "--profile", "work"}, "")
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Equal(t, "dotfiles-manager.v2.list", payload["schema"])
@@ -95,12 +95,12 @@ selections:
 
 	_ = runUX167JSON(t, []string{"save", "--yes", "--json", "--user-id", "leon", "git:user.email"})
 
-	text := runUX167Text(t, []string{"list", "--user-id", "leon"})
+	text := runUX167Text(t, []string{"list", "--settings", "--user-id", "leon"})
 	require.Contains(t, text, "git:user.email — User email\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: stored")
 	require.Contains(t, text, "git:user.name — User name\n    Scope: user — Me on all my machines\n    Subject: leon\n    Stored settings: not stored yet")
 	require.Contains(t, text, "dotfiles-manager --config dotfiles-manager.v2.yaml save --dry-run --user-id leon git:user.name")
 
-	payload := runUX167JSON(t, []string{"list", "--json", "--user-id", "leon"})
+	payload := runUX167JSON(t, []string{"list", "--settings", "--json", "--user-id", "leon"})
 	require.Equal(t, "saved", listDesiredStateStatus(t, payload, "git:user.email"))
 	require.Equal(t, true, listDesiredStateSaved(t, payload, "git:user.email"))
 	require.Equal(t, "not-saved", listDesiredStateStatus(t, payload, "git:user.name"))
@@ -123,7 +123,7 @@ selections:
 	var stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"list", "--user-id", "leon"})
+	cmd.SetArgs([]string{"list", "--settings", "--user-id", "leon"})
 	err := cmd.Execute()
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
@@ -147,7 +147,7 @@ func TestInitAndListRootErrorsHaveStableJSON(t *testing.T) {
 	require.Equal(t, "dotfiles-manager.v2.init", payload["schema"])
 	require.Equal(t, "init.config.invalid", payload["error"].(map[string]any)["code"])
 
-	payload, _, stderr, err = runRootJSONCLI(t, []string{"list", "--json"}, "")
+	payload, _, stderr, err = runRootJSONCLI(t, []string{"list", "--settings", "--json"}, "")
 	require.Error(t, err)
 	require.Equal(t, 2, err.(*v2listcmd.Error).ExitCode())
 	require.Empty(t, stderr)
