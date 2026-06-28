@@ -167,6 +167,7 @@ type Item struct {
 	SettingRef       string                       `json:"settingRef"`
 	Scope            string                       `json:"scope,omitempty"`
 	Subject          string                       `json:"subject,omitempty"`
+	Recipe           RecipeInfo                   `json:"recipe,omitempty"`
 	State            string                       `json:"state"`
 	Decision         string                       `json:"decision"`
 	Direction        string                       `json:"direction"`
@@ -182,6 +183,12 @@ type Item struct {
 	UnderlyingRunID  string                       `json:"underlyingRunId,omitempty"`
 	Diagnostics      []selectedpreview.Diagnostic `json:"-"`
 	BackingKey       string                       `json:"-"`
+}
+
+type RecipeInfo struct {
+	Source      string `json:"source,omitempty"`
+	RecipeRef   string `json:"recipeRef,omitempty"`
+	TrustStatus string `json:"trustStatus,omitempty"`
 }
 
 type Error struct {
@@ -366,6 +373,7 @@ func fromPreviewItem(item selectedpreview.Item) Item {
 		SettingRef:     item.SettingRef,
 		Scope:          item.Scope,
 		Subject:        item.Subject,
+		Recipe:         RecipeInfo{Source: item.Recipe.Source, RecipeRef: item.Recipe.RecipeRef, TrustStatus: item.Recipe.TrustStatus},
 		AllowedChoices: []string{},
 		Result:         ResultSkipped,
 		ValuesRedacted: true,
@@ -449,7 +457,7 @@ func fromPreviewItem(item selectedpreview.Item) Item {
 		out.Message = fallback(out.Message, "State cannot be determined safely.")
 	}
 	if hasBlockingDiagnostics(out.Diagnostics) {
-		blockItem(&out, "blocked-safety", "Cannot plan this setting safely.")
+		blockItem(&out, "blocked-safety", fallback(out.Message, "Cannot plan this setting safely."))
 	}
 	if item.Resource.DriverID == recipe.FileTreeDriverID && out.Decision == DecisionWrite {
 		blockItem(&out, "folder-tree-review-required", "folder setting needs a detailed file-by-file review before sync can change it.")
@@ -1050,6 +1058,26 @@ func resultSections(report *Report) []string {
 	return trimTrailingBlank(sections)
 }
 
+func syncRecipeOriginLines(item Item) []string {
+	if item.Recipe.Source != recipe.RecipeSourceLocal || strings.TrimSpace(item.Recipe.RecipeRef) == "" {
+		return nil
+	}
+	label := "local support"
+	if sourceName := localCatalogNameFromRecipeRef(item.Recipe.RecipeRef); sourceName != "" {
+		label = "local catalog " + sourceName
+	}
+	return []string{"Source: " + label, "Recipe: " + item.Recipe.RecipeRef}
+}
+
+func localCatalogNameFromRecipeRef(recipeRef string) string {
+	ref := strings.TrimPrefix(strings.TrimSpace(recipeRef), "recipe://local/")
+	parts := strings.Split(ref, "/")
+	if len(parts) >= 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {
+		return parts[0]
+	}
+	return ""
+}
+
 func sectionLines(title string, report *Report, result string) []string {
 	items := itemsWithResult(report, result)
 	if len(items) == 0 {
@@ -1066,6 +1094,11 @@ func sectionLines(title string, report *Report, result string) []string {
 		lines = append(lines, targetLabel(target))
 		for _, item := range groups[target] {
 			lines = append(lines, "  - "+item.SettingRef)
+			if origin := syncRecipeOriginLines(item); len(origin) > 0 {
+				for _, line := range origin {
+					lines = append(lines, "    "+line)
+				}
+			}
 			switch result {
 			case ResultChanged:
 				lines = append(lines, "    Synced: "+publicDirection(item.Direction))

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	"github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 	"github.com/shpoont/dotfiles-manager/internal/v2/resolution"
 	"gopkg.in/yaml.v3"
@@ -25,17 +26,20 @@ const (
 )
 
 const (
-	CodeChoiceRequired      = "add.choice-required"
-	CodeRepoInvalid         = "add.repo.invalid"
-	CodeTargetInvalid       = "add.target.invalid"
-	CodeTargetUnsupported   = "add.target.unsupported"
-	CodePlatformUnsupported = "add.platform.unsupported"
-	CodeProfileInvalid      = "add.profile.invalid"
-	CodeSettingInvalid      = "add.setting.invalid"
-	CodeScopeInvalid        = "add.scope.invalid"
-	CodeSelectionConflict   = "add.selection.conflict"
-	CodeLayerReadFailed     = "add.layer.read-failed"
-	CodeLayerWriteFailed    = "add.layer.write-failed"
+	CodeChoiceRequired                = "add.choice-required"
+	CodeRepoInvalid                   = "add.repo.invalid"
+	CodeTargetInvalid                 = "add.target.invalid"
+	CodeTargetUnsupported             = "add.target.unsupported"
+	CodeTargetLocalCatalogUnsupported = "add.target.localCatalogUnsupported"
+	CodeTargetSourceAmbiguous         = "add.target.sourceAmbiguous"
+	CodeTargetSourceUnavailable       = "add.target.sourceUnavailable"
+	CodePlatformUnsupported           = "add.platform.unsupported"
+	CodeProfileInvalid                = "add.profile.invalid"
+	CodeSettingInvalid                = "add.setting.invalid"
+	CodeScopeInvalid                  = "add.scope.invalid"
+	CodeSelectionConflict             = "add.selection.conflict"
+	CodeLayerReadFailed               = "add.layer.read-failed"
+	CodeLayerWriteFailed              = "add.layer.write-failed"
 )
 
 const (
@@ -188,6 +192,10 @@ func Run(opts Options) (*Report, error) {
 	report.Add.ActiveProfileStack = repo.activeStack
 	report.Add.ProfileStack = append([]string(nil), repo.layerIDs...)
 
+	if blocked, blockErr := localCatalogAddBlock(report, repoRoot, opts.Target); blockErr != nil {
+		return blocked, blockErr
+	}
+
 	explain, err := recipe.Explain(recipe.ExplainOptions{Target: strings.TrimSpace(opts.Target), RepoRoot: repoRoot})
 	if err != nil {
 		return fail(report, CodeTargetInvalid, err.Error(), exitCode(err, 2), errorDetails(err))
@@ -258,6 +266,57 @@ func Run(opts Options) (*Report, error) {
 
 	finish(report)
 	return report, nil
+}
+
+func localCatalogAddBlock(report *Report, repoRoot string, targetID string) (*Report, error) {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return nil, nil
+	}
+	if _, bundled := recipe.LookupBundledTarget(targetID); bundled {
+		return nil, nil
+	}
+	lookup, err := v2catalog.LookupTarget(v2catalog.Options{RepoRoot: repoRoot}, targetID, true)
+	if err != nil {
+		return fail(report, CodeTargetInvalid, fmt.Sprintf("catalog lookup failed for %s: %v", targetID, err), 2, map[string]any{"target": targetID})
+	}
+	if !lookup.Found {
+		return nil, nil
+	}
+	report.Add.Target = AddTarget{ID: targetID, DisplayName: displayNameFromLookup(targetID, lookup), RecipeRef: lookup.Candidate.RecipeRef}
+	if lookup.Ambiguous {
+		return fail(report, CodeTargetSourceAmbiguous, fmt.Sprintf("multiple local catalogs provide support for %s; selecting a source with add/manage is not implemented yet", targetID), 4, map[string]any{"target": targetID, "sources": lookupSourceNames(lookup.Sources)})
+	}
+	if lookup.Candidate.SourceID == "local" {
+		return nil, nil
+	}
+	if !lookup.Available {
+		return fail(report, CodeTargetSourceUnavailable, fmt.Sprintf("local catalog %q provides support for %s, but that catalog is disabled or unavailable", lookup.Source.Name, targetID), 4, map[string]any{"target": targetID, "source": lookup.Source.Name})
+	}
+	return fail(report, CodeTargetLocalCatalogUnsupported, fmt.Sprintf("%s is available from local catalog %q, but this version cannot add local-catalog apps to the managed set yet; use list/explain/status for discovery and provenance, and track manage/add support in the command-normalization follow-up", targetID, lookup.Source.Name), 4, map[string]any{"target": targetID, "source": lookup.Source.Name, "recipeRef": lookup.Candidate.RecipeRef})
+}
+
+func displayNameFromLookup(targetID string, lookup v2catalog.TargetLookup) string {
+	if strings.TrimSpace(lookup.Candidate.DisplayName) != "" {
+		return lookup.Candidate.DisplayName
+	}
+	for _, candidate := range lookup.Candidates {
+		if strings.TrimSpace(candidate.DisplayName) != "" {
+			return candidate.DisplayName
+		}
+	}
+	return targetID
+}
+
+func lookupSourceNames(sources []v2catalog.Source) []string {
+	names := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if strings.TrimSpace(source.Name) != "" {
+			names = append(names, source.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func JSON(report *Report) (string, error) {

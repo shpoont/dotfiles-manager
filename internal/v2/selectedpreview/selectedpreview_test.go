@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/macosdefaultsdriver"
 	"github.com/shpoont/dotfiles-manager/internal/v2/nativeexport"
@@ -124,6 +125,58 @@ func TestBuildBlocksLocalRecipeWithoutTrustBeforeLiveRead(t *testing.T) {
 	require.Empty(t, item.Current.SHA256)
 	requireDiagnostic(t, item, "trust.local.missingRecord")
 	require.NotContains(t, mustJSON(t, report), "secret-current@example.com")
+}
+
+func TestExternalLocalCatalogDoesNotReuseSettingsFolderLocalTrust(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, "test.app", "identity.email")
+	body := selectedRecipeBody("test.app", liveRoot)
+	rec := decodeRecipe(t, body)
+	_, err := recipe.RecordLocalRecipeTrust(repoRoot, stateRoot, rec)
+	require.NoError(t, err)
+
+	catalogRoot := t.TempDir()
+	writeFile(t, filepath.Join(catalogRoot, "test.app", "recipe.yaml"), body)
+	_, err = v2catalog.Add(v2catalog.AddOptions{Options: v2catalog.Options{RepoRoot: repoRoot, StateRoot: stateRoot}, Name: "personal", Path: catalogRoot})
+	require.NoError(t, err)
+
+	report, err := Build(Options{Command: CommandStatus, RepoRoot: repoRoot, StateRoot: stateRoot, UserID: "leon"})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, report.Summary.Status)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, "recipe://local/personal/test.app", item.Recipe.RecipeRef)
+	require.Equal(t, recipe.TrustStatusReviewRequired, item.Recipe.TrustStatus)
+	require.Contains(t, item.Message, "catalog-specific write approval")
+	requireDiagnostic(t, item, "selectedpreview.trust.catalogSpecificRequired")
+}
+
+func TestBuildBlocksSettingsFolderAndExternalLocalCatalogAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	writeV2Root(t, repoRoot, "test.app", "identity.email")
+	body := selectedRecipeBody("test.app", liveRoot)
+	writeFile(t, filepath.Join(repoRoot, "recipes", "local", "test.app", "recipe.yaml"), body)
+	catalogRoot := t.TempDir()
+	writeFile(t, filepath.Join(catalogRoot, "test.app", "recipe.yaml"), body)
+	_, err := v2catalog.Add(v2catalog.AddOptions{Options: v2catalog.Options{RepoRoot: repoRoot, StateRoot: stateRoot}, Name: "personal", Path: catalogRoot})
+	require.NoError(t, err)
+
+	report, err := Build(Options{Command: CommandStatus, RepoRoot: repoRoot, StateRoot: stateRoot, UserID: "leon"})
+	require.NoError(t, err)
+	require.Equal(t, SummaryBlocked, report.Summary.Status)
+	require.Len(t, report.Items, 1)
+	item := report.Items[0]
+	require.Equal(t, v2status.StateUnsupported, item.State)
+	require.Contains(t, item.Message, "Multiple local catalogs provide support for test.app")
+	requireDiagnostic(t, item, "selectedpreview.recipe.sourceAmbiguous")
 }
 
 func TestBuildDistinguishesUnmanagedDesiredFromMissing(t *testing.T) {

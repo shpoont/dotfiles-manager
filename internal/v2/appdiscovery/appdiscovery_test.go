@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	v2recipe "github.com/shpoont/dotfiles-manager/internal/v2/recipe"
 )
 
@@ -209,6 +210,8 @@ func TestRenderHelpersCoverFallbackSourcesAndErrors(t *testing.T) {
 			ID:                "local.tool",
 			DisplayName:       "Local Tool",
 			Source:            "local",
+			SourceKind:        v2catalog.SourceKindLocal,
+			SourceID:          "local",
 			SourceDescription: sourceDescription(v2recipe.RecipeSourceLocal),
 			State:             StateManaged,
 			SelectedSettings:  1,
@@ -241,6 +244,53 @@ func TestRenderHelpersCoverFallbackSourcesAndErrors(t *testing.T) {
 	require.Equal(t, "", plural(1))
 	require.Equal(t, "s", plural(2))
 	require.Equal(t, []string{"a"}, trimBlank([]string{"a", "", "  "}))
+}
+
+func TestSettingsFolderLocalRecipeRemainsInTopLevelDiscovery(t *testing.T) {
+	repoRoot := setupAppDiscoveryRepo(t, []string{"global"}, map[string]string{"global": `schema: dotfiles-manager.v2.profile-layer
+schemaVersion: 1
+selections: {}
+`})
+	writeAppDiscoveryFile(t, filepath.Join(repoRoot, "recipes", "local", "cobona", "recipe.yaml"), `schema: dotfiles-manager.v2.recipe
+schemaVersion: 1
+target: cobona
+displayName: Cobona
+supportLevel: experimental
+capability: read-write
+locations:
+  config:
+    default: ~/.cobona
+settings:
+  config:
+    label: Config file
+    supportLevel: experimental
+    capability: read-write
+    artifactForm: scalar
+    scopeDefault: user
+    resource: config-file
+resources:
+  config-file:
+    driver: yaml-file
+    location: config
+    path: config.yaml
+    selector:
+      path: [user, email]
+      createMissing: create
+      duplicatePolicy: reject
+`)
+
+	report, err := List(Options{RepoRoot: repoRoot, RepoRootSet: true})
+	require.NoError(t, err)
+	app := requireApp(t, report, "cobona")
+	require.Equal(t, "local", app.Source)
+	require.Equal(t, "local.settings-folder", app.CatalogID)
+	require.Equal(t, "recipe://local/cobona", app.RecipeRef)
+
+	explain, err := Explain(Options{RepoRoot: repoRoot, RepoRootSet: true, Query: "cobona"})
+	require.NoError(t, err)
+	require.Equal(t, "cobona", explain.App.ID)
+	require.Equal(t, "local support from this settings folder", explain.App.SourceDescription)
+	require.NotEmpty(t, explain.App.Settings)
 }
 
 func setupAppDiscoveryRepo(t *testing.T, stack []string, layers map[string]string) string {

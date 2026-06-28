@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
@@ -410,6 +411,10 @@ func singleItemDefaultText(report *Report, item Item) []string {
 		lines = append(lines, alias...)
 		lines = append(lines, "")
 	}
+	if origin := recipeOriginLines(item); len(origin) > 0 {
+		lines = append(lines, origin...)
+		lines = append(lines, "")
+	}
 
 	if status := itemStatusText(report, item); status != "" {
 		lines = append(lines, "Status:", "  "+status, "")
@@ -696,6 +701,26 @@ func singleItemHeadline(report *Report, item Item, label string) string {
 		return label + " differs between live settings and stored settings."
 	}
 	return label
+}
+
+func recipeOriginLines(item Item) []string {
+	if item.Recipe.Source != recipe.RecipeSourceLocal || strings.TrimSpace(item.Recipe.RecipeRef) == "" {
+		return nil
+	}
+	label := "local support"
+	if sourceName := localCatalogNameFromRecipeRef(item.Recipe.RecipeRef); sourceName != "" {
+		label = "local catalog " + sourceName
+	}
+	return []string{"Source:", "  " + label, "  " + item.Recipe.RecipeRef}
+}
+
+func localCatalogNameFromRecipeRef(recipeRef string) string {
+	ref := strings.TrimPrefix(strings.TrimSpace(recipeRef), "recipe://local/")
+	parts := strings.Split(ref, "/")
+	if len(parts) >= 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {
+		return parts[0]
+	}
+	return ""
 }
 
 func itemStatusText(report *Report, item Item) string {
@@ -1372,7 +1397,7 @@ func filterSettings(settings []resolution.ResolvedSetting, ref parsedRef) []reso
 func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, setting resolution.ResolvedSetting, opts Options) Item {
 	item := Item{TargetRef: setting.TargetID, SettingRef: setting.Ref(), Scope: setting.Scope, Subject: setting.Subject, SourceLayer: setting.SourceLayer, DesiredURI: setting.DesiredURI, DesiredRelPath: filepath.ToSlash(setting.DesiredRelPath), State: v2status.StateUnknown, DryRun: dryRun, Mutated: false, Diagnostics: []Diagnostic{}}
 
-	runtime, blocked := loadRuntimeRecipe(repoRoot, setting.TargetID)
+	runtime, blocked := loadRuntimeRecipe(repoRoot, stateRoot, setting.TargetID)
 	rec := runtime.Recipe
 	item.Recipe.Source = runtime.Source
 	item.Recipe.RecipeRef = runtime.RecipeRef
@@ -1381,7 +1406,14 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		for _, diagnostic := range blocked {
 			item.Diagnostics = append(item.Diagnostics, diagnostic.withRef(item.SettingRef))
 		}
-		return finishBlocked(item, v2status.StateUnsupported, "Recipe runtime is not available for selected-value preview.")
+		message := "Recipe runtime is not available for selected-value preview."
+		for _, diagnostic := range blocked {
+			if (diagnostic.Code == "selectedpreview.recipe.sourceUnavailable" || diagnostic.Code == "selectedpreview.recipe.sourceAmbiguous") && diagnostic.Message != "" {
+				message = diagnostic.Message
+				break
+			}
+		}
+		return finishBlocked(item, v2status.StateUnsupported, message)
 	}
 
 	resourceID, resource, err := rec.ResourceForSetting(setting.SettingID)
@@ -1417,7 +1449,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		item.Selector = selectorFromRecipe(resource)
 	}
 	if resource.Driver == recipe.NativeExportDriverID {
-		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, runtime.RecipeRef, rec)
 		trustContext = writeSafetyContextForCommand(trustContext, command)
 		if opts.Confirmed {
 			trustContext.AllowOpaque = true
@@ -1430,7 +1462,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 			if len(item.Diagnostics) == 0 {
 				item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "native export requires trusted recipe evidence before running reviewed export operations", item.SettingRef))
 			}
-			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before native export can run.")
+			return finishBlocked(item, v2status.StateBlockedSafety, trustBlockedMessage(trustEval.Diagnostics, "Recipe trust must be reviewed before native export can run."))
 		}
 		if err := rec.ValidateWriteSafety(trustContext); err != nil {
 			validations := recipe.ValidationDiagnostics(err)
@@ -1443,7 +1475,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		return applyLifecyclePreview(buildNativeExportItem(repoRoot, stateRoot, command, item, rec, runtime.Source, trustEval, setting, resourceID, resource, locationRoots, opts), rec, setting, resourceID, command, opts)
 	}
 	if resource.Driver == recipe.FileDriverID || resource.Driver == recipe.FileTreeDriverID {
-		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+		trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, runtime.RecipeRef, rec)
 		trustContext = writeSafetyContextForCommand(trustContext, command)
 		item.Recipe.TrustStatus = trustEval.Status
 		if trustEval.Status != recipe.TrustStatusTrusted {
@@ -1453,7 +1485,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 			if len(item.Diagnostics) == 0 {
 				item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "filesystem-resource preview requires trusted recipe evidence before live reads", item.SettingRef))
 			}
-			return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before filesystem-resource preview can read live state.")
+			return finishBlocked(item, v2status.StateBlockedSafety, trustBlockedMessage(trustEval.Diagnostics, "Recipe trust must be reviewed before filesystem-resource preview can read live state."))
 		}
 
 		if err := rec.ValidateWriteSafety(trustContext); err != nil {
@@ -1472,7 +1504,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		return finishBlocked(item, v2status.StateUnsupported, "Resource driver is not supported by selected-value preview.")
 	}
 
-	trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, rec)
+	trustEval, trustContext := evaluateTrust(repoRoot, stateRoot, runtime.Source, runtime.RecipeRef, rec)
 	trustContext = writeSafetyContextForCommand(trustContext, command)
 	item.Recipe.TrustStatus = trustEval.Status
 	if trustEval.Status != recipe.TrustStatusTrusted {
@@ -1482,7 +1514,7 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 		if len(item.Diagnostics) == 0 {
 			item.Diagnostics = append(item.Diagnostics, diagnostic("selectedpreview.trust.required", SeverityError, "selected-value preview requires trusted recipe evidence before live reads", item.SettingRef))
 		}
-		return finishBlocked(item, v2status.StateBlockedSafety, "Recipe trust must be reviewed before selected-value preview can read live state.")
+		return finishBlocked(item, v2status.StateBlockedSafety, trustBlockedMessage(trustEval.Diagnostics, "Recipe trust must be reviewed before selected-value preview can read live state."))
 	}
 
 	if err := rec.ValidateWriteSafety(trustContext); err != nil {
@@ -1561,25 +1593,50 @@ func buildItem(repoRoot string, stateRoot string, command string, dryRun bool, s
 	return applyLifecyclePreview(item, rec, setting, resourceID, command, opts)
 }
 
-func loadRuntimeRecipe(repoRoot string, targetID string) (recipe.RuntimeRecipe, []Diagnostic) {
-	runtime, err := recipe.LoadRuntime(repoRoot, targetID)
-	if err != nil {
-		code := "selectedpreview.recipe.notFound"
-		switch {
-		case errors.Is(err, recipe.ErrBundledRuntimeUnavailable):
-			code = "selectedpreview.recipe.bundledRuntimeUnavailable"
-		case !errors.Is(err, os.ErrNotExist):
-			code = "selectedpreview.recipe.invalid"
+func loadRuntimeRecipe(repoRoot string, stateRoot string, targetID string) (recipe.RuntimeRecipe, []Diagnostic) {
+	if _, bundled := recipe.LookupBundledTarget(targetID); !bundled {
+		lookup, lookupErr := v2catalog.LookupTarget(v2catalog.Options{RepoRoot: repoRoot, StateRoot: stateRoot}, targetID, true)
+		if lookupErr != nil {
+			runtime := recipe.RuntimeRecipe{Source: recipe.RecipeSourceLocal, RecipeRef: recipeRef(recipe.RecipeSourceLocal, targetID), TrustStatus: recipe.TrustStatusReviewRequired}
+			return runtime, []Diagnostic{diagnostic("selectedpreview.recipe.catalogLookupFailed", SeverityError, fmt.Sprintf("catalog lookup failed for %s: %v", targetID, lookupErr), targetID)}
 		}
-		if runtime.Source == "" {
-			runtime.Source = recipe.RecipeSourceLocal
+		if lookup.Found {
+			runtime := recipe.RuntimeRecipe{
+				Recipe:      lookup.Candidate.Recipe,
+				Source:      recipe.RecipeSourceLocal,
+				RecipeRef:   lookup.Candidate.RecipeRef,
+				TrustStatus: recipe.TrustStatusReviewRequired,
+			}
+			if lookup.Ambiguous {
+				message := fmt.Sprintf("Multiple local catalogs provide support for %s; choose one source before live settings can be read or changed.", targetID)
+				return runtime, []Diagnostic{diagnostic("selectedpreview.recipe.sourceAmbiguous", SeverityError, message, targetID)}
+			}
+			if lookup.Available {
+				return runtime, nil
+			}
+			message := fmt.Sprintf("This app is selected with support from local catalog %q, but that catalog is disabled or unavailable.", lookup.Source.Name)
+			return runtime, []Diagnostic{diagnostic("selectedpreview.recipe.sourceUnavailable", SeverityError, message, targetID)}
 		}
-		if runtime.RecipeRef == "" {
-			runtime.RecipeRef = recipeRef(runtime.Source, targetID)
-		}
-		return runtime, []Diagnostic{diagnostic(code, SeverityError, err.Error(), targetID)}
 	}
-	return runtime, nil
+
+	runtime, err := recipe.LoadRuntime(repoRoot, targetID)
+	if err == nil {
+		return runtime, nil
+	}
+	code := "selectedpreview.recipe.notFound"
+	switch {
+	case errors.Is(err, recipe.ErrBundledRuntimeUnavailable):
+		code = "selectedpreview.recipe.bundledRuntimeUnavailable"
+	case !errors.Is(err, os.ErrNotExist):
+		code = "selectedpreview.recipe.invalid"
+	}
+	if runtime.Source == "" {
+		runtime.Source = recipe.RecipeSourceLocal
+	}
+	if runtime.RecipeRef == "" {
+		runtime.RecipeRef = recipeRef(runtime.Source, targetID)
+	}
+	return runtime, []Diagnostic{diagnostic(code, SeverityError, err.Error(), targetID)}
 }
 
 func recipeRef(source string, targetID string) string {
@@ -1593,12 +1650,38 @@ func recipeRef(source string, targetID string) string {
 	}
 }
 
-func evaluateTrust(repoRoot string, stateRoot string, source string, rec *recipe.Recipe) (recipe.TrustEvaluation, recipe.WriteSafetyContext) {
+func evaluateTrust(repoRoot string, stateRoot string, source string, recipeRef string, rec *recipe.Recipe) (recipe.TrustEvaluation, recipe.WriteSafetyContext) {
+	if source == recipe.RecipeSourceLocal && isExternalLocalCatalogRecipeRef(recipeRef) {
+		eval := recipe.TrustEvaluation{
+			Source:      source,
+			Status:      recipe.TrustStatusReviewRequired,
+			Diagnostics: []recipe.ValidationDiagnostic{{Code: "selectedpreview.trust.catalogSpecificRequired", Severity: recipe.ValidationSeverityError, Message: "local catalog support requires catalog-specific write approval before live settings can be read or changed", Path: "$"}},
+		}
+		if rec != nil {
+			eval.Target = rec.Target
+		}
+		return eval, recipe.WriteSafetyContext{Source: source}
+	}
 	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, source, rec)
 	if err != nil {
 		return recipe.TrustEvaluation{Status: recipe.TrustStatusBlocked, Diagnostics: []recipe.ValidationDiagnostic{{Code: "selectedpreview.trust.evaluate", Severity: recipe.ValidationSeverityError, Message: err.Error(), Path: "$"}}}, recipe.WriteSafetyContext{}
 	}
 	return eval, eval.WriteSafetyContext(recipe.WriteSafetyContext{})
+}
+
+func isExternalLocalCatalogRecipeRef(recipeRef string) bool {
+	ref := strings.TrimPrefix(strings.TrimSpace(recipeRef), "recipe://local/")
+	parts := strings.Split(ref, "/")
+	return len(parts) >= 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
+}
+
+func trustBlockedMessage(diagnostics []recipe.ValidationDiagnostic, fallbackMessage string) string {
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic.Code, "catalogSpecificRequired") && strings.TrimSpace(diagnostic.Message) != "" {
+			return diagnostic.Message
+		}
+	}
+	return fallbackMessage
 }
 
 func writeSafetyContextForCommand(ctx recipe.WriteSafetyContext, command string) recipe.WriteSafetyContext {

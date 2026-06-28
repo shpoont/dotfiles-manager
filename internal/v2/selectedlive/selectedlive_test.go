@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
@@ -68,6 +69,28 @@ func TestApplyChangedBacksUpMutatesVerifiesAndAppendsLedgerWithoutRawMetadata(t 
 	require.NotContains(t, reportJSON, "new@example.com")
 	require.True(t, result.Report.Items[0].Mutated)
 	require.Equal(t, "verified", result.Report.Items[0].Mutation.Result)
+}
+
+func TestRunBlocksSettingsFolderAndExternalLocalCatalogAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupLiveFixture(t, "create", "allow")
+	fixture.writeLive("old@example.com")
+	fixture.writeDesired("new@example.com")
+	fixture.trustRecipe()
+	catalogRoot := t.TempDir()
+	body := liveRecipeBody(fixture.liveRoot, "create", "allow")
+	writeLiveFile(t, filepath.Join(catalogRoot, "test.app", "recipe.yaml"), body)
+	_, err := v2catalog.Add(v2catalog.AddOptions{Options: v2catalog.Options{RepoRoot: fixture.repoRoot, StateRoot: fixture.stateRoot}, Name: "personal", Path: catalogRoot})
+	require.NoError(t, err)
+
+	result, err := Run(fixture.options(selectedpreview.CommandApply, "run-local-ambiguous", true))
+	require.Error(t, err)
+	require.Contains(t, readFile(t, filepath.Join(fixture.liveRoot, "config.yaml")), "old@example.com")
+	require.NotNil(t, result.Report)
+	require.Len(t, result.Report.Items, 1)
+	require.Contains(t, result.Report.Items[0].Message, "Multiple local catalogs provide support for test.app")
+	require.False(t, result.Report.Items[0].Mutated)
 }
 
 func TestBundledGitApplyUsesSelectedIdentityOnlyAndKeepsCredentialDataLocalToBackupPayload(t *testing.T) {

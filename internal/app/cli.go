@@ -17,6 +17,7 @@ import (
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2appauthor "github.com/shpoont/dotfiles-manager/internal/v2/appauthor"
 	v2appdiscovery "github.com/shpoont/dotfiles-manager/internal/v2/appdiscovery"
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	v2initcmd "github.com/shpoont/dotfiles-manager/internal/v2/initcmd"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
@@ -85,6 +86,7 @@ optional.`,
 	rootCmd.AddCommand(newListCmd(opts))
 	rootCmd.AddCommand(newSearchCmd(opts))
 	rootCmd.AddCommand(newExplainCmd(opts))
+	rootCmd.AddCommand(newCatalogCmd(opts))
 	rootCmd.AddCommand(newAddCmd(opts))
 	rootCmd.AddCommand(newStatusCmd(opts))
 	rootCmd.AddCommand(newDiffCmd(opts))
@@ -615,6 +617,91 @@ func newExplainCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
+func newCatalogCmd(opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "catalog",
+		Short: "Advanced: manage recipe catalogs/sources",
+	}
+	cmd.AddCommand(newCatalogListCmd(opts))
+	cmd.AddCommand(newCatalogAddCmd(opts))
+	cmd.AddCommand(newCatalogDisableCmd(opts))
+	cmd.AddCommand(newCatalogEnableCmd(opts))
+	cmd.AddCommand(newCatalogRemoveCmd(opts))
+	return cmd
+}
+
+func newCatalogListCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List built-in and local recipe catalogs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCatalogListCommand(cmd, opts, jsonOutput)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newCatalogAddCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	var name string
+	cmd := &cobra.Command{
+		Use:   "add <local-path> --name <name>",
+		Short: "Add a local recipe catalog",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCatalogAddCommand(cmd, opts, args[0], name, jsonOutput)
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "Local catalog name")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newCatalogDisableCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "disable <name>",
+		Short: "Disable a local recipe catalog without deleting settings",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCatalogDisableCommand(cmd, opts, args[0], jsonOutput)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newCatalogEnableCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "enable <name>",
+		Short: "Enable a disabled local recipe catalog",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCatalogEnableCommand(cmd, opts, args[0], jsonOutput)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func newCatalogRemoveCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Forget a local recipe catalog without deleting its folder or settings",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCatalogRemoveCommand(cmd, opts, args[0], jsonOutput)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -1181,6 +1268,119 @@ func runListCommand(cmd *cobra.Command, opts *rootOptions, listOpts v2listcmd.Op
 	return err
 }
 
+func runCatalogListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool) error {
+	repoRoot, rootErr := catalogRepoRoot(opts, "list", true)
+	if rootErr != nil {
+		report := v2catalogErrorReport(v2catalog.ListCommand, v2catalog.CodeStateRootInvalid, rootErr.Error())
+		_ = emitCatalogReport(cmd.OutOrStdout(), report, jsonOutput)
+		return &v2catalog.Error{Code: v2catalog.CodeStateRootInvalid, Message: rootErr.Error(), Exit: 2}
+	}
+	report, err := v2catalog.List(v2catalog.Options{RepoRoot: repoRoot, ManagerVersion: currentVersion()})
+	if emitErr := emitCatalogReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func runCatalogAddCommand(cmd *cobra.Command, opts *rootOptions, path string, name string, jsonOutput bool) error {
+	repoRoot, rootErr := catalogRepoRoot(opts, "add", false)
+	if rootErr != nil {
+		remoteReport, remoteErr := v2catalog.Add(v2catalog.AddOptions{Options: v2catalog.Options{ManagerVersion: currentVersion()}, Name: name, Path: path})
+		if remoteErr != nil && remoteReport != nil && remoteReport.Error != nil && remoteReport.Error.Code == v2catalog.CodeRemoteUnsupported {
+			if emitErr := emitCatalogReport(cmd.OutOrStdout(), remoteReport, jsonOutput); emitErr != nil {
+				return emitErr
+			}
+			return remoteErr
+		}
+		report := v2catalogErrorReport(v2catalog.AddCommand, v2catalog.CodeStateRootInvalid, rootErr.Error())
+		_ = emitCatalogReport(cmd.OutOrStdout(), report, jsonOutput)
+		return &v2catalog.Error{Code: v2catalog.CodeStateRootInvalid, Message: rootErr.Error(), Exit: 2}
+	}
+	report, err := v2catalog.Add(v2catalog.AddOptions{Options: v2catalog.Options{RepoRoot: repoRoot, ManagerVersion: currentVersion()}, Name: name, Path: path})
+	if emitErr := emitCatalogReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func runCatalogDisableCommand(cmd *cobra.Command, opts *rootOptions, name string, jsonOutput bool) error {
+	return runCatalogSetCommand(cmd, opts, name, jsonOutput, v2catalog.Disable)
+}
+
+func runCatalogEnableCommand(cmd *cobra.Command, opts *rootOptions, name string, jsonOutput bool) error {
+	return runCatalogSetCommand(cmd, opts, name, jsonOutput, v2catalog.Enable)
+}
+
+func runCatalogRemoveCommand(cmd *cobra.Command, opts *rootOptions, name string, jsonOutput bool) error {
+	return runCatalogSetCommand(cmd, opts, name, jsonOutput, v2catalog.Remove)
+}
+
+func runCatalogSetCommand(cmd *cobra.Command, opts *rootOptions, name string, jsonOutput bool, action func(v2catalog.Options, string) (*v2catalog.Report, error)) error {
+	repoRoot, rootErr := catalogRepoRoot(opts, "catalog", false)
+	if rootErr != nil {
+		report := v2catalogErrorReport(v2catalog.ListCommand, v2catalog.CodeStateRootInvalid, rootErr.Error())
+		_ = emitCatalogReport(cmd.OutOrStdout(), report, jsonOutput)
+		return &v2catalog.Error{Code: v2catalog.CodeStateRootInvalid, Message: rootErr.Error(), Exit: 2}
+	}
+	report, err := action(v2catalog.Options{RepoRoot: repoRoot, ManagerVersion: currentVersion()}, name)
+	if emitErr := emitCatalogReport(cmd.OutOrStdout(), report, jsonOutput); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+func catalogRepoRoot(opts *rootOptions, operation string, allowCwdFallback bool) (string, error) {
+	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
+		if !isExplicitV2Config(opts.configPath) {
+			return "", fmt.Errorf("--config for catalog %s must point to %s", operation, v2resolution.RootConfigFile)
+		}
+		return repoRootFromExplicitV2Config(opts.configPath)
+	}
+	root, err := v2resolution.FindRoot("")
+	if err == nil {
+		return root, nil
+	}
+	if !strings.Contains(err.Error(), "v2 repository root not found") {
+		return "", err
+	}
+	if !allowCwdFallback {
+		return "", fmt.Errorf("catalog %s requires a v2 settings storage folder; run dotfiles-manager init first or pass --config %s", operation, v2resolution.RootConfigFile)
+	}
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		return "", cwdErr
+	}
+	return cwd, nil
+}
+
+func emitCatalogReport(w io.Writer, report *v2catalog.Report, jsonOutput bool) error {
+	var out string
+	var err error
+	if jsonOutput {
+		out, err = v2catalog.JSON(report)
+	} else {
+		out = v2catalog.Text(report) + "\n"
+	}
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, out)
+	return err
+}
+
+func v2catalogErrorReport(command string, code string, message string) *v2catalog.Report {
+	return &v2catalog.Report{
+		Schema:        v2catalog.Schema,
+		SchemaVersion: v2catalog.SchemaVersion,
+		Command:       command,
+		RunID:         strings.ReplaceAll(command, ".", "-"),
+		Summary:       v2catalog.Summary{Status: "error", Failed: 1},
+		Sources:       []v2catalog.Source{},
+		Diagnostics:   []v2catalog.Diagnostic{},
+		Error:         &v2catalog.ErrorObject{Code: code, Message: message},
+	}
+}
+
 func runAppListCommand(cmd *cobra.Command, opts *rootOptions, appOpts v2appdiscovery.Options, jsonOutput bool, verbose bool) error {
 	repoRoot, repoRootSet, rootErr := appDiscoveryRepoRoot(opts, "list")
 	if rootErr != nil {
@@ -1243,7 +1443,11 @@ func appDiscoveryRepoRoot(opts *rootOptions, operation string) (string, bool, er
 	root, err := v2resolution.FindRoot("")
 	if err != nil {
 		if strings.Contains(err.Error(), "v2 repository root not found") {
-			return "", false, nil
+			cwd, cwdErr := os.Getwd()
+			if cwdErr != nil {
+				return "", false, cwdErr
+			}
+			return cwd, false, nil
 		}
 		return "", false, err
 	}

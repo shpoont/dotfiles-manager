@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	v2catalog "github.com/shpoont/dotfiles-manager/internal/v2/catalog"
 	"github.com/shpoont/dotfiles-manager/internal/v2/customfiles"
 	"github.com/shpoont/dotfiles-manager/internal/v2/desired"
 	"github.com/shpoont/dotfiles-manager/internal/v2/filedriver"
@@ -665,8 +666,51 @@ func selectedValueBackupHook(store *v2ledger.Store, runID string, started time.T
 	}
 }
 
+func loadRuntimeForLive(repoRoot string, stateRoot string, targetID string) (recipe.RuntimeRecipe, error) {
+	if _, bundled := recipe.LookupBundledTarget(targetID); !bundled {
+		lookup, lookupErr := v2catalog.LookupTarget(v2catalog.Options{RepoRoot: repoRoot, StateRoot: stateRoot}, targetID, true)
+		if lookupErr != nil {
+			runtime := recipe.RuntimeRecipe{Source: recipe.RecipeSourceLocal, RecipeRef: "recipe://local/" + targetID, TrustStatus: recipe.TrustStatusReviewRequired}
+			return runtime, fmt.Errorf("catalog lookup failed for %s: %w", targetID, lookupErr)
+		}
+		if lookup.Found {
+			runtime := recipe.RuntimeRecipe{Recipe: lookup.Candidate.Recipe, Source: recipe.RecipeSourceLocal, RecipeRef: lookup.Candidate.RecipeRef, TrustStatus: recipe.TrustStatusReviewRequired}
+			if lookup.Ambiguous {
+				return runtime, fmt.Errorf("multiple local catalogs provide support for %s; choose one source before live settings can be changed", targetID)
+			}
+			if lookup.Available {
+				return runtime, nil
+			}
+			return runtime, fmt.Errorf("local catalog %q is disabled or unavailable", lookup.Source.Name)
+		}
+	}
+	runtime, err := recipe.LoadRuntime(repoRoot, targetID)
+	return runtime, err
+}
+
+func evaluateRuntimeTrust(repoRoot string, stateRoot string, runtime recipe.RuntimeRecipe, rec *recipe.Recipe) (recipe.TrustEvaluation, error) {
+	if runtime.Source == recipe.RecipeSourceLocal && isExternalLocalCatalogRecipeRef(runtime.RecipeRef) {
+		eval := recipe.TrustEvaluation{
+			Source:      runtime.Source,
+			Status:      recipe.TrustStatusReviewRequired,
+			Diagnostics: []recipe.ValidationDiagnostic{{Code: "selectedlive.trust.catalogSpecificRequired", Severity: recipe.ValidationSeverityError, Message: "local catalog support requires catalog-specific write approval before live settings can be changed", Path: "$"}},
+		}
+		if rec != nil {
+			eval.Target = rec.Target
+		}
+		return eval, nil
+	}
+	return recipe.EvaluateRecipeTrust(repoRoot, stateRoot, runtime.Source, rec)
+}
+
+func isExternalLocalCatalogRecipeRef(recipeRef string) bool {
+	ref := strings.TrimPrefix(strings.TrimSpace(recipeRef), "recipe://local/")
+	parts := strings.Split(ref, "/")
+	return len(parts) >= 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
+}
+
 func runtimeContext(repoRoot string, stateRoot string, setting resolution.ResolvedSetting, allowNativeOpaque bool, handlesLifecycleActions ...bool) (*recipe.Recipe, string, recipe.TrustEvaluation, recipe.WriteSafetyContext, string, recipe.Resource, error) {
-	runtime, err := recipe.LoadRuntime(repoRoot, setting.TargetID)
+	runtime, err := loadRuntimeForLive(repoRoot, stateRoot, setting.TargetID)
 	if err != nil {
 		return nil, runtime.Source, recipe.TrustEvaluation{}, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
 	}
@@ -675,7 +719,7 @@ func runtimeContext(repoRoot string, stateRoot string, setting resolution.Resolv
 	if err != nil {
 		return rec, runtime.Source, recipe.TrustEvaluation{}, recipe.WriteSafetyContext{}, "", recipe.Resource{}, err
 	}
-	eval, err := recipe.EvaluateRecipeTrust(repoRoot, stateRoot, runtime.Source, rec)
+	eval, err := evaluateRuntimeTrust(repoRoot, stateRoot, runtime, rec)
 	if err != nil {
 		return rec, runtime.Source, eval, recipe.WriteSafetyContext{}, resourceID, resource, err
 	}
