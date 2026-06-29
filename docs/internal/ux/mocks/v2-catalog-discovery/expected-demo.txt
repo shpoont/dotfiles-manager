@@ -1,0 +1,264 @@
+# v2 catalog discovery runnable UX mock
+# Work item: #228
+# Safety: mock only; no live settings, stored settings, or real catalog folders are read or changed.
+
+$ dotfiles-manager list
+Supported apps
+
+  APP           SOURCE    STATE
+  custom.files  built-in  not managed
+  git           built-in  not managed
+  nvim          built-in  not managed
+  ssh           built-in  not managed
+  starship      built-in  not managed
+  tmux          built-in  not managed
+  zsh           built-in  not managed
+
+Tip: add a local catalog when you want dotfiles-manager to discover custom app support.
+     dotfiles-manager catalog add ~/dotfiles-manager-recipes --name personal
+No live settings were read or changed.
+No stored settings were changed.
+
+$ dotfiles-manager search git
+Search results for 'git'
+
+  git  built-in  not managed
+
+Use `dotfiles-manager explain git` to see what can be managed.
+No live settings were read or changed.
+
+$ dotfiles-manager explain git
+Git is supported by dotfiles-manager.
+
+App ID: git
+Source: built-in support from dotfiles-manager
+State: not managed
+
+Can manage:
+  git:user.email  Git user email
+  git:user.name   Git user name
+
+Why this source is used:
+  Built-in support is bundled, deterministic, and updates with each
+  dotfiles-manager release.
+
+No live values were printed.
+No live settings were changed.
+
+$ dotfiles-manager catalog list
+Catalogs
+
+  built-in  enabled
+    Source: ships with dotfiles-manager
+    Updates: with dotfiles-manager releases
+    Network: not used
+    Removable: no
+
+Local catalogs: none
+Remote catalogs: not supported yet
+
+No live settings were read or changed.
+No stored settings were changed.
+
+$ dotfiles-manager catalog add ~/broken-recipes --name broken
+Catalog not added: broken
+
+Reason:
+  1 support definition failed validation.
+
+Invalid support:
+  broken-tool
+    - unknown field "dangerousCommand"
+
+No live settings were read or changed.
+No stored settings were changed.
+[exit 1]
+
+$ dotfiles-manager catalog add ~/dotfiles-manager-recipes --name personal
+Added local catalog: personal
+
+Source:
+  ~/dotfiles-manager-recipes
+
+Validated support:
+  example-tool  local support
+  git           local candidate; built-in support remains the default
+
+Network: not used
+No live settings were read or changed.
+No stored settings were changed.
+
+$ dotfiles-manager list
+Supported apps
+
+  APP           SOURCE              STATE
+  custom.files  built-in            not managed
+  example-tool  personal            not managed
+  git           built-in            not managed
+                also in personal; built-in remains default
+  nvim          built-in            not managed
+  ssh           built-in            not managed
+  starship      built-in            not managed
+  tmux          built-in            not managed
+  zsh           built-in            not managed
+
+Use `dotfiles-manager explain <app>` to see support details and candidates.
+No live settings were read or changed.
+No stored settings were changed.
+
+$ dotfiles-manager explain git
+Git is supported by multiple sources.
+
+Default source:
+  built-in support from dotfiles-manager
+
+Other available source:
+  local catalog: personal
+  Status: candidate only
+
+Why built-in is used:
+  Built-in support remains the default unless you explicitly choose another
+  source. Local support cannot silently replace built-in support.
+
+Can manage from the default source:
+  git:user.email  Git user email
+  git:user.name   Git user name
+
+No live values were printed.
+No live settings were changed.
+
+$ dotfiles-manager explain example-tool
+Example Tool is supported by a local catalog.
+
+App ID: example-tool
+Source: local catalog personal
+State: not managed
+
+Can manage:
+  example-tool:config  Config file
+    Live location: $HOME/.config/example-tool/config.yaml
+
+Before live settings can be changed:
+  dotfiles-manager will show this source and the paths it wants to manage.
+  Local support requires write approval before it can change live settings.
+
+No live values were printed.
+No live settings were changed.
+
+$ dotfiles-manager sync --dry-run example-tool
+Preview sync for example-tool
+
+Source:
+  local catalog personal
+
+This support wants to manage:
+  example-tool:config
+    Live location: $HOME/.config/example-tool/config.yaml
+    Stored settings: desired/user/<user-id>/targets/example-tool/...
+
+Result:
+  Blocked before write.
+
+Reason:
+  Local support requires write approval before dotfiles-manager can change live
+  settings for this app.
+
+Next step:
+  Review and approve this local support before allowing writes.
+  If this version does not include an approval command yet, this app remains
+  blocked for live writes.
+
+No live settings were changed.
+No stored settings were changed.
+
+$ dotfiles-manager catalog disable personal
+Disabled local catalog: personal
+
+No longer available from this catalog:
+  example-tool
+  git local candidate
+
+Nothing was deleted.
+Live app settings were not changed.
+Stored settings were not changed.
+
+If a managed app depends on this catalog, it will show as source unavailable
+until you enable the catalog, add another source, or stop managing that app.
+
+$ dotfiles-manager list
+Supported apps
+
+  APP           SOURCE    STATE
+  custom.files  built-in  not managed
+  git           built-in  not managed
+  nvim          built-in  not managed
+  ssh           built-in  not managed
+  starship      built-in  not managed
+  tmux          built-in  not managed
+  zsh           built-in  not managed
+
+Disabled local catalogs:
+  personal  2 hidden apps/candidates
+
+Tip: add a local catalog when you want dotfiles-manager to discover custom app support.
+     dotfiles-manager catalog add ~/dotfiles-manager-recipes --name personal
+No live settings were read or changed.
+No stored settings were changed.
+
+# Scenario precondition for the next command: example-tool was already managed from personal before that catalog became unavailable.
+
+$ dotfiles-manager status example-tool
+example-tool: blocked
+
+Reason:
+  This app is managed with support from local catalog "personal", but that
+  catalog is disabled or removed.
+
+No live app settings were read or changed.
+Stored settings were not changed.
+Stored settings still exist, if they existed before.
+
+To continue:
+  Enable the catalog:
+    dotfiles-manager catalog enable personal
+
+  Or add another catalog that supports example-tool.
+
+  Or remove this app from the managed set.
+
+$ dotfiles-manager catalog enable personal
+Enabled local catalog: personal
+
+Validated support:
+  example-tool  local support
+  git           local candidate; built-in support remains the default
+
+No live settings were read or changed.
+No stored settings were changed.
+
+$ dotfiles-manager catalog remove personal
+Removed local catalog: personal
+
+Forgotten by dotfiles-manager:
+  ~/dotfiles-manager-recipes
+
+Nothing was deleted from that folder.
+Live app settings were not changed.
+Stored settings were not changed.
+
+Apps that depended on this catalog are now source unavailable until you re-add
+this catalog, choose another source, or stop managing those apps.
+
+$ dotfiles-manager catalog add shpoont/custom-recipes
+Catalog not added: shpoont/custom-recipes
+
+Reason:
+  Remote GitHub catalogs are not supported in this version of dotfiles-manager.
+
+For now, use a local catalog folder:
+  dotfiles-manager catalog add ./custom-recipes --name personal
+
+Remote catalog trust, updates, and write gates are planned separately.
+No live settings were read or changed.
+No stored settings were changed.
+[exit 1]
