@@ -1,7 +1,7 @@
 ---
 owner: Project Owner + Work Manager
 status: Process tailoring
-last-updated: 2026-06-25
+last-updated: 2026-06-29
 canonical-source: docs/internal/process/v2-execution-standards-tailoring.md
 ---
 
@@ -61,6 +61,58 @@ Do not make every issue Tier 2. Escalate only when the work can mutate real user
 settings, introduce trust/security/privacy risk, create irreversible changes, or
 make public release claims.
 
+## Lifecycle gate rules
+
+The updated external standard's lifecycle gate / gate passport model is mandatory
+for material phase transitions in v2 reset work. Apply it before moving between
+discovery, design evidence, freeze, implementation, real-result verification,
+validation, acceptance, closure, merge, release, or adoption.
+
+For each non-trivial work item, future sessions must be able to identify:
+
+- current lifecycle phase and requested transition;
+- current source of truth and whether it was refreshed;
+- active issue and open PR, if any;
+- frozen package/version, or why the item is still pre-freeze;
+- public-surface freeze status when relevant;
+- runnable/replayable mock status when relevant;
+- open questions, blockers, waivers, accepted exceptions, or managed changes;
+- owner decision needed, allowed next action, and no-go actions.
+
+If a gate cannot be reconstructed from current records, execution is blocked for
+implementation and release-impacting work. The agent may inspect, draft evidence,
+create a mock, ask for the gate decision, record a blocker, or recontract the
+issue.
+
+## Public-surface and runnable-mock rule
+
+`dotfiles-manager` is a CLI-first product, so command shape and output are
+product UX. For meaningful Tier 1/Tier 2 changes to CLI commands, help text,
+status/diff/sync output, catalog/source vocabulary, recipe/app discovery,
+workflow prompts, public docs, or operator instructions, design evidence must
+include runnable or replayable usage evidence by default. Examples include:
+
+- runnable mock CLI;
+- scripted fixture transcript;
+- golden-output fixture;
+- temp-home dry-run;
+- executable docs example;
+- replayable storyboard with commands, fixtures, and expected output that another
+  reviewer can independently rerun or mechanically compare.
+
+Here, "replayable" means executable, scripted, fixture-backed, golden-output
+backed, or otherwise independently reproducible. A pasted static transcript,
+storyboard, issue comment, Pro review, or subagent review is not enough for
+meaningful public-surface implementation unless the issue records
+a decision-owner waiver or not-applicable decision. The waiver must state scope,
+reason, residual risk, alternative evidence accepted, and what it does not
+authorize.
+
+Design acceptance, implementation-start authorization, validation, acceptance,
+merge, release, and closure are separate decisions. Pro and subagent reviews are
+advisory evidence only; they do not replace Project Owner or delegated acceptor
+decisions.
+
 ## Minimum issue contract
 
 Each non-trivial work item must identify:
@@ -87,21 +139,27 @@ Tier 0 checklist:
 - Accepted/closed by:
 ```
 
-## Freeze rule
+## Freeze and implementation-start rule
 
-Meaningful delivery work cannot begin until the issue contract is frozen.
+Meaningful delivery work cannot begin until the issue contract is frozen and an
+implementation-start gate is current for the intended action.
 
 A frozen issue has:
 
 - clear outcome and non-goals;
 - settled user-facing nouns/output for that slice;
+- public-surface shape frozen or explicitly not applicable;
+- runnable/replayable usage evidence reviewed, waived, or explicitly not
+  applicable where the work affects public/user/operator surfaces;
 - evidence plan;
 - dependencies resolved, blocked, or explicitly waived;
 - validation and acceptance rule;
-- branch name or PR plan.
+- branch name or PR plan;
+- allowed next action and no-go actions.
 
-After freeze, changes to scope, behavior, risk, evidence, or dependencies are
-managed changes. They must be recorded in the issue or PR instead of silently
+After freeze, changes to scope, behavior, risk, evidence, dependencies,
+public-surface shape, or runnable/replayable evidence requirements are managed
+changes. They must be recorded in the issue or PR instead of silently
 implemented.
 
 ## Design evidence rule

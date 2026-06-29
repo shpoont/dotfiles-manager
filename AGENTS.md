@@ -24,6 +24,54 @@ The external standard is intentionally not copied or vendored in this repo. If
 it is missing, unreadable, or conflicts with local instructions, stop and ask for
 a decision. Do not proceed from memory, summaries, or copied fragments.
 
+## Session-start gate readback
+
+For non-trivial work, do not jump directly from a broad user prompt to
+implementation, CI repair, merge, release, acceptance, or closure. After the
+required reading above and before selecting the next action, produce or record a
+short gate readback covering:
+
+- current branch, HEAD, working-tree status, and unrelated untracked files;
+- live GitHub issue, PR, check, review, and project state relevant to the work;
+- current Project Execution Standards lifecycle phase and requested transition;
+- active issue contract, frozen package/version, design evidence, managed
+  changes, validation rule, acceptance rule, and closure rule;
+- public-surface freeze status and runnable/replayable mock status when the work
+  affects CLI, UI, API, documentation-facing, or operator-facing behavior;
+- exact next action and explicit no-go actions until the current gate is
+  satisfied.
+
+If an open PR already owns the active issue, resume that PR and its current
+standards gate. Do not restart from `main`, create competing implementation, or
+reinterpret the work unless the issue is explicitly recontracted.
+
+## Lifecycle gate and implementation-start rules
+
+Use the updated external standard's lifecycle gate / gate passport model for
+material phase transitions. A broad response such as "continue", "proceed",
+"ok", or "looks good" permits only work already inside the current approved
+package and role authority. It does not by itself approve a transition into
+implementation, validation, acceptance, closure, merge, release, a waiver, a
+managed change, or a weakened evidence plan.
+
+Before changing tracked files for implementation, product behavior, non-trivial
+process, templates, project state, or release-impacting work, verify that there
+is a current implementation-start gate for the active work item. The gate
+must identify the source of truth, frozen package/version, public-surface status
+where relevant, runnable/replayable mock status where relevant, unresolved
+questions, owner decision, allowed next action, and no-go actions.
+
+If the gate is missing, stale, ambiguous, or not scoped to the intended action,
+the allowed actions are limited to inspection, drafting/revising evidence,
+creating a mock or fixture, asking for the gate decision, updating the issue
+contract, or recording a blocker. Do not implement around the missing gate.
+
+For meaningful Tier 1/Tier 2 changes to CLI, UI, API, workflow, help/output,
+public documentation, or operator-facing behavior, default to runnable or
+replayable pre-implementation usage evidence. Static storyboards or transcripts
+are sufficient only when the active issue records why stronger usage evidence is
+not applicable or is explicitly waived by the decision owner.
+
 ## Source-of-truth precedence
 
 For active v2 reset work, use this precedence:
