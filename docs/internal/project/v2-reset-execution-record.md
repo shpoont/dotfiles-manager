@@ -1,7 +1,7 @@
 ---
 owner: Project Owner + Work Manager
 status: Active project record
-last-updated: 2026-06-29
+last-updated: 2026-07-02
 canonical-source: docs/internal/project/v2-reset-execution-record.md
 project-issue: 209
 ---
@@ -34,7 +34,9 @@ The product should let a user:
 3. sync all or selected settings in the correct direction;
 4. handle conflicts and missing apps/settings safely;
 5. use a settings storage folder with or without Git;
-6. use bundled recipes first and later optional recipe catalogs/taps;
+6. use the preconfigured official catalog, shown as `dotfiles-manager/official`
+   with catalog state shown by version and last-updated time, then later
+   optional catalog updates and additional remote catalogs/taps;
 7. set up a new computer by installing apps first and then applying settings.
 
 ## Current accepted product constraints
@@ -79,28 +81,41 @@ operationally.
 
 Current active gate:
 
-- #228 has draft implementation PR #255, but #228 is in recovery gate status,
-  not normal ready-to-finish implementation.
-- #228 recovery is required because implementation began without a sufficiently
-  explicit Project Owner implementation-start gate for the final CLI UX package
-  and without a recorded decision that static storyboard/transcript evidence was
-  sufficient instead of a runnable/replayable CLI mock.
-- PR #255 also has a separate CI coverage failure: `coverage-aggregation` failed
-  at `88.9% < 90%`; `final-required-check` failed because coverage failed.
+- #228 is being recontracted after Project Owner review of the `list` surface.
+- Project Owner decision on 2026-06-30: remove internal pseudo-app targets from
+  normal discovery and remove local catalog lifecycle from the normal #228 path.
+- Project Owner managed change on 2026-07-02 after UX review: the #228 public/mock
+  surface should not demonstrate internal pseudo-app names or unavailable catalog
+  lifecycle commands. Both `catalog update` and `catalog add` are omitted from
+  #228 public/mock output until those behaviors are implemented by #229.
+- #228 should now target the preconfigured official-catalog discovery baseline
+  without presenting the catalog as baked into the app. `catalog list` should
+  identify the official catalog as `dotfiles-manager/official`, define catalogs
+  as support-definition sources rather than settings storage, and show concise
+  state such as catalog version and updated time. First-run download,
+  official-catalog update, and additional remote catalogs are implemented by
+  #229 unless separately recontracted.
+- Draft PR #255 implemented the previous local-catalog lifecycle scope and is now
+  superseded for #228 acceptance purposes. Its coverage failure is no longer the
+  next actionable blocker.
 
-No-go actions until #228 recovery is recorded:
+No-go actions until #228 is recontracted and a new implementation-start gate is
+recorded:
 
-- Do not fix #255 coverage or continue #228 implementation as if the UX gate were
-  already satisfied.
-- Do not mark PR #255 ready, merge it, request #228 acceptance, or close #228.
-- Do not start #229 remote catalog implementation using #228 as accepted.
+- Do not fix #255 coverage or continue #255 implementation as if it still matched
+  #228.
+- Do not mark PR #255 ready, merge it, request #228 acceptance, or close #228
+  based on #255.
+- Do not start #229 remote catalog implementation using old #228 superseded
+  behavior as accepted.
 
-Allowed #228 recovery actions after #256:
+Allowed #228 recovery actions:
 
-1. create a runnable/replayable CLI mock and compare PR #255 against it;
-2. record Project Owner waiver/not-applicable decision for the mock and accept
-   the existing storyboard as sufficient design evidence for #228; or
-3. recontract #228 before implementation continues.
+1. update #228 issue contract and durable design evidence for
+   official-catalog discovery with version/last-updated catalog state;
+2. mark PR #255 as superseded/blocked by the recontract decision;
+3. after the recontract is reviewed and accepted, start a fresh implementation
+   from current `main` against the new #228 contract.
 
 ## Standards maturity snapshot
 
@@ -136,13 +151,13 @@ As of 2026-06-29:
 | #211 | Parent delivery area | Tier 2 overall | Complete | Accepted and closed 2026-06-26 after #221-#225, #212, and #213/#226 completed. |
 | #212 | Product-scope cleanup gate | Tier 1 | Complete | PR #243 removed public backup/restore workflow; issue closed 2026-06-25. |
 | #213 | Product-scope cleanup gate | Tier 1 | Complete | PR #247 removed v1 migration from the active v2 roadmap/user-facing happy path and closed 2026-06-26. |
-| #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | #227 completed the trust/origin model; use #228 before #229 where built-in/local discovery behavior is needed. Remote writes still require #229 write-gate implementation. |
+| #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | #227 completed the trust/origin model; use #228 for the official-catalog discovery baseline before #229 official-catalog download/update and remote catalog add/write-gate implementation. |
 | #215 | Parent delivery area | Tier 1/Tier 2 | Open parent | Use #230 before #231; Homebrew Bundle remains an example, not a dependency. |
 | #216 | Documentation delivery | Tier 1 | Open | Production docs depend on accepted behavior/examples from remaining gates. |
 | #226 | Delivery-design cleanup | Tier 1 | Complete | PR #247 hides retained legacy v1 commands from root help, labels direct help as legacy compatibility, and closed 2026-06-26. |
 | #227 | Discovery/design | Discovery/Tier 1 | Complete | PR #250 merged; issue accepted and closed 2026-06-26. |
-| #228 | Delivery | Tier 1 | Recovery gate / draft PR #255 | Built-in/local catalog discovery implementation exists in draft PR #255, but process recovery is required before code/coverage continuation: choose runnable/replayable mock, explicit waiver, or recontract. |
-| #229 | Delivery | Tier 2 | Open child of #214 | Implement remote catalog management with write gates against the accepted #227 model. |
+| #228 | Delivery | Tier 1 | Recontracting | Project Owner removed internal pseudo-app targets, catalog lifecycle command placeholders, and user-facing built-in catalog wording from the normal path. Draft PR #255 is superseded by this direction; update contract/design evidence before fresh implementation. |
+| #229 | Delivery | Tier 2 | Open child of #214 | Implement official-catalog update and additional remote catalog management with write gates against the accepted #227 model; remote catalogs are the intended normal extension path beyond the current official catalog. |
 | #230 | UX/design | Tier 1 | Open child of #215 | Specify new-computer UX and output. |
 | #231 | Delivery | Tier 2 | Open child of #215 | Implement apply-from-storage flow after sync model/UX is accepted. |
 | #238 | Cleanup / enabler | Tier 1 | Complete | PR #239 reconciled #209 and this execution record with live state; no runtime changes. |
@@ -169,10 +184,10 @@ child-scope completion, not automatic parent closure.
 | #212 | Closed / Done | Product-scope gate | PR #243 merged 2026-06-25; issue closed | Checked | Public backup/restore workflow removed; lower-level internal recovery mechanics remain implementation details. |
 | #213 | Closed / Done | Product-scope gate | PR #247 merged; issue closed 2026-06-26 | Checked | No further action unless future v1 migration/deprecation work is explicitly reintroduced. |
 | #226 | Closed / Done | Child of #213 | PR #247 merged; issue closed 2026-06-26 | Checked under #213 | Retained legacy v1 commands are hidden from normal help and separated from v2 acceptance. |
-| #214 | Open / Todo | Catalog parent | #227 closed; #228/#229 open | Keep parent open with children | Built-in/local discovery and remote write-gate implementation remain. |
+| #214 | Open / Todo | Catalog parent | #227 closed; #228/#229 open | Keep parent open with children | Official-catalog discovery baseline (#228) and remote catalog update/add/write-gate implementation (#229) remain. |
 | #227 | Closed / Done | Catalog child | PR #250 merged; issue closed after Project Owner acceptance | Checked under #214 | Trust/origin/write-authority model complete for downstream implementation. |
-| #228 | Open / draft PR | Catalog child | Draft PR #255 exists; CI coverage currently fails at 88.9% < 90%; process recovery gate identified | Recovery under #214 | Before code/coverage continuation, recover implementation-start/public-surface gate by mock, waiver, or recontract. |
-| #229 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement remote catalog management with write gates against the accepted #227 model. |
+| #228 | Open / recontracting | Catalog child | Draft PR #255 exists but is superseded by the 2026-06-30 and 2026-07-02 decisions to remove internal pseudo-app targets and catalog lifecycle placeholders from the normal path | Recontract under #214 | Update #228 contract/storyboard/mock, mark #255 superseded, then implement fresh from current `main`. |
+| #229 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement official-catalog update and additional remote catalog management with write gates; this is the normal extension path beyond the current official catalog after local catalogs were removed from #228. |
 | #215 | Open / Todo | Bootstrap parent | Children #230-#231 open | Keep parent open with children | Bootstrap must reuse sync model; Homebrew Bundle is example only. |
 | #230 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Specify new-computer UX/output before implementation. |
 | #231 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Implement apply-from-storage after accepted UX/model. |
@@ -217,7 +232,7 @@ Before starting any work item:
 | Branches from closed PRs may be reused accidentally | Enforce branch rule and start from `main` | Executor | Active |
 | Agents may cross lifecycle phases from broad prompts or artifact completion | Use lifecycle gate/passport readback, implementation-start gate, and explicit no-go actions from AGENTS/tailoring/templates | Work Manager / Executor | Mitigated / monitoring |
 | Meaningful CLI UX can be implemented from static transcripts without owner-approved runnable/replayable evidence | Default to runnable/replayable CLI usage evidence or record a Project Owner waiver/not-applicable decision | Work Manager / Project Owner | Mitigated / monitoring |
-| #228 implementation may continue as if PR #255 were only a CI issue | Record #228 recovery status and require mock/waiver/recontract before coverage cleanup or merge | Work Manager | Active |
+| #228 implementation may continue from superseded PR #255 | Mark #255 superseded, update #228 contract/design evidence, and require fresh implementation-start gate from current `main` | Work Manager | Active |
 
 ## Evidence index
 
@@ -239,8 +254,11 @@ Before starting any work item:
 | Status/diff/sync parent gate accepted | Issue #211 closure comment after Project Owner selected option 1 to accept and close #211 | 2026-06-26 | Parent acceptance only; the combined v2 product remains open until catalog, bootstrap, and production documentation gates are complete or deferred. |
 | Catalog trust/origin model accepted | PR #250 squash merge `696e235d82856295c04c31941ca31e63e1935e67`; issue #227 closure record after Project Owner accepted closure | 2026-06-26 | Specifies design and handoff requirements only; #228/#229 still need implementation and runtime verification. |
 | External Project Execution Standard updated with lifecycle gates | `/Users/shpoont/Work/shpoont/project-execution-standards/project-execution-standard.md`, last-updated 2026-06-29 | 2026-06-29 | Local repo adaptation tracked by #256; external standard is linked, not copied. |
-| #228 recovery gate identified | Draft PR #255 exists; CI coverage failure observed; Project Owner discussion identified missing explicit implementation-start/public-surface mock gate | 2026-06-29 | Recovery decision still pending: runnable/replayable mock, waiver, or recontract. |
+| #228 recovery gate identified | Draft PR #255 exists; CI coverage failure observed; Project Owner discussion identified missing explicit implementation-start/public-surface mock gate | 2026-06-29 | Superseded by 2026-06-30 recontract decision; #255 is not the implementation target. |
 | Local lifecycle-gate process hardening completed | PR #257 / issue #256 adapted local AGENTS, tailoring, templates, and execution record to the updated standard | 2026-06-29 | Process-only change; does not validate #228 product behavior. |
+| #228 recontract decision: remove internal pseudo-app targets, catalog lifecycle placeholders, and built-in catalog wording | Project Owner decided normal discovery should show real apps/tools only through the official catalog, with catalog version/updated state in `catalog list`; unavailable `catalog update` and `catalog add` output is omitted until #229 implements those behaviors | 2026-07-02 | Requires updated #228 contract/design evidence and fresh implementation-start gate before runtime work. |
+| #228 GitHub contract recontracted | Issue #228 title/body updated, #228 managed-change comment recorded, PR #255 title/body/comment marked superseded, #229 received context comment, and #209 source-of-truth body updated | 2026-06-30 | Tracker update only; runtime implementation and #228 acceptance remain pending. |
+| #228 official catalog refinement | Project Owner approved replacing user-facing built-in catalog wording with a preconfigured official catalog and later clarified that it must not be presented as included/baked into the app | 2026-06-30 | Design/tracker refinement only; #228 must not implement first-run download or update behavior until #229 behavior exists or the issue is recontracted. |
 
 ## Phase 1 acceptance state
 
@@ -292,16 +310,22 @@ Phase 3 recontract/resequence:
 
 ## Current next gate
 
-#256 local process hardening is complete. The current gate is #228 recovery:
+#228 is finishing recontract/design-evidence review after Project Owner and UX
+review of the `list`/discovery surface:
 
-- create/review a runnable or replayable CLI mock and compare PR #255 against it;
-- or record a Project Owner waiver/not-applicable decision that accepts the
-  existing storyboard/static transcript evidence for #228;
-- or recontract #228 before implementation continues.
+- remove internal/generated pseudo-app targets from normal discovery;
+- omit unavailable catalog lifecycle commands from the #228 public/mock surface;
+- define catalogs as app/tool support sources, not settings storage;
+- show `dotfiles-manager/official` as active for discovery with concise catalog
+  version/updated metadata;
+- use official-catalog update and additional remote catalogs as the future
+  extension path in #229;
+- keep PR #255 superseded instead of fixing its coverage;
+- merge PR #258 as the durable storyboard/mock evidence package before fresh
+  runtime implementation.
 
-Only after #228 recovery is recorded should the executor fix PR #255 coverage,
-rerun validation, request review/acceptance, mark PR #255 ready, merge, or close
-#228.
+Only after PR #258 is merged and an implementation-start gate is recorded should
+an executor start fresh #228 runtime implementation from current `main`.
 
 Paired follow-up:
 

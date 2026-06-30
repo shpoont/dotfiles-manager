@@ -22,10 +22,12 @@ tests, and command documentation.
   storyboard for selecting several supported apps/settings through the current
   repeated `add <target>` flow, without implying unsupported multi-target add
   syntax.
-- `v2-catalog-discovery-storyboard.md` — pre-implementation terminal
-  storyboard for #228 built-in/local catalog discovery using the flattened
-  normal-user `list`, `search`, and `explain` surface, with `catalog ...` and
-  advanced `recipe ...` boundaries.
+- `v2-catalog-discovery-storyboard.md` — recontracted pre-implementation
+  terminal storyboard for #228 official-catalog app discovery from the bundled
+  snapshot using the flattened normal-user `list`, `search`, and `explain`
+  surface. It removes internal pseudo-app targets and catalog lifecycle commands
+  from the normal #228 path and reserves catalog updates/additional remote
+  catalogs for #229.
 - `v2-cli-discovery-normalization-storyboard.md` — pre-implementation
   storyboard for the #252 focused discovery slice that changes normal `list`,
   adds `search` and top-level `explain`, and preserves selected-settings list

@@ -3,7 +3,7 @@ owner: Product + Core Engineering
 location: docs/internal/specs/v2/17-catalog-trust-origin-model.md
 document-type: v2-active-behavior-spec
 status: Active behavior spec
-last-updated: 2026-06-26
+last-updated: 2026-06-30
 canonical-source: docs/internal/specs/v2/17-catalog-trust-origin-model.md
 source-issue: 227
 authority: Authoritative v2 catalog/tap trust, recipe origin, update, disabling/removal, provenance, collision, and write-authority model for #214/#227; #228 and #229 implementation must conform to this model.
@@ -14,10 +14,12 @@ authority: Authoritative v2 catalog/tap trust, recipe origin, update, disabling/
 ## Purpose
 
 This document defines the v2 model for recipe catalogs/taps before remote
-catalog implementation starts. It accepts the existing bundled registry as the
-first normalized catalog seed, defines how local and future remote recipe
-sources are represented, and sets the trust/write-authority rules that must gate
-any recipe that can change live settings.
+catalog implementation starts. A 2026-06-30 managed change replaces the
+previous default-catalog wording with a preconfigured dotfiles-manager official
+catalog that ships with a bundled snapshot for first-run/offline discovery. It
+also defines how future remote recipe sources are represented and sets the
+trust/write-authority rules that must gate any recipe that can change live
+settings.
 
 The central rule is:
 
@@ -34,7 +36,7 @@ by itself to let recipes from that catalog write live app settings.
 In scope for issue #227:
 
 - catalog/source identity and state;
-- bundled/default catalog definition;
+- official catalog bundled-snapshot definition;
 - local and remote catalog behavior at model level;
 - effective recipe origin fields visible before writes;
 - trust, provenance, update, disabling/removal, collision, and write-authority
@@ -58,13 +60,13 @@ Use four concepts and keep them distinct.
 | Concept | Meaning | Authority |
 | --- | --- | --- |
 | Catalog | Data that lists available recipe candidates. | No write authority by itself. |
-| Catalog source / tap | A locally configured origin from which a catalog is discovered, such as bundled, local, or remote. | May allow discovery when enabled. |
+| Catalog source / tap | A manager-known origin from which a catalog is discovered, such as the preconfigured official catalog or an additional remote catalog. | May allow discovery when enabled. |
 | Recipe origin | Manager-resolved provenance for one recipe candidate. | Must be visible before writes. |
-| Write grant | Local-only authority allowing a specific recipe origin to write live settings. | Required for non-bundled writes. |
+| Write grant | Local-only authority allowing a specific recipe origin to write live settings. | Required for writes from updated official data or additional remote catalogs. |
 
-Normal users should not need the word `tap` for the bundled happy path. Public
-copy should prefer `recipe source` and `permission to change live settings`.
-Advanced/JSON output may expose catalog/source/tap fields.
+Normal users should not need the word `tap` for the official-catalog happy path.
+Public copy should prefer `catalog` and `permission to change live settings`.
+Advanced/JSON output may expose recipe/source/tap fields.
 
 ## Source-of-truth and storage rules
 
@@ -88,19 +90,19 @@ is a #228/#229 implementation detail, but the model requires these fields.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `sourceId` | yes | Stable local identifier, for example `bundled`, `local`, or `remote:<id>`. |
-| `sourceKind` | yes | One of `bundled`, `local`, or `remote`. Unknown kinds fail closed. |
+| `sourceId` | yes | Stable local identifier, for example `official` or `remote:<id>`. |
+| `sourceKind` | yes | One of `official` or `remote` for normal v2 catalog sources. `local` is historical/advanced-only unless a future issue reintroduces it. Unknown kinds fail closed. |
 | `catalogId` | yes | Stable catalog identity independent from display name. |
 | `displayName` | yes | User-facing source/catalog name. Not a security identifier. |
-| `originUri` | yes | Release, file, or remote origin URI. |
+| `originUri` | yes | Remote origin URI for the catalog; the official catalog may also have a release-bundled snapshot URI. |
 | `status` | yes | `candidate`, `enabled`, `disabled`, `blocked`, or `removed`. |
-| `sourceAcceptance` | yes | Source-level discovery acceptance: `release-accepted`, `user-accepted`, `review-required`, `rejected`, or `invalid`. |
-| `integrityState` | yes | `not-required`, `valid`, `missing`, `invalid`, `expired`, `revoked`, or `unsupported`. |
-| `writeDefault` | yes | `allowed` or `denied`. Bundled is allowed; local and remote default denied. |
+| `sourceAcceptance` | yes | Source-level discovery acceptance: `release-accepted`, `user-accepted`, `review-required`, `rejected`, or `invalid`. The bundled official snapshot is `release-accepted`. |
+| `integrityState` | yes | `bundled-snapshot`, `valid`, `missing`, `invalid`, `expired`, `revoked`, or `unsupported`. |
+| `writeDefault` | yes | `allowed` or `denied`. The release-accepted official bundled snapshot is allowed; additional or updated remote data defaults denied until write authority is explicit. |
 | `pinnedIdentity` | conditional | Release identity, canonical local path, or remote signing identity. Required when relevant to provenance/trust. |
 | `lastSeenManifestDigest` | conditional | Digest of the latest validated manifest. Required for remote once fetched. |
 | `lastFetchedAt` | conditional | Fetch timestamp for remote sources. |
-| `updatePolicy` | yes | `release-only`, `manual`, or another explicitly accepted policy. |
+| `updatePolicy` | yes | `bundled-snapshot`, `manual`, or another explicitly accepted policy. #229 owns remote update behavior. |
 | `disabledReason` / `blockedReason` | conditional | Metadata-only reason when the source is disabled or blocked. |
 
 A recipe or remote manifest must not be allowed to self-declare its effective
@@ -115,41 +117,51 @@ is deliberately separate from recipe-level `reviewStatus` and write grants.
 A user can accept a remote catalog for discovery while every recipe from that
 catalog still remains blocked for live writes.
 
-## Bundled/default catalog
+## Official catalog and bundled snapshot
 
-The existing bundled registry is accepted as the candidate seed for the v2
-bundled catalog. It should be normalized as:
+The default source is the dotfiles-manager official catalog. It is conceptually a
+preconfigured remote catalog, but #228 uses only the bundled snapshot shipped
+with the installed app so first-run discovery works offline and does not require
+network access. It should be normalized as:
 
 ```yaml
-sourceId: bundled
-sourceKind: bundled
-catalogId: org.dotfiles-manager.bundled
-displayName: dotfiles-manager built-in recipes
-originUri: app-release://dotfiles-manager/<manager-version>/recipes
+sourceId: official
+sourceKind: official
+catalogId: org.dotfiles-manager.official
+displayName: dotfiles-manager official catalog
+originUri: dotfiles-manager-official-catalog://stable
+snapshotUri: app-release://dotfiles-manager/<manager-version>/official-catalog
 status: enabled
 sourceAcceptance: release-accepted
-integrityState: not-required
+integrityState: bundled-snapshot
 writeDefault: allowed
-updatePolicy: release-only
+updatePolicy: bundled-snapshot
+removable: false
 ```
 
-Current bundled fields remain valid as the runtime seed:
+Current bundled recipe files may remain the runtime seed, but user-facing output
+and new #228/#229 contracts should call this the official catalog snapshot:
 
 ```text
-source=bundled
-recipeRef=recipe://bundled/<target-id>
+catalog=official
+recipeRef=recipe://official/<target-id>
 trustStatus=trusted
 ```
 
-The normative rule is that bundled trust comes from the dotfiles-manager release
-process, not from recipe data claiming to be trusted. Bundled recipes still must
-pass schema, capability, lifecycle, redaction, path, and command-boundary
-validation before writes.
+The normative rule is that trust in the bundled official snapshot comes from the
+dotfiles-manager release process, not from recipe data claiming to be trusted.
+Official snapshot recipes still must pass schema, capability, lifecycle,
+redaction, path, and command-boundary validation before writes.
 
-Bundled recipe updates happen only through manager releases. Installing or
-updating the manager is the user's trust event for bundled recipes.
+Updating the official catalog from its remote origin is #229 scope. #228 must not
+fetch, update, or replace official catalog data from the network.
 
 ## Local catalog source
+
+2026-06-30 managed change: local catalog lifecycle is not part of the normal v2
+user path and is removed from #228. The model below is retained only as
+historical/advanced implementation context until a future issue explicitly
+reintroduces local catalog authoring or debugging support.
 
 Local recipes in the settings folder are modeled as a local catalog source:
 
@@ -282,7 +294,7 @@ Required effective fields:
 | `targetId` | App/tool being managed. |
 | `displayName` | User-facing target name. |
 | `recipeRef` | Stable resolved recipe reference. |
-| `sourceKind` | `bundled`, `local`, or `remote`. |
+| `sourceKind` | `official` or `remote` for the normal path. `local` is historical/advanced-only unless reintroduced. |
 | `sourceId` | Local catalog source identifier. |
 | `catalogId` | Catalog identity. |
 | `sourceDisplayName` | Human-readable recipe source. |
@@ -297,14 +309,14 @@ Required effective fields:
 | `capability` | Declared capability. |
 | `declaredReadScopes` | User-readable summary of reads. |
 | `declaredWriteScopes` | User-readable summary of writes. |
-| `selectedBy` | `bundled-default`, `user-selected`, `pinned`, or `collision-resolution`. |
+| `selectedBy` | `official-default`, `user-selected`, `pinned`, or `collision-resolution`. |
 
 Current compatibility fields map into this object:
 
 | Current field | Effective origin mapping |
 | --- | --- |
-| `source=bundled` | `sourceKind=bundled`, `sourceId=bundled`. |
-| `recipeRef=recipe://bundled/<target>` | Bundled recipe reference. |
+| legacy `source=bundled` | Compatibility input that maps to `sourceKind=official`, `sourceId=official`. |
+| legacy `recipeRef=recipe://bundled/<target>` | Compatibility input that maps to `recipe://official/<target>`. |
 | `trustStatus=trusted` | Compatibility display for `reviewStatus=release-reviewed` and `writeAuthority=allowed`. |
 | `source=local` | `sourceKind=local`, `sourceId=local`. |
 | `recipeRef=recipe://local/<target>` | Local recipe reference. |
@@ -322,8 +334,8 @@ is not enough to grant writes.
 
 ## Write grants
 
-A write grant is local-only authority for a non-bundled recipe origin to change
-live settings. It must live outside the settings folder and must contain no
+A write grant is local-only authority for an updated official-catalog or
+additional remote recipe origin to change live settings. It must live outside the settings folder and must contain no
 secret values.
 
 Minimum write-grant fields:
@@ -358,7 +370,7 @@ and execution time:
 2. the source is not empty, unknown, disabled, removed, blocked, invalid,
    expired, or revoked;
 3. the recipe origin was resolved by the manager;
-4. the recipe digest matches the resolved bundled/local/catalog content;
+4. the recipe digest matches the resolved official-snapshot or remote catalog content;
 5. the operation is within declared read/write scopes;
 6. schema, platform, support, capability, lifecycle, redaction, path, symlink,
    and command-boundary checks pass;
@@ -370,9 +382,10 @@ Source-specific rules:
 
 | Source | Write rule |
 | --- | --- |
-| `bundled` | Allowed by release trust when all validation gates pass. |
-| `local` | Denied until a local write grant/trust record matches the current digest and write surface. |
+| `official` bundled snapshot | Allowed by release trust when all validation gates pass. |
+| `official` updated from remote | Denied until #229 update, integrity, identity, and write-authority gates pass. |
 | `remote` | Denied until the source is enabled, identity-pinned, signature-valid, unexpired, and the exact recipe digest/write surface has a local write grant. |
+| `local` historical/advanced-only | Out of the normal v2 path; denied unless a future issue explicitly reintroduces local catalog write grants. |
 | empty / unknown | Always denied. |
 | disabled / removed / blocked | Always denied. |
 | invalid / missing required signature | Always denied. |
@@ -384,11 +397,15 @@ or treating `--yes` as trust approval.
 
 ## Update rules
 
-### Bundled updates
+### Official catalog snapshot and updates
 
-Bundled recipe updates are delivered through manager releases. Explain/security
-output should include bundled version/digest provenance where available, but
-bundled write authority remains release-process authority.
+The bundled official catalog snapshot is delivered through manager releases.
+Explain/security output should include snapshot version/digest provenance where
+available, and snapshot write authority remains release-process authority.
+
+Updating the official catalog from its remote origin belongs to #229 and must use
+the remote update, integrity, and write-authority gates before updated recipe
+data can write live settings.
 
 ### Local updates
 
@@ -464,22 +481,23 @@ write authority.
 Default resolution:
 
 1. user-pinned `recipeRef` when it remains resolvable and allowed;
-2. bundled default for bundled-supported targets;
-3. no automatic choice; show local/remote candidates that require explicit
-   selection.
+2. official catalog snapshot default for supported targets;
+3. no automatic choice; show additional remote candidates that require explicit
+   selection after #229 defines that behavior.
 
 Rules:
 
-- a remote recipe must never silently override a bundled recipe;
-- a local recipe must never silently override a bundled recipe;
+- an additional remote recipe must never silently override an official-catalog snapshot recipe;
+- a historical/advanced local recipe must never silently override an official-catalog snapshot recipe;
 - display names are not security identifiers;
 - duplicate recipe IDs inside one catalog are invalid unless #229 defines an
   explicit variant mechanism;
 - collisions are visible before writes and require explicit selection when the
-  bundled default is not used.
+  official default is not used.
 
-This preserves the current implementation behavior where bundled lookup wins
-before local lookup and turns that behavior into the accepted default model.
+This preserves the accepted user-facing default that official catalog support is
+the normal choice unless the user explicitly selects another source under future
+#229 rules.
 
 ## Command-execution boundary
 
@@ -536,17 +554,18 @@ files or run commands are not harmless just because the command is `status` or
 
 ## User-facing examples
 
-### Bundled recipe before write
+### Official catalog snapshot recipe before write
 
-Normal users should see this as built-in app support, not as catalog/tap
-management.
+Normal users should see this as support from the official catalog, not as a
+recipe/tap management concept.
 
 ```text
 Target: git
-Recipe source: built in with dotfiles-manager
-Recipe: recipe://bundled/git
+Catalog: official
+Catalog data: bundled snapshot
+Recipe: recipe://official/git
 Writes live settings: ~/.gitconfig [user] email, [user] name
-Permission: allowed by bundled release
+Permission: allowed by dotfiles-manager release snapshot
 ```
 
 ### Local recipe before write
@@ -653,10 +672,8 @@ claiming implementation acceptance. The minimum matrix is:
 
 | Scenario | Required result |
 | --- | --- |
-| Bundled default recipe | Source shown as built in; write authority allowed after normal safety checks. |
-| Bundled + local collision | Bundled remains default; local candidate is visible but cannot override silently. |
-| Local recipe without grant | Candidate/explain visible; live write blocked as review required. |
-| Local recipe with matching grant | Live write allowed only for matching digest/write surface after normal confirmation. |
+| Official catalog snapshot recipe | Source shown as official catalog bundled snapshot; write authority allowed after normal safety checks. |
+| Updated official catalog recipe | Discovery/update behavior belongs to #229; live writes blocked unless remote update/trust/write-authority gates pass. |
 | Remote source enabled but recipe ungranted | Discovery allowed; live write blocked as recipe approval required. |
 | Remote recipe with matching grant | Live write allowed only for exact digest/write surface after normal confirmation. |
 | Remote recipe digest/write surface changed | Existing grant invalidated; live write blocked pending review. |
@@ -667,19 +684,22 @@ claiming implementation acceptance. The minimum matrix is:
 
 ## Requirements for #228
 
-#228 must implement built-in/local catalog discovery against this model:
+#228 must implement official-catalog bundled-snapshot discovery against this
+model:
 
-- expose the bundled registry as the normalized bundled catalog/source;
-- preserve bundled-first precedence;
-- show local recipes as local candidates, not bundled replacements;
-- keep local write authority bound to the external local trust record;
+- expose the release-bundled official catalog snapshot as the default catalog;
+- show user-facing source as `official`, not `built-in`;
+- avoid local catalog lifecycle and local recipe candidates in the normal path;
 - make source/origin fields visible in list/explain/planning output before
   writes;
+- prove no network fetch/update is performed in #228;
 - fail closed for unknown source kinds.
 
 ## Requirements for #229
 
-#229 must not implement remote writes until it specifies and verifies:
+#229 owns updating the preconfigured official catalog and adding/updating/
+disabling/removing additional remote catalogs. It must not implement remote
+writes until it specifies and verifies:
 
 - remote source configuration and local state location;
 - manifest schema and signature verification;
@@ -691,8 +711,9 @@ claiming implementation acceptance. The minimum matrix is:
 - command-execution boundary enforcement;
 - blackbox examples showing blocked-by-default remote writes.
 
-Remote catalog discovery without writes may be implemented earlier only if it
-cannot grant live write authority and all output makes that limitation explicit.
+Remote catalog discovery or official-catalog updates without writes may be
+implemented earlier only if they cannot grant live write authority and all output
+makes that limitation explicit.
 
 ## Acceptance checklist for #227
 
@@ -701,6 +722,6 @@ cannot grant live write authority and all output makes that limitation explicit.
 - Recipe origin is visible before writes through the effective origin object and
   examples.
 - Trust/write-authority rules are defined before remote writes are allowed.
-- The bundled registry is accepted as the normalized bundled/default catalog
-  seed.
+- The release-bundled official catalog snapshot is accepted as the default
+  catalog seed for #228.
 - Remote catalogs are data-only and cannot become arbitrary command execution.

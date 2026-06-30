@@ -1,7 +1,7 @@
 ---
 owner: Product + Core Engineering
-status: Design evidence for #252 focused slice
-last-updated: 2026-06-28
+status: Design evidence for #252 focused slice; #228 recontract note applied
+last-updated: 2026-07-02
 source-issue: 252
 related-issues:
   - 228
@@ -15,6 +15,17 @@ related-prs:
 This storyboard is pre-implementation design evidence for the first #252 slice:
 make normal discovery app/tool-oriented and flattened so #228 catalog discovery
 can use the accepted command model.
+
+2026-06-30 note: #228 was later recontracted to remove internal pseudo-app
+targets from normal discovery, remove catalog lifecycle commands from the
+normal #228 path, and use the dotfiles-manager official catalog instead of a
+user-facing built-in catalog. The expected normal `list` examples below reflect
+that managed change.
+
+2026-06-30 UX refinement: normal read-only discovery output should not repeat
+"nothing was read/changed" footers. They are low-value noise for `list`,
+`search`, and `explain`; safety notices and confirmations belong with commands
+that inspect or change real settings.
 
 The frozen slice is intentionally narrower than all of #252. It covers:
 
@@ -32,7 +43,7 @@ remote catalogs, or changes to sync execution semantics.
 Normal users should think:
 
 ```text
-dotfiles-manager supports apps/tools.
+dotfiles-manager supports apps/tools through its official catalog.
 I can list or search supported apps.
 I can explain one app before deciding whether to manage it.
 Recipes are implementation details for authors and debugging.
@@ -99,20 +110,16 @@ Expected output:
 ```text
 Supported apps
 
-  APP           SOURCE    STATE
-  custom.files  built-in  not managed
-  git           built-in  not managed
-  nvim          built-in  not managed
-  ssh           built-in  not managed
-  starship      built-in  not managed
-  tmux          built-in  not managed
-  zsh           built-in  not managed
+  APP       CATALOG   STATE
+  git       official  not managed
+  nvim      official  not managed
+  ssh       official  not managed
+  starship  official  not managed
+  tmux      official  not managed
+  zsh       official  not managed
 
 Use `dotfiles-manager explain <app>` to see what can be managed.
-Use `dotfiles-manager list --settings` to list selected managed settings.
 
-No live settings were read or changed.
-No stored settings were changed.
 ```
 
 Design note: because the settings folder is not initialized, every app is shown
@@ -133,23 +140,19 @@ Expected output:
 ```text
 Supported apps
 
-  APP           SOURCE    STATE
-  custom.files  built-in  not managed
-  git           built-in  managed
-  nvim          built-in  not managed
-  ssh           built-in  not managed
-  starship      built-in  not managed
-  tmux          built-in  not managed
-  zsh           built-in  not managed
+  APP       CATALOG   STATE
+  git       official  managed
+  nvim      official  not managed
+  ssh       official  not managed
+  starship  official  not managed
+  tmux      official  not managed
+  zsh       official  not managed
 
 Managed apps:
   git  2 selected settings
 
 Use `dotfiles-manager status git` to inspect drift for Git.
-Use `dotfiles-manager list --settings` to see selected settings.
 
-No live settings were read or changed.
-No stored settings were changed.
 ```
 
 Design note: detecting `managed` may read the settings folder profile metadata
@@ -200,12 +203,10 @@ Expected output:
 ```text
 Search results for "git"
 
-  APP  SOURCE    STATE
-  git  built-in  not managed
+  APP  CATALOG   STATE
+  git  official  not managed
 
 Use `dotfiles-manager explain git` to see what can be managed.
-No live settings were read or changed.
-No stored settings were changed.
 ```
 
 Command:
@@ -219,16 +220,18 @@ Expected output:
 ```text
 No supported apps found for "shell".
 
-Try:
-  dotfiles-manager list
+The current official catalog supports:
+  git, nvim, ssh, starship, tmux, zsh
 
-No live settings were read or changed.
-No stored settings were changed.
+This version searches only the current official catalog.
+Future versions may refresh official support data or add remote catalogs.
+This version cannot do that yet.
 ```
 
 Design note: this slice searches app IDs, display names, aliases, and summaries
-from existing bundled support metadata. Local-catalog candidates, collisions,
-and richer catalog provenance remain #228 work.
+from the current official catalog metadata. No-match text follows the #228
+official-catalog mock so implementation has one normal discovery target.
+Additional remote catalog management remains #229 work.
 
 ## Transcript 5: explain supported app
 
@@ -244,7 +247,7 @@ Expected output:
 Git is supported.
 
 App ID: git
-Source: built-in support from dotfiles-manager
+Catalog: official
 State: not managed
 
 Can manage:
@@ -256,19 +259,13 @@ Does not manage:
   [credential] sections
   include/includeIf expansion
 
-Why this source is used:
-  Built-in support is the default for Git and is trusted by the
-  dotfiles-manager release.
 
-No live values were printed.
-No live settings were changed.
-No stored settings were changed.
 ```
 
 Design note: top-level `explain` may internally reuse existing `recipe explain`
 metadata, but default text must be app/tool-oriented rather than recipe-oriented.
-Local-catalog candidate/collision explanation remains #228 work; this slice may
-ship built-in support metadata only.
+Additional remote catalog candidate/collision explanation remains #229 work;
+this slice uses current official catalog metadata only.
 
 ## Transcript 6: explain unknown app
 
@@ -287,8 +284,6 @@ Try:
   dotfiles-manager search missing
   dotfiles-manager list
 
-No live settings were read or changed.
-No stored settings were changed.
 ```
 
 Expected behavior:
@@ -354,16 +349,16 @@ cover at least the fields below.
   "schemaVersion": 1,
   "command": "list",
   "runId": "app-list",
-  "summary": {"status": "ok", "apps": 7, "managed": 1},
+  "summary": {"status": "ok", "apps": 6, "managed": 1},
   "apps": [
     {
       "id": "git",
       "displayName": "Git",
       "aliases": ["gitconfig"],
-      "source": "built-in",
+      "catalog": "official",
       "state": "managed",
       "selectedSettings": 2,
-      "recipeRef": "recipe://bundled/git",
+      "recipeRef": "recipe://official/git",
       "trustStatus": "trusted",
       "supportLevel": "experimental",
       "capability": "read-write",
@@ -377,7 +372,8 @@ cover at least the fields below.
 
 `state` is `managed` when at least one selected setting exists for the app in
 the active profile stack; otherwise it is `not-managed`. `list --json` exits `0`
-when no settings folder exists and reports all built-in apps as `not-managed`.
+when no settings folder exists and reports all official-catalog apps as
+`not-managed`.
 
 ### `search <query> --json`
 
@@ -390,7 +386,7 @@ when no settings folder exists and reports all built-in apps as `not-managed`.
   "query": "git",
   "summary": {"status": "ok", "apps": 1, "managed": 0, "matches": 1},
   "apps": [
-    {"id": "git", "displayName": "Git", "source": "built-in"}
+    {"id": "git", "displayName": "Git", "catalog": "official"}
   ],
   "diagnostics": []
 }
@@ -412,11 +408,11 @@ A no-match search exits `0`, uses `summary.status: ok`, and returns
   "app": {
     "id": "git",
     "displayName": "Git",
-    "source": "built-in",
-    "sourceDescription": "built-in support from dotfiles-manager",
+    "catalog": "official",
+    "catalogVersion": "9f2c7a1",
     "state": "not-managed",
     "selectedSettings": 0,
-    "recipeRef": "recipe://bundled/git",
+    "recipeRef": "recipe://official/git",
     "trustStatus": "trusted",
     "supportLevel": "experimental",
     "capability": "read-write",
