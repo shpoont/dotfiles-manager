@@ -70,7 +70,6 @@ Examples:
 
 - `git`;
 - `starship`;
-- `custom.files` for advanced/custom file management;
 - `example-tool` for illustrative-only examples.
 
 ### Setting
@@ -190,14 +189,17 @@ is otherwise ambiguous. Conflicts require an explicit user decision or refusal.
 
 A source of recipes.
 
-The bundled/default catalog is the source for common built-in app/tool support.
-Optional local or remote catalogs are future expansion points. Catalogs are a
-public noun only when users manage recipe sources; they are not a prerequisite
-for ordinary bundled-app sync.
+The dotfiles-manager official catalog is preconfigured by the app and is the
+default source for common app/tool support. The installed app includes a bundled
+snapshot of that official catalog, so first-run discovery works offline.
+Optional catalog updates and additional remote catalogs are future expansion
+points. Catalogs are a public noun only when users manage recipe sources; they
+are not a prerequisite for ordinary official-catalog app sync.
 
-Remote catalogs require the explicit origin, trust, update, disable/remove,
-and write-authority rules in `17-catalog-trust-origin-model.md` before recipes
-from them can write live settings.
+Remote catalog update/add/remove behavior requires the explicit origin, trust,
+update, disable/remove, and write-authority rules in
+`17-catalog-trust-origin-model.md` before recipes from updated or additional
+remote catalog data can write live settings.
 
 ## Scopes and profile language
 
@@ -250,11 +252,12 @@ sensitivity policy, and optional native import/export capability.
 
 ### Catalog metadata
 
-A source of recipes. The bundled/default catalog comes first. Remote catalog
-runtime support is future work and must follow the origin, trust, update,
-disable/remove, and write-authority model in
-`17-catalog-trust-origin-model.md` before remote recipes can write live
-settings.
+A source of recipes. The dotfiles-manager official catalog comes first and is
+available through the bundled snapshot included with the installed app. Remote
+catalog runtime support is future work and must follow the origin, trust,
+update, disable/remove, and write-authority model in
+`17-catalog-trust-origin-model.md` before updated official data or additional
+remote recipes can write live settings.
 
 ### Named location
 

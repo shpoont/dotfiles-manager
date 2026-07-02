@@ -37,7 +37,8 @@ The product should make it easy to:
 3. sync all apps, one app, or selected settings/resources;
 4. handle conflicts and missing apps/settings safely;
 5. use the settings folder with or without Git;
-6. use bundled recipes first and later optional recipe catalogs/taps;
+6. use the preconfigured official catalog first through its bundled snapshot,
+   then later optional catalog updates and additional remote catalogs/taps;
 7. set up a new computer by installing apps first and then applying settings.
 
 ## Public mental model
@@ -78,7 +79,7 @@ Normal users should only need these nouns:
 | Diff | A readable or honest metadata-level explanation of differences. |
 | Sync | The action that copies selected settings in a chosen safe direction. |
 | Conflict | A case where both sides changed or the safe direction is ambiguous. |
-| Catalog | A source of recipes. Bundled recipes come first; remote catalogs come later. |
+| Catalog | A source of recipes. The official catalog snapshot comes first; catalog updates and additional remote catalogs come later. |
 
 Advanced/internal docs may also use:
 
@@ -226,9 +227,10 @@ Native import/export is a recipe-declared capability or reviewed driver behavior
 not arbitrary user scripting. Opaque exports must be honest: show hash/metadata
 changes and limitations rather than fake semantic diffs.
 
-Bundled recipes are the default path for common apps. Remote catalogs/taps are a
-future expansion area and must wait for explicit origin, trust, update, disable,
-and write-authority rules.
+The preconfigured official catalog snapshot is the default path for common apps.
+Catalog updates and additional remote catalogs/taps are a future expansion area
+and must wait for explicit origin, trust, update, disable, and write-authority
+rules.
 
 ## Explicit non-goals for active v2
 

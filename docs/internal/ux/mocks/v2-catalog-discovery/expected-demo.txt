@@ -1,0 +1,59 @@
+# v2 catalog discovery runnable UX mock
+# Work item: #228 recontracted official-catalog discovery baseline
+# Safety: mock only; no live settings, stored settings, real catalog folders, secrets, or network resources are read or changed.
+
+$ dotfiles-manager list
+Supported apps
+
+  APP       CATALOG   STATE
+  git       official  not managed
+  nvim      official  not managed
+  ssh       official  not managed
+  starship  official  not managed
+  tmux      official  not managed
+  zsh       official  not managed
+
+Use `dotfiles-manager explain <app>` to see what can be managed.
+
+$ dotfiles-manager search git
+Search results for "git"
+
+  APP  CATALOG   STATE
+  git  official  not managed
+
+Use `dotfiles-manager explain git` to see what can be managed.
+
+$ dotfiles-manager search wezterm
+No supported apps found for "wezterm".
+
+The current official catalog supports:
+  git, nvim, ssh, starship, tmux, zsh
+
+This version searches only the current official catalog.
+Future versions may refresh official support data or add remote catalogs.
+This version cannot do that yet.
+
+$ dotfiles-manager explain git
+Git is supported.
+
+App ID: git
+Catalog: official
+State: not managed
+
+Can manage:
+  git:user.email  Git user email
+  git:user.name   Git user name
+
+Does not manage:
+  credential.helper
+  [credential] sections
+  include/includeIf expansion
+
+$ dotfiles-manager catalog list
+Catalogs
+
+Catalogs define app/tool support; they do not store your settings.
+
+  dotfiles-manager/official  active for discovery
+    Catalog version: 9f2c7a1
+    Catalog updated: 2026-06-30 18:00 UTC
