@@ -31,15 +31,16 @@ selections:
 	require.Equal(t, ListCommand, report.Command)
 	require.Equal(t, ListRunID, report.RunID)
 	require.Equal(t, "ok", report.Summary.Status)
-	require.Equal(t, 7, report.Summary.Apps)
+	require.Equal(t, 6, report.Summary.Apps)
 	require.Equal(t, 1, report.Summary.Managed)
 	require.Empty(t, report.Diagnostics)
 	require.Nil(t, report.Error)
+	requireNoApp(t, report, "custom.files")
 
 	git := requireApp(t, report, "git")
 	require.Equal(t, "Git", git.DisplayName)
 	require.Equal(t, []string{"gitconfig"}, git.Aliases)
-	require.Equal(t, "built-in", git.Source)
+	require.Equal(t, "official", git.Source)
 	require.Equal(t, StateManaged, git.State)
 	require.Equal(t, 2, git.SelectedSettings)
 	require.Equal(t, "recipe://bundled/git", git.RecipeRef)
@@ -51,10 +52,13 @@ selections:
 
 	text := Text(report)
 	require.Contains(t, text, "Supported apps")
-	require.Contains(t, text, "Managed apps:")
-	require.Contains(t, text, "git  2 selected settings")
-	require.Contains(t, text, "dotfiles-manager status git")
-	require.Contains(t, text, "No stored settings were changed.")
+	require.Contains(t, text, "APP       CATALOG   STATE")
+	require.Contains(t, text, "git       official  managed")
+	require.Contains(t, text, "Use `dotfiles-manager explain <app>` to see what can be managed.")
+	require.NotContains(t, text, "custom.files")
+	require.NotContains(t, text, "built-in")
+	require.NotContains(t, text, "No live settings were read or changed.")
+	require.NotContains(t, text, "No stored settings were changed.")
 
 	payload, err := JSON(report)
 	require.NoError(t, err)
@@ -80,6 +84,10 @@ selections:
 	require.Equal(t, 0, noMatch.Summary.Matches)
 	require.Empty(t, noMatch.Apps)
 	require.Contains(t, Text(noMatch), `No supported apps found for "not-a-supported-app".`)
+	require.Contains(t, Text(noMatch), "The current official catalog supports:")
+	require.Contains(t, Text(noMatch), "git, nvim, ssh, starship, tmux, zsh")
+	require.NotContains(t, Text(noMatch), "catalog add")
+	require.NotContains(t, Text(noMatch), "local catalog")
 }
 
 func TestSearchValidationAndNilRenderers(t *testing.T) {
@@ -125,8 +133,8 @@ selections:
 	require.Equal(t, 1, report.Summary.Managed)
 	require.Equal(t, "git", report.App.ID)
 	require.Equal(t, "Git", report.App.DisplayName)
-	require.Equal(t, "built-in", report.App.Source)
-	require.Equal(t, "built-in support from dotfiles-manager", report.App.SourceDescription)
+	require.Equal(t, "official", report.App.Source)
+	require.Equal(t, "official catalog", report.App.SourceDescription)
 	require.Equal(t, StateManaged, report.App.State)
 	require.Equal(t, 1, report.App.SelectedSettings)
 	require.NotEmpty(t, report.App.Settings)
@@ -135,9 +143,12 @@ selections:
 	text := ExplainText(report)
 	require.Contains(t, text, "Git is supported.")
 	require.Contains(t, text, "State: managed")
+	require.Contains(t, text, "Catalog: official")
 	require.Contains(t, text, "Can manage:")
-	require.Contains(t, text, "Why this source is used:")
-	require.Contains(t, text, "No live values were printed.")
+	require.NotContains(t, text, "Why this source is used:")
+	require.NotContains(t, text, "No live values were printed.")
+	require.NotContains(t, text, "No live settings were changed.")
+	require.NotContains(t, text, "No stored settings were changed.")
 
 	verbose := ExplainVerboseText(report)
 	require.Contains(t, verbose, "app: git")
@@ -161,6 +172,22 @@ selections:
 	require.Equal(t, CodeAppNotSupported, unknown.Error.Code)
 	require.Contains(t, ExplainText(unknown), "App not supported: missing")
 	require.Contains(t, ExplainVerboseText(unknown), "error[explain.app.notSupported]")
+	require.NotContains(t, ExplainText(unknown), "No live settings were read or changed.")
+	require.NotContains(t, ExplainText(unknown), "No stored settings were changed.")
+
+	pseudoApp, err := Explain(Options{Query: "custom.files"})
+	require.Error(t, err)
+	appErr = requireAppError(t, err)
+	require.Equal(t, CodeAppNotSupported, appErr.Code)
+	require.Equal(t, "custom.files", appErr.Details["app"])
+	require.Equal(t, "error", pseudoApp.Summary.Status)
+	require.NotContains(t, ExplainText(pseudoApp), "Custom files is supported.")
+
+	_, err = Explain(Options{Query: "custom-files"})
+	require.Error(t, err)
+	appErr = requireAppError(t, err)
+	require.Equal(t, CodeAppNotSupported, appErr.Code)
+	require.Equal(t, "custom-files", appErr.Details["app"])
 }
 
 func TestRepoRootErrorsReturnStableReports(t *testing.T) {
@@ -197,7 +224,8 @@ func TestRenderHelpersCoverFallbackSourcesAndErrors(t *testing.T) {
 		},
 	}
 	require.Contains(t, listText(report), "local.tool")
-	require.Contains(t, listText(report), "1 selected setting")
+	require.Contains(t, listText(report), "local")
+	require.Contains(t, listText(report), "managed")
 
 	explain := &ExplainReport{
 		Schema:        AppSchema,
@@ -215,7 +243,7 @@ func TestRenderHelpersCoverFallbackSourcesAndErrors(t *testing.T) {
 		},
 		Diagnostics: []Diagnostic{{Severity: "warning", Code: "demo.warning", Message: "review local recipe"}},
 	}
-	require.Contains(t, ExplainText(explain), "Local support for Local Tool comes from this settings folder")
+	require.Contains(t, ExplainText(explain), "Catalog: local")
 	require.Contains(t, ExplainVerboseText(explain), "warning[demo.warning]: review local recipe")
 
 	unsupported := mapExplainError("tool", errors.New("boom"))
@@ -228,12 +256,11 @@ func TestRenderHelpersCoverFallbackSourcesAndErrors(t *testing.T) {
 	require.Equal(t, 7, wrapped.ExitCode())
 	require.Equal(t, "tool", wrapped.Details["target"])
 
-	require.Equal(t, "built-in", appSource(v2recipe.RecipeSourceBundled))
+	require.Equal(t, "official", appSource(v2recipe.RecipeSourceBundled))
 	require.Equal(t, "local", appSource(v2recipe.RecipeSourceLocal))
 	require.Equal(t, "unknown", appSource(""))
 	require.Equal(t, "third-party", appSource("third-party"))
 	require.Equal(t, "third.party", sourceDescription("third.party"))
-	require.Equal(t, "This source was selected from available support metadata.", sourceReason("third-party", "Tool"))
 	require.Equal(t, "Custom Tool", displayName("", "custom_tool"))
 	require.Equal(t, "App", displayName("", ""))
 	require.Equal(t, 1, boolToInt(true))
@@ -299,4 +326,11 @@ func TestMatchesAppUsesAllPublicSearchFields(t *testing.T) {
 	}
 	require.False(t, matchesApp(app, "browser"))
 	require.True(t, strings.Contains(Text(&Report{Command: SearchCommand, Query: "browser", Apps: []App{}}), "No supported apps"))
+}
+
+func requireNoApp(t *testing.T, report *Report, id string) {
+	t.Helper()
+	for _, app := range report.Apps {
+		require.NotEqual(t, id, app.ID)
+	}
 }
