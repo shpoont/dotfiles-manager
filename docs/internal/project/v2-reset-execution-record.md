@@ -81,41 +81,42 @@ operationally.
 
 Current active gate:
 
-- #228 is being recontracted after Project Owner review of the `list` surface.
+- #228 has been recontracted after Project Owner review of the `list` surface.
 - Project Owner decision on 2026-06-30: remove internal pseudo-app targets from
   normal discovery and remove local catalog lifecycle from the normal #228 path.
 - Project Owner managed change on 2026-07-02 after UX review: the #228 public/mock
   surface should not demonstrate internal pseudo-app names or unavailable catalog
   lifecycle commands. Both `catalog update` and `catalog add` are omitted from
   #228 public/mock output until those behaviors are implemented by #229.
-- #228 should now target the preconfigured official-catalog discovery baseline
-  without presenting the catalog as baked into the app. `catalog list` should
-  identify the official catalog as `dotfiles-manager/official`, define catalogs
-  as support-definition sources rather than settings storage, and show concise
+- #228 targets the preconfigured official-catalog discovery baseline without
+  presenting the catalog as baked into the app. `catalog list` should identify
+  the official catalog as `dotfiles-manager/official`, define catalogs as
+  support-definition sources rather than settings storage, and show concise
   state such as catalog version and updated time. First-run download,
   official-catalog update, and additional remote catalogs are implemented by
   #229 unless separately recontracted.
-- Draft PR #255 implemented the previous local-catalog lifecycle scope and is now
-  superseded for #228 acceptance purposes. Its coverage failure is no longer the
-  next actionable blocker.
+- PR #258 was squash-merged on 2026-07-02 as the durable #228 recontract/design
+  evidence package.
+- PR #255 was closed as superseded historical reference. Its coverage failure is
+  no longer an actionable #228 blocker.
 
-No-go actions until #228 is recontracted and a new implementation-start gate is
-recorded:
+No-go actions until a fresh #228 implementation-start gate is recorded:
 
 - Do not fix #255 coverage or continue #255 implementation as if it still matched
   #228.
-- Do not mark PR #255 ready, merge it, request #228 acceptance, or close #228
-  based on #255.
+- Do not request #228 acceptance or close #228 based on PR #255 or PR #258.
+- Do not start #228 runtime implementation without a current implementation-start
+  gate from current `main`.
 - Do not start #229 remote catalog implementation using old #228 superseded
   behavior as accepted.
 
-Allowed #228 recovery actions:
+Allowed #228 next actions:
 
-1. update #228 issue contract and durable design evidence for
-   official-catalog discovery with version/last-updated catalog state;
-2. mark PR #255 as superseded/blocked by the recontract decision;
-3. after the recontract is reviewed and accepted, start a fresh implementation
-   from current `main` against the new #228 contract.
+1. record a fresh #228 implementation-start gate against the recontracted issue
+   contract and merged design evidence;
+2. start runtime implementation from current `main` only after that gate passes;
+3. continue separate #229/#230 follow-up work only through their own issue
+   contracts and gates.
 
 ## Standards maturity snapshot
 
@@ -156,7 +157,7 @@ As of 2026-06-29:
 | #216 | Documentation delivery | Tier 1 | Open | Production docs depend on accepted behavior/examples from remaining gates. |
 | #226 | Delivery-design cleanup | Tier 1 | Complete | PR #247 hides retained legacy v1 commands from root help, labels direct help as legacy compatibility, and closed 2026-06-26. |
 | #227 | Discovery/design | Discovery/Tier 1 | Complete | PR #250 merged; issue accepted and closed 2026-06-26. |
-| #228 | Delivery | Tier 1 | Recontracting | Project Owner removed internal pseudo-app targets, catalog lifecycle command placeholders, and user-facing built-in catalog wording from the normal path. Draft PR #255 is superseded by this direction; update contract/design evidence before fresh implementation. |
+| #228 | Delivery | Tier 1 | Ready for implementation-start gate | Project Owner removed internal pseudo-app targets, catalog lifecycle command placeholders, and user-facing built-in catalog wording from the normal path. PR #258 merged the recontract/design evidence; PR #255 is closed as superseded. Runtime implementation must start fresh from current `main` only after an implementation-start gate. |
 | #229 | Delivery | Tier 2 | Open child of #214 | Implement official-catalog update and additional remote catalog management with write gates against the accepted #227 model; remote catalogs are the intended normal extension path beyond the current official catalog. |
 | #230 | UX/design | Tier 1 | Open child of #215 | Specify new-computer UX and output. |
 | #231 | Delivery | Tier 2 | Open child of #215 | Implement apply-from-storage flow after sync model/UX is accepted. |
@@ -186,7 +187,7 @@ child-scope completion, not automatic parent closure.
 | #226 | Closed / Done | Child of #213 | PR #247 merged; issue closed 2026-06-26 | Checked under #213 | Retained legacy v1 commands are hidden from normal help and separated from v2 acceptance. |
 | #214 | Open / Todo | Catalog parent | #227 closed; #228/#229 open | Keep parent open with children | Official-catalog discovery baseline (#228) and remote catalog update/add/write-gate implementation (#229) remain. |
 | #227 | Closed / Done | Catalog child | PR #250 merged; issue closed after Project Owner acceptance | Checked under #214 | Trust/origin/write-authority model complete for downstream implementation. |
-| #228 | Open / recontracting | Catalog child | Draft PR #255 exists but is superseded by the 2026-06-30 and 2026-07-02 decisions to remove internal pseudo-app targets and catalog lifecycle placeholders from the normal path | Recontract under #214 | Update #228 contract/storyboard/mock, mark #255 superseded, then implement fresh from current `main`. |
+| #228 | Open / implementation-start gate needed | Catalog child | PR #258 merged the 2026-06-30 and 2026-07-02 recontract/design evidence; PR #255 is closed as superseded | Open under #214 | Start fresh runtime implementation from current `main` only after an implementation-start gate records tests-first execution and real CLI verification. |
 | #229 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement official-catalog update and additional remote catalog management with write gates; this is the normal extension path beyond the current official catalog after local catalogs were removed from #228. |
 | #215 | Open / Todo | Bootstrap parent | Children #230-#231 open | Keep parent open with children | Bootstrap must reuse sync model; Homebrew Bundle is example only. |
 | #230 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Specify new-computer UX/output before implementation. |
@@ -232,7 +233,7 @@ Before starting any work item:
 | Branches from closed PRs may be reused accidentally | Enforce branch rule and start from `main` | Executor | Active |
 | Agents may cross lifecycle phases from broad prompts or artifact completion | Use lifecycle gate/passport readback, implementation-start gate, and explicit no-go actions from AGENTS/tailoring/templates | Work Manager / Executor | Mitigated / monitoring |
 | Meaningful CLI UX can be implemented from static transcripts without owner-approved runnable/replayable evidence | Default to runnable/replayable CLI usage evidence or record a Project Owner waiver/not-applicable decision | Work Manager / Project Owner | Mitigated / monitoring |
-| #228 implementation may continue from superseded PR #255 | Mark #255 superseded, update #228 contract/design evidence, and require fresh implementation-start gate from current `main` | Work Manager | Active |
+| #228 implementation may continue from superseded PR #255 | PR #255 is closed as superseded, PR #258 merged the corrected design evidence, and #228 now requires a fresh implementation-start gate from current `main` | Work Manager | Mitigated / monitoring |
 
 ## Evidence index
 
@@ -258,6 +259,7 @@ Before starting any work item:
 | Local lifecycle-gate process hardening completed | PR #257 / issue #256 adapted local AGENTS, tailoring, templates, and execution record to the updated standard | 2026-06-29 | Process-only change; does not validate #228 product behavior. |
 | #228 recontract decision: remove internal pseudo-app targets, catalog lifecycle placeholders, and built-in catalog wording | Project Owner decided normal discovery should show real apps/tools only through the official catalog, with catalog version/updated state in `catalog list`; unavailable `catalog update` and `catalog add` output is omitted until #229 implements those behaviors | 2026-07-02 | Requires updated #228 contract/design evidence and fresh implementation-start gate before runtime work. |
 | #228 GitHub contract recontracted | Issue #228 title/body updated, #228 managed-change comment recorded, PR #255 title/body/comment marked superseded, #229 received context comment, and #209 source-of-truth body updated | 2026-06-30 | Tracker update only; runtime implementation and #228 acceptance remain pending. |
+| #228 recontract design evidence merged | PR #258 squash merge `e495cce4cc16a13e299c48d05efed199b4433bd0`; PR #255 closed as superseded; #209, #228, and Project #9 live records updated with post-merge checkpoint | 2026-07-02 | Design/recontract evidence only; #228 runtime implementation, real-result verification, validation, acceptance, and closure remain pending. |
 | #228 official catalog refinement | Project Owner approved replacing user-facing built-in catalog wording with a preconfigured official catalog and later clarified that it must not be presented as included/baked into the app | 2026-06-30 | Design/tracker refinement only; #228 must not implement first-run download or update behavior until #229 behavior exists or the issue is recontracted. |
 
 ## Phase 1 acceptance state
@@ -310,8 +312,9 @@ Phase 3 recontract/resequence:
 
 ## Current next gate
 
-#228 is finishing recontract/design-evidence review after Project Owner and UX
-review of the `list`/discovery surface:
+#228 has completed recontract/design-evidence review for the `list`/discovery
+surface through PR #258. The remaining #228 work is runtime implementation of
+the accepted official-catalog discovery baseline:
 
 - remove internal/generated pseudo-app targets from normal discovery;
 - omit unavailable catalog lifecycle commands from the #228 public/mock surface;
@@ -320,12 +323,13 @@ review of the `list`/discovery surface:
   version/updated metadata;
 - use official-catalog update and additional remote catalogs as the future
   extension path in #229;
-- keep PR #255 superseded instead of fixing its coverage;
-- merge PR #258 as the durable storyboard/mock evidence package before fresh
-  runtime implementation.
+- keep PR #255 closed as superseded historical reference.
 
-Only after PR #258 is merged and an implementation-start gate is recorded should
-an executor start fresh #228 runtime implementation from current `main`.
+Before runtime implementation starts, an implementation-start gate must be
+recorded against current `main`, the recontracted #228 issue contract, and the
+merged PR #258 design evidence. The gate must state the tests-first execution
+plan, real CLI verification plan, validation rule, Project Owner acceptance rule,
+and no-go actions.
 
 Paired follow-up:
 
