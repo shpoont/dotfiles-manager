@@ -20,11 +20,13 @@ func TestDiscoveryListBeforeInitIsSupportedAppsAndReadOnly(t *testing.T) {
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Supported apps")
 	require.Contains(t, stdout, "git")
-	require.Contains(t, stdout, "built-in")
+	require.Contains(t, stdout, "official")
 	require.Contains(t, stdout, "not managed")
 	require.Contains(t, stdout, "dotfiles-manager explain <app>")
-	require.Contains(t, stdout, "No live settings were read or changed.")
-	require.Contains(t, stdout, "No stored settings were changed.")
+	require.NotContains(t, stdout, "built-in")
+	require.NotContains(t, stdout, "custom.files")
+	require.NotContains(t, stdout, "No live settings were read or changed.")
+	require.NotContains(t, stdout, "No stored settings were changed.")
 	requireNoDiscoveryState(t, projectDir)
 }
 
@@ -50,10 +52,11 @@ selections:
 	require.Equal(t, "list", payload["command"])
 	summary := payload["summary"].(map[string]any)
 	require.Equal(t, "ok", summary["status"])
-	require.Equal(t, float64(7), summary["apps"])
+	require.Equal(t, float64(6), summary["apps"])
 	require.Equal(t, float64(1), summary["managed"])
 
 	git := requireDiscoveryApp(t, payload, "git")
+	require.Equal(t, "official", git["source"])
 	require.Equal(t, "managed", git["state"])
 	require.Equal(t, float64(2), git["selectedSettings"])
 	require.Equal(t, "recipe://bundled/git", git["recipeRef"])
@@ -61,6 +64,7 @@ selections:
 	zsh := requireDiscoveryApp(t, payload, "zsh")
 	require.Equal(t, "not-managed", zsh["state"])
 	require.Equal(t, float64(0), zsh["selectedSettings"])
+	requireNoDiscoveryApp(t, payload, "custom.files")
 }
 
 func TestListSettingsCompatibilityKeepsPreviousSelectedSettingsOutput(t *testing.T) {
@@ -97,21 +101,27 @@ func TestDiscoverySearchMatchesAndNoMatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, `Search results for "git"`)
+	require.Contains(t, stdout, "  APP  CATALOG   STATE\n  git  official  not managed")
 	require.Contains(t, stdout, "git")
+	require.Contains(t, stdout, "official")
 	require.Contains(t, stdout, "not managed")
 	require.Contains(t, stdout, "dotfiles-manager explain git")
-	require.Contains(t, stdout, "No live settings were read or changed.")
-	require.Contains(t, stdout, "No stored settings were changed.")
+	require.NotContains(t, stdout, "No live settings were read or changed.")
+	require.NotContains(t, stdout, "No stored settings were changed.")
 
-	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"search", "shell"})
+	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"search", "wezterm"})
 	require.NoError(t, err)
 	require.Empty(t, stderr)
-	require.Contains(t, stdout, `No supported apps found for "shell".`)
-	require.Contains(t, stdout, "dotfiles-manager list")
-	require.Contains(t, stdout, "No live settings were read or changed.")
-	require.Contains(t, stdout, "No stored settings were changed.")
+	require.Contains(t, stdout, `No supported apps found for "wezterm".`)
+	require.Contains(t, stdout, "The current official catalog supports:")
+	require.Contains(t, stdout, "git, nvim, ssh, starship, tmux, zsh")
+	require.Contains(t, stdout, "Future versions may refresh official support data or add remote catalogs.")
+	require.NotContains(t, stdout, "catalog add")
+	require.NotContains(t, stdout, "local catalog")
+	require.NotContains(t, stdout, "No live settings were read or changed.")
+	require.NotContains(t, stdout, "No stored settings were changed.")
 
-	payload, _, stderr, err := runDiscoveryJSONCLI(t, []string{"search", "shell", "--json"})
+	payload, _, stderr, err := runDiscoveryJSONCLI(t, []string{"search", "wezterm", "--json"})
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Equal(t, "dotfiles-manager.v2.apps", payload["schema"])
@@ -153,15 +163,17 @@ func TestTopLevelExplainIsAppOrientedAndUnknownAppIsStable(t *testing.T) {
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Git is supported.")
 	require.Contains(t, stdout, "App ID: git")
-	require.Contains(t, stdout, "Source: built-in support from dotfiles-manager")
+	require.Contains(t, stdout, "Catalog: official")
 	require.Contains(t, stdout, "State: not managed")
 	require.Contains(t, stdout, "Can manage:")
 	require.Contains(t, stdout, "git:user.email")
 	require.Contains(t, stdout, "Does not manage:")
 	require.Contains(t, stdout, "credential.helper")
-	require.Contains(t, stdout, "No live values were printed.")
-	require.Contains(t, stdout, "No live settings were changed.")
-	require.Contains(t, stdout, "No stored settings were changed.")
+	require.NotContains(t, stdout, "Source: built-in")
+	require.NotContains(t, stdout, "Why this source is used:")
+	require.NotContains(t, stdout, "No live values were printed.")
+	require.NotContains(t, stdout, "No live settings were changed.")
+	require.NotContains(t, stdout, "No stored settings were changed.")
 	require.NotContains(t, stdout, "Git recipe")
 	require.NotContains(t, stdout, "recipe explain")
 
@@ -172,15 +184,15 @@ func TestTopLevelExplainIsAppOrientedAndUnknownAppIsStable(t *testing.T) {
 	require.Equal(t, "explain", payload["command"])
 	app := payload["app"].(map[string]any)
 	require.Equal(t, "git", app["id"])
-	require.Equal(t, "built-in", app["source"])
+	require.Equal(t, "official", app["source"])
 
 	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"explain", "missing"})
 	require.Error(t, err)
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "App not supported: missing")
 	require.Contains(t, stdout, "dotfiles-manager search missing")
-	require.Contains(t, stdout, "No live settings were read or changed.")
-	require.Contains(t, stdout, "No stored settings were changed.")
+	require.NotContains(t, stdout, "No live settings were read or changed.")
+	require.NotContains(t, stdout, "No stored settings were changed.")
 
 	payload, _, stderr, err = runDiscoveryJSONCLI(t, []string{"explain", "missing", "--json"})
 	require.Error(t, err)
@@ -189,6 +201,19 @@ func TestTopLevelExplainIsAppOrientedAndUnknownAppIsStable(t *testing.T) {
 	require.Equal(t, "explain", payload["command"])
 	require.Equal(t, "error", payload["summary"].(map[string]any)["status"])
 	require.Equal(t, "explain.app.notSupported", payload["error"].(map[string]any)["code"])
+
+	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"explain", "custom.files"})
+	require.Error(t, err)
+	require.Empty(t, stderr)
+	require.Contains(t, stdout, "App not supported: custom.files")
+	require.NotContains(t, stdout, "Custom files is supported.")
+
+	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"explain", "custom-files"})
+	require.Error(t, err)
+	require.Empty(t, stderr)
+	require.Contains(t, stdout, "App not supported: custom-files")
+	require.NotContains(t, stdout, "Custom files is supported.")
+
 	requireNoDiscoveryState(t, projectDir)
 }
 
@@ -199,9 +224,75 @@ func TestRootHelpSurfacesFlattenedDiscoveryBeforeRecipeNamespace(t *testing.T) {
 	require.Contains(t, stdout, "list")
 	require.Contains(t, stdout, "search")
 	require.Contains(t, stdout, "explain")
+	require.Contains(t, stdout, "catalog")
 	require.Contains(t, stdout, "recipe")
 	require.Less(t, strings.Index(stdout, "list"), strings.Index(stdout, "recipe"))
 	require.NotContains(t, stdout, "recipe list")
+}
+
+func TestCatalogListShowsOfficialCatalogState(t *testing.T) {
+	projectDir := t.TempDir()
+	setCWD(t, projectDir)
+	setTempHome(t)
+
+	stdout, stderr, err := runDiscoveryTextCLI(t, []string{"catalog", "list"})
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.Contains(t, stdout, "Catalogs")
+	require.Contains(t, stdout, "Catalogs define app/tool support; they do not store your settings.")
+	require.Contains(t, stdout, "dotfiles-manager/official  active for discovery")
+	require.Contains(t, stdout, "Catalog version: 9f2c7a1")
+	require.Contains(t, stdout, "Catalog updated: 2026-06-30 18:00 UTC")
+	require.NotContains(t, stdout, "Source:")
+	require.NotContains(t, stdout, "Local copy:")
+	require.NotContains(t, stdout, "Offline use:")
+	require.NotContains(t, stdout, "Updates:")
+	require.NotContains(t, stdout, "Removable:")
+	require.NotContains(t, stdout, "catalog update")
+	require.NotContains(t, stdout, "catalog add")
+	requireNoDiscoveryState(t, projectDir)
+
+	payload, _, stderr, err := runDiscoveryJSONCLI(t, []string{"catalog", "list", "--json"})
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.Equal(t, "dotfiles-manager.v2.catalogs", payload["schema"])
+	require.Equal(t, "catalog.list", payload["command"])
+	catalogs := payload["catalogs"].([]any)
+	require.Len(t, catalogs, 1)
+	official := catalogs[0].(map[string]any)
+	require.Equal(t, "dotfiles-manager/official", official["id"])
+	require.Equal(t, "active for discovery", official["state"])
+	require.Equal(t, "9f2c7a1", official["version"])
+	require.Equal(t, "2026-06-30 18:00 UTC", official["updated"])
+
+	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"catalog", "list", "--help"})
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.NotContains(t, stdout, "--verbose")
+
+	stdout, stderr, err = runDiscoveryTextCLI(t, []string{"catalog", "list", "--verbose"})
+	require.Error(t, err)
+	require.Empty(t, stdout)
+	require.Empty(t, stderr)
+	require.Contains(t, err.Error(), "unknown flag: --verbose")
+}
+
+func TestCatalogLifecycleCommandsAreUnsupportedIn228(t *testing.T) {
+	projectDir := t.TempDir()
+	setCWD(t, projectDir)
+	setTempHome(t)
+
+	for _, args := range [][]string{
+		{"catalog", "add", "shpoont/custom-recipes"},
+		{"catalog", "update"},
+	} {
+		stdout, stderr, err := runDiscoveryTextCLI(t, args)
+		require.Error(t, err, args)
+		require.Empty(t, stdout, args)
+		require.Empty(t, stderr, args)
+		require.Contains(t, err.Error(), "unknown command", args)
+	}
+	requireNoDiscoveryState(t, projectDir)
 }
 
 func runDiscoveryTextCLI(t *testing.T, args []string) (string, string, error) {
@@ -235,6 +326,15 @@ func requireDiscoveryApp(t *testing.T, payload map[string]any, id string) map[st
 	}
 	require.Failf(t, "missing app", "app %s not found in %#v", id, apps)
 	return nil
+}
+
+func requireNoDiscoveryApp(t *testing.T, payload map[string]any, id string) {
+	t.Helper()
+	apps := payload["apps"].([]any)
+	for _, raw := range apps {
+		app := raw.(map[string]any)
+		require.NotEqual(t, id, app["id"])
+	}
 }
 
 func requireNoDiscoveryState(t *testing.T, root string) {

@@ -167,6 +167,10 @@ func Explain(opts Options) (*ExplainReport, error) {
 		appErr := &Error{Code: CodeRepoInvalid, Message: err.Error(), Exit: 2}
 		return failExplainReport(report, appErr), appErr
 	}
+	if isNormalDiscoveryPseudoApp(query) {
+		appErr := &Error{Code: CodeAppNotSupported, Message: fmt.Sprintf("app not supported: %s", query), Exit: 2, Details: map[string]any{"app": query}}
+		return failExplainReport(report, appErr), appErr
+	}
 	recipeRoot := opts.RepoRoot
 	recipeReport, recipeErr := v2recipe.Explain(v2recipe.ExplainOptions{Target: query, RepoRoot: recipeRoot})
 	if recipeErr != nil {
@@ -225,7 +229,7 @@ func listOrSearch(opts Options, query string) (*Report, error) {
 		appErr := &Error{Code: CodeRepoInvalid, Message: err.Error(), Exit: 2}
 		return failReport(report, appErr), appErr
 	}
-	for _, target := range v2recipe.ListBundledTargets() {
+	for _, target := range officialCatalogTargets() {
 		app := appFromBundledTarget(target, counts[target.ID])
 		if query != "" && !matchesApp(app, query) {
 			continue
@@ -243,6 +247,22 @@ func listOrSearch(opts Options, query string) (*Report, error) {
 		report.Summary.Matches = len(report.Apps)
 	}
 	return report, nil
+}
+
+func officialCatalogTargets() []v2recipe.BundledTarget {
+	var targets []v2recipe.BundledTarget
+	for _, target := range v2recipe.ListBundledTargets() {
+		if target.ID == v2recipe.CustomFilesTarget {
+			continue
+		}
+		targets = append(targets, target)
+	}
+	return targets
+}
+
+func isNormalDiscoveryPseudoApp(query string) bool {
+	target, ok := v2recipe.LookupBundledTarget(strings.TrimSpace(query))
+	return ok && target.ID == v2recipe.CustomFilesTarget
 }
 
 func managedCounts(opts Options) (map[string]int, error) {
@@ -363,31 +383,26 @@ func ExplainText(report *ExplainReport) string {
 			"Try:",
 			"  dotfiles-manager search " + app,
 			"  dotfiles-manager list",
-			"",
-			"No live settings were read or changed.",
-			"No stored settings were changed.",
 		}, "\n")
 	}
 	app := report.App
 	lines := []string{app.DisplayName + " is supported.", ""}
 	lines = append(lines, "App ID: "+app.ID)
-	lines = append(lines, "Source: "+app.SourceDescription)
+	lines = append(lines, "Catalog: "+app.Source)
 	lines = append(lines, "State: "+strings.ReplaceAll(app.State, "-", " "))
 	if len(app.Settings) > 0 {
 		lines = append(lines, "", "Can manage:")
 		for _, setting := range app.Settings {
-			lines = append(lines, fmt.Sprintf("  %-15s %s", setting.Ref, setting.Label))
+			lines = append(lines, fmt.Sprintf("  %-15s %s", setting.Ref, normalSettingLabel(app, setting)))
 		}
 	}
-	if len(app.DoNotManage) > 0 {
+	doNotManage := normalDoNotManage(app)
+	if len(doNotManage) > 0 {
 		lines = append(lines, "", "Does not manage:")
-		for _, item := range app.DoNotManage {
+		for _, item := range doNotManage {
 			lines = append(lines, "  "+item)
 		}
 	}
-	lines = append(lines, "", "Why this source is used:")
-	lines = append(lines, "  "+sourceReason(app.Source, app.DisplayName))
-	lines = append(lines, "", "No live values were printed.", "No live settings were changed.", "No stored settings were changed.")
 	return strings.Join(trimBlank(lines), "\n")
 }
 
@@ -423,24 +438,9 @@ func ExplainVerboseText(report *ExplainReport) string {
 }
 
 func listText(report *Report) string {
-	lines := []string{"Supported apps", "", "  APP           SOURCE     STATE"}
-	for _, app := range report.Apps {
-		lines = append(lines, fmt.Sprintf("  %-13s %-9s %s", app.ID, app.Source, strings.ReplaceAll(app.State, "-", " ")))
-	}
-	managed := managedApps(report.Apps)
-	if len(managed) > 0 {
-		lines = append(lines, "", "Managed apps:")
-		for _, app := range managed {
-			lines = append(lines, fmt.Sprintf("  %s  %d selected setting%s", app.ID, app.SelectedSettings, plural(app.SelectedSettings)))
-		}
-		if first := managed[0]; first.ID != "" {
-			lines = append(lines, "", fmt.Sprintf("Use `dotfiles-manager status %s` to inspect drift for %s.", first.ID, first.DisplayName))
-		}
-	} else {
-		lines = append(lines, "", "Use `dotfiles-manager explain <app>` to see what can be managed.")
-	}
-	lines = append(lines, "Use `dotfiles-manager list --settings` to list selected managed settings.")
-	lines = append(lines, "", "No live settings were read or changed.", "No stored settings were changed.")
+	lines := []string{"Supported apps", ""}
+	lines = append(lines, formatAppTable(report.Apps)...)
+	lines = append(lines, "", "Use `dotfiles-manager explain <app>` to see what can be managed.")
 	return strings.Join(trimBlank(lines), "\n")
 }
 
@@ -450,20 +450,17 @@ func searchText(report *Report) string {
 		return strings.Join([]string{
 			fmt.Sprintf("No supported apps found for %q.", query),
 			"",
-			"Try:",
-			"  dotfiles-manager list",
+			"The current official catalog supports:",
+			"  " + strings.Join(officialCatalogTargetIDs(), ", "),
 			"",
-			"No live settings were read or changed.",
-			"No stored settings were changed.",
+			"This version searches only the current official catalog.",
+			"Future versions may refresh official support data or add remote catalogs.",
+			"This version cannot do that yet.",
 		}, "\n")
 	}
-	lines := []string{fmt.Sprintf("Search results for %q", query), "", "  APP           SOURCE     STATE"}
-	for _, app := range report.Apps {
-		lines = append(lines, fmt.Sprintf("  %-13s %-9s %s", app.ID, app.Source, strings.ReplaceAll(app.State, "-", " ")))
-	}
+	lines := []string{fmt.Sprintf("Search results for %q", query), ""}
+	lines = append(lines, formatAppTable(report.Apps)...)
 	lines = append(lines, "", fmt.Sprintf("Use `dotfiles-manager explain %s` to see what can be managed.", report.Apps[0].ID))
-	lines = append(lines, "No live settings were read or changed.")
-	lines = append(lines, "No stored settings were changed.")
 	return strings.Join(trimBlank(lines), "\n")
 }
 
@@ -473,6 +470,28 @@ func appsErrorText(report *Report) string {
 		message = report.Error.Message
 	}
 	return strings.Join([]string{"Supported apps", "", "Command result:", "  " + message, "", "No files changed.", "", "Run with --json for machine-readable details."}, "\n")
+}
+
+func formatAppTable(apps []App) []string {
+	appWidth := len("APP")
+	catalogWidth := len("CATALOG")
+	for _, app := range apps {
+		appWidth = maxInt(appWidth, len(app.ID))
+		catalogWidth = maxInt(catalogWidth, len(app.Source))
+	}
+	format := fmt.Sprintf("  %%-%ds  %%-%ds  %%s", appWidth, catalogWidth)
+	lines := []string{fmt.Sprintf(format, "APP", "CATALOG", "STATE")}
+	for _, app := range apps {
+		lines = append(lines, fmt.Sprintf(format, app.ID, app.Source, strings.ReplaceAll(app.State, "-", " ")))
+	}
+	return lines
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func baseReport(command string, runID string) *Report {
@@ -523,17 +542,6 @@ func failExplainReport(report *ExplainReport, err *Error) *ExplainReport {
 	return report
 }
 
-func managedApps(apps []App) []App {
-	var out []App
-	for _, app := range apps {
-		if app.State == StateManaged {
-			out = append(out, app)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
-
 func mapExplainError(query string, err error) *Error {
 	if explainErr, ok := err.(*v2recipe.ExplainError); ok {
 		if explainErr.Code == v2recipe.ExplainCodeUnknownTarget {
@@ -547,7 +555,7 @@ func mapExplainError(query string, err error) *Error {
 func appSource(source string) string {
 	switch source {
 	case v2recipe.RecipeSourceBundled:
-		return "built-in"
+		return "official"
 	case v2recipe.RecipeSourceLocal:
 		return "local"
 	case "":
@@ -560,22 +568,11 @@ func appSource(source string) string {
 func sourceDescription(source string) string {
 	switch source {
 	case v2recipe.RecipeSourceBundled:
-		return "built-in support from dotfiles-manager"
+		return "official catalog"
 	case v2recipe.RecipeSourceLocal:
 		return "local support from this settings folder"
 	default:
 		return displayName(source, "unknown")
-	}
-}
-
-func sourceReason(source string, display string) string {
-	switch source {
-	case "built-in":
-		return fmt.Sprintf("Built-in support is the default for %s and is trusted by the dotfiles-manager release.", display)
-	case "local":
-		return fmt.Sprintf("Local support for %s comes from this settings folder and may require review before writes.", display)
-	default:
-		return "This source was selected from available support metadata."
 	}
 }
 
@@ -617,6 +614,39 @@ func plural(count int) string {
 		return ""
 	}
 	return "s"
+}
+
+func officialCatalogTargetIDs() []string {
+	targets := officialCatalogTargets()
+	ids := make([]string, 0, len(targets))
+	for _, target := range targets {
+		ids = append(ids, target.ID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func normalSettingLabel(app ExplainApp, setting ExplainSetting) string {
+	label := strings.TrimSpace(setting.Label)
+	if label == "" {
+		label = displayName("", setting.ID)
+	}
+	if app.ID == v2recipe.GitTarget {
+		lower := strings.ToLower(label[:1]) + label[1:]
+		return app.DisplayName + " " + lower
+	}
+	return label
+}
+
+func normalDoNotManage(app ExplainApp) []string {
+	if app.ID == v2recipe.GitTarget {
+		return []string{
+			"credential.helper",
+			"[credential] sections",
+			"include/includeIf expansion",
+		}
+	}
+	return append([]string(nil), app.DoNotManage...)
 }
 
 func trimBlank(lines []string) []string {

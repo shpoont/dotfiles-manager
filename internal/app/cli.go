@@ -17,6 +17,7 @@ import (
 	v2addtarget "github.com/shpoont/dotfiles-manager/internal/v2/addtarget"
 	v2appauthor "github.com/shpoont/dotfiles-manager/internal/v2/appauthor"
 	v2appdiscovery "github.com/shpoont/dotfiles-manager/internal/v2/appdiscovery"
+	v2catalogdiscovery "github.com/shpoont/dotfiles-manager/internal/v2/catalogdiscovery"
 	v2initcmd "github.com/shpoont/dotfiles-manager/internal/v2/initcmd"
 	v2ledger "github.com/shpoont/dotfiles-manager/internal/v2/ledger"
 	v2lifecycle "github.com/shpoont/dotfiles-manager/internal/v2/lifecycle"
@@ -91,6 +92,7 @@ optional.`,
 	rootCmd.AddCommand(newSyncCmd(opts))
 	rootCmd.AddCommand(newSaveCmd(opts))
 	rootCmd.AddCommand(newApplyCmd(opts))
+	rootCmd.AddCommand(newCatalogCmd(opts))
 	rootCmd.AddCommand(newRecipeCmd(opts))
 	rootCmd.AddCommand(newAppCmd(opts))
 	rootCmd.AddCommand(newDeployCmd(opts))
@@ -615,6 +617,40 @@ func newExplainCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Emit human-readable technical details in text output")
 	addSelectedPreviewFlags(cmd, v2Flags)
+	return cmd
+}
+
+func newCatalogCmd(opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "catalog",
+		Short: "Inspect app/tool support catalogs",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
+			return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newCatalogListCmd(opts))
+	return cmd
+}
+
+func newCatalogListCmd(opts *rootOptions) *cobra.Command {
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List configured support catalogs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCatalogListCommand(cmd, opts, jsonOutput)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable JSON output")
 	return cmd
 }
 
@@ -1229,6 +1265,11 @@ func runAppExplainCommand(cmd *cobra.Command, opts *rootOptions, appOpts v2appdi
 	return err
 }
 
+func runCatalogListCommand(cmd *cobra.Command, opts *rootOptions, jsonOutput bool) error {
+	report := v2catalogdiscovery.List()
+	return emitCatalogDiscoveryReport(cmd.OutOrStdout(), report, jsonOutput)
+}
+
 func appDiscoveryRepoRoot(opts *rootOptions, operation string) (string, bool, error) {
 	if opts != nil && strings.TrimSpace(opts.configPath) != "" {
 		if !isExplicitV2Config(opts.configPath) {
@@ -1404,6 +1445,19 @@ func emitAppExplainReport(stdout io.Writer, report *v2appdiscovery.ExplainReport
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, v2appdiscovery.ExplainText(report))
+	return err
+}
+
+func emitCatalogDiscoveryReport(stdout io.Writer, report *v2catalogdiscovery.Report, jsonOutput bool) error {
+	if jsonOutput {
+		payload, err := v2catalogdiscovery.JSON(report)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(stdout, payload)
+		return err
+	}
+	_, err := fmt.Fprintln(stdout, v2catalogdiscovery.Text(report))
 	return err
 }
 
