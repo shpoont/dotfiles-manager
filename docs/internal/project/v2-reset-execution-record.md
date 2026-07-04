@@ -1,7 +1,7 @@
 ---
 owner: Project Owner + Work Manager
 status: Active project record
-last-updated: 2026-07-02
+last-updated: 2026-07-04
 canonical-source: docs/internal/project/v2-reset-execution-record.md
 project-issue: 209
 ---
@@ -56,9 +56,10 @@ The product should let a user:
   and #226 are complete; PR #247 hides retained legacy v1 public commands from
   the normal v2 help surface and separates them from v2 product acceptance.
 - Current v2 implementation and docs are partially reset-aligned after #210,
-  #211, #212, #221-#225, and #213/#226. Parent #211 is accepted and closed,
-  but the combined v2 product is not production-accepted until remaining gates
-  are completed or explicitly deferred.
+  #211, #212, #221-#225, #213/#226, and #228. Parent #211 is accepted
+  and closed, and the official-catalog discovery baseline is accepted and
+  merged, but the combined v2 product is not production-accepted until
+  remaining gates are completed or explicitly deferred.
 
 ## Explicit non-goals
 
@@ -81,42 +82,31 @@ operationally.
 
 Current active gate:
 
-- #228 has been recontracted after Project Owner review of the `list` surface.
-- Project Owner decision on 2026-06-30: remove internal pseudo-app targets from
-  normal discovery and remove local catalog lifecycle from the normal #228 path.
-- Project Owner managed change on 2026-07-02 after UX review: the #228 public/mock
-  surface should not demonstrate internal pseudo-app names or unavailable catalog
-  lifecycle commands. Both `catalog update` and `catalog add` are omitted from
-  #228 public/mock output until those behaviors are implemented by #229.
-- #228 targets the preconfigured official-catalog discovery baseline without
-  presenting the catalog as baked into the app. `catalog list` should identify
-  the official catalog as `dotfiles-manager/official`, define catalogs as
-  support-definition sources rather than settings storage, and show concise
-  state such as catalog version and updated time. First-run download,
-  official-catalog update, and additional remote catalogs are implemented by
-  #229 unless separately recontracted.
-- PR #258 was squash-merged on 2026-07-02 as the durable #228 recontract/design
-  evidence package.
-- PR #255 was closed as superseded historical reference. Its coverage failure is
-  no longer an actionable #228 blocker.
+- #228 official-catalog discovery baseline is accepted after PR #260 and closure
+  evidence on 2026-07-04.
+- PR #258 remains the durable #228 recontract/design evidence package.
+- PR #260 is the accepted #228 runtime implementation package, squash-merged on
+  2026-07-03 as `45b7c8b6d9ec9124b36a7b09c4e4d7397fdd52d1`.
+- #228 closure leaves #214 open because #229 still owns official-catalog
+  update/download behavior and additional remote catalog lifecycle with write
+  gates.
 
-No-go actions until a fresh #228 implementation-start gate is recorded:
+Current project-level transition:
 
-- Do not fix #255 coverage or continue #255 implementation as if it still matched
-  #228.
-- Do not request #228 acceptance or close #228 based on PR #255 or PR #258.
-- Do not start #228 runtime implementation without a current implementation-start
-  gate from current `main`.
-- Do not start #229 remote catalog implementation using old #228 superseded
-  behavior as accepted.
+- #228 has moved from accepted runtime implementation to closure / project
+  checkpoint.
+- The next work item has not yet been selected by this record. Likely candidates
+  are #229 for official/remote catalog lifecycle or #230 for new-computer
+  UX/output. Each must start from its own issue contract, public-surface/mock
+  evidence where relevant, and implementation-start gate.
 
-Allowed #228 next actions:
+No-go actions after #228 closure:
 
-1. record a fresh #228 implementation-start gate against the recontracted issue
-   contract and merged design evidence;
-2. start runtime implementation from current `main` only after that gate passes;
-3. continue separate #229/#230 follow-up work only through their own issue
-   contracts and gates.
+- Do not treat #228 as implementing `catalog update`, `catalog add`, first-run
+  catalog download, additional remote catalogs, local catalogs, network fetching,
+  or any live/stored settings writes.
+- Do not start #229 or #230 from #228 acceptance alone; select and gate the next
+  work item explicitly.
 
 ## Standards maturity snapshot
 
@@ -152,12 +142,12 @@ As of 2026-06-29:
 | #211 | Parent delivery area | Tier 2 overall | Complete | Accepted and closed 2026-06-26 after #221-#225, #212, and #213/#226 completed. |
 | #212 | Product-scope cleanup gate | Tier 1 | Complete | PR #243 removed public backup/restore workflow; issue closed 2026-06-25. |
 | #213 | Product-scope cleanup gate | Tier 1 | Complete | PR #247 removed v1 migration from the active v2 roadmap/user-facing happy path and closed 2026-06-26. |
-| #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | #227 completed the trust/origin model; use #228 for the official-catalog discovery baseline before #229 official-catalog download/update and remote catalog add/write-gate implementation. |
+| #214 | Parent delivery area | Discovery then Tier 2 for remote writes | Open parent | #227 completed the trust/origin model and #228 accepted the official-catalog discovery baseline; #229 remains for official-catalog download/update and remote catalog add/write-gate implementation. |
 | #215 | Parent delivery area | Tier 1/Tier 2 | Open parent | Use #230 before #231; Homebrew Bundle remains an example, not a dependency. |
 | #216 | Documentation delivery | Tier 1 | Open | Production docs depend on accepted behavior/examples from remaining gates. |
 | #226 | Delivery-design cleanup | Tier 1 | Complete | PR #247 hides retained legacy v1 commands from root help, labels direct help as legacy compatibility, and closed 2026-06-26. |
 | #227 | Discovery/design | Discovery/Tier 1 | Complete | PR #250 merged; issue accepted and closed 2026-06-26. |
-| #228 | Delivery | Tier 1 | Ready for implementation-start gate | Project Owner removed internal pseudo-app targets, catalog lifecycle command placeholders, and user-facing built-in catalog wording from the normal path. PR #258 merged the recontract/design evidence; PR #255 is closed as superseded. Runtime implementation must start fresh from current `main` only after an implementation-start gate. |
+| #228 | Delivery | Tier 1 | Complete | PR #260 implemented and validated the official-catalog discovery runtime; Project Owner accepted closure on 2026-07-04. |
 | #229 | Delivery | Tier 2 | Open child of #214 | Implement official-catalog update and additional remote catalog management with write gates against the accepted #227 model; remote catalogs are the intended normal extension path beyond the current official catalog. |
 | #230 | UX/design | Tier 1 | Open child of #215 | Specify new-computer UX and output. |
 | #231 | Delivery | Tier 2 | Open child of #215 | Implement apply-from-storage flow after sync model/UX is accepted. |
@@ -176,7 +166,7 @@ child-scope completion, not automatic parent closure.
 | #217 | Closed / Done | Phase 1 scaffold | Issue closed 2026-06-23; PR #218 merged | Checked | No further action. |
 | #219 | Closed / Done | Phase 2 audit | Issue closed 2026-06-23; PR #220 merged; follow-up splits recorded | Checked with conservative note | Audit/discovery closed for sequencing; product gates remain in follow-up issues. |
 | #210 | Closed / Done | Vocabulary/product model | Issue closed 2026-06-23 | Checked | No further action unless later vocabulary drift appears. |
-| #211 | Closed / Done | Sync parent | Children #221-#225, #212, and #213/#226 closed; Project Owner accepted #211 closure | Checked | Parent accepted and closed 2026-06-26; catalog work moved through #227 and now continues with #228/#229. |
+| #211 | Closed / Done | Sync parent | Children #221-#225, #212, and #213/#226 closed; Project Owner accepted #211 closure | Checked | Parent accepted and closed 2026-06-26; catalog work moved through #227 and #228, and now continues with #229. |
 | #221 | Closed / Done | Sync child | Issue closed 2026-06-23 | Checked under #211 | Read-only status/diff contract complete. |
 | #222 | Closed / Done | Sync child | PR #234 merged; issue closed 2026-06-23 | Checked under #211 | Smart-sync planning/conflict UX complete. |
 | #223 | Closed / Done | Sync child | PR #235 merged; issue closed 2026-06-23 | Checked under #211 | Mutating sync execution/confirmation complete for that slice. |
@@ -185,23 +175,24 @@ child-scope completion, not automatic parent closure.
 | #212 | Closed / Done | Product-scope gate | PR #243 merged 2026-06-25; issue closed | Checked | Public backup/restore workflow removed; lower-level internal recovery mechanics remain implementation details. |
 | #213 | Closed / Done | Product-scope gate | PR #247 merged; issue closed 2026-06-26 | Checked | No further action unless future v1 migration/deprecation work is explicitly reintroduced. |
 | #226 | Closed / Done | Child of #213 | PR #247 merged; issue closed 2026-06-26 | Checked under #213 | Retained legacy v1 commands are hidden from normal help and separated from v2 acceptance. |
-| #214 | Open / Todo | Catalog parent | #227 closed; #228/#229 open | Keep parent open with children | Official-catalog discovery baseline (#228) and remote catalog update/add/write-gate implementation (#229) remain. |
+| #214 | Open / Todo | Catalog parent | #227/#228 closed; #229 open | Keep parent open with child #229 | Official-catalog discovery baseline is complete; remote catalog update/add/write-gate implementation (#229) remains. |
 | #227 | Closed / Done | Catalog child | PR #250 merged; issue closed after Project Owner acceptance | Checked under #214 | Trust/origin/write-authority model complete for downstream implementation. |
-| #228 | Open / implementation-start gate needed | Catalog child | PR #258 merged the 2026-06-30 and 2026-07-02 recontract/design evidence; PR #255 is closed as superseded | Open under #214 | Start fresh runtime implementation from current `main` only after an implementation-start gate records tests-first execution and real CLI verification. |
+| #228 | Closed / Done | Catalog child | PR #260 squash merge `45b7c8b6d9ec9124b36a7b09c4e4d7397fdd52d1`; issue accepted/closed after Project Owner approval | Checked under #214 | Official-catalog discovery baseline complete; #229 owns update/download and remote catalog lifecycle. |
 | #229 | Open / Todo | Catalog child | Live issue open | Open under #214 | Implement official-catalog update and additional remote catalog management with write gates; this is the normal extension path beyond the current official catalog after local catalogs were removed from #228. |
 | #215 | Open / Todo | Bootstrap parent | Children #230-#231 open | Keep parent open with children | Bootstrap must reuse sync model; Homebrew Bundle is example only. |
 | #230 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Specify new-computer UX/output before implementation. |
 | #231 | Open / Todo | Bootstrap child | Live issue open | Open under #215 | Implement apply-from-storage after accepted UX/model. |
 | #216 | Open / Todo | Production docs | Live issue open | Open | Rewrite after accepted behavior/examples; current docs are not final production docs. |
 | #238 | Closed / Done | Standards reconciliation | PR #239 merged; final evidence comment recorded | Checked | No further action; keep #209 and this record current after closures. |
-| #256 | Closed / Done | Local process hardening | PR #257 completed local process gate adaptation after external standard update | Checked | No further action; resume at #228 recovery gate before #228 code/coverage work. |
+| #256 | Closed / Done | Local process hardening | PR #257 completed local process gate adaptation after external standard update | Checked | No further action; keep lifecycle gates active for future work items. |
 
 ## Open parent rationale
 
 - #209 remains open because it is the project charter and closes only when the
   combined reset outcome is accepted.
 - #214 remains open as the catalog parent; #227 settled origin/trust/write
-  authority, while #228/#229 implementation remains open.
+  authority and #228 completed official-catalog discovery, while #229
+  implementation remains open.
 - #215 remains open as the bootstrap parent; #230 must specify UX/output before
   #231 implementation.
 - #216 remains open because production end-user documentation depends on
@@ -233,7 +224,7 @@ Before starting any work item:
 | Branches from closed PRs may be reused accidentally | Enforce branch rule and start from `main` | Executor | Active |
 | Agents may cross lifecycle phases from broad prompts or artifact completion | Use lifecycle gate/passport readback, implementation-start gate, and explicit no-go actions from AGENTS/tailoring/templates | Work Manager / Executor | Mitigated / monitoring |
 | Meaningful CLI UX can be implemented from static transcripts without owner-approved runnable/replayable evidence | Default to runnable/replayable CLI usage evidence or record a Project Owner waiver/not-applicable decision | Work Manager / Project Owner | Mitigated / monitoring |
-| #228 implementation may continue from superseded PR #255 | PR #255 is closed as superseded, PR #258 merged the corrected design evidence, and #228 now requires a fresh implementation-start gate from current `main` | Work Manager | Mitigated / monitoring |
+| #228 implementation may continue from superseded PR #255 | PR #255 is closed as superseded, PR #258 merged the corrected design evidence, and PR #260 completed the accepted runtime implementation | Work Manager | Closed |
 
 ## Evidence index
 
@@ -253,7 +244,7 @@ Before starting any work item:
 | Public backup/restore workflow removed | PR #243 squash merge `04ba7114fb00479fa736b00850a9aa85e8a55a69`; issue #212 closed; final Pro verdict acceptable | 2026-06-25 | Removes public product surface only; lower-level internal recovery/snapshot/ledger mechanics remain implementation details. |
 | Legacy v1 public surface separated from v2 happy path | PR #247 squash merge `3bc34d970358854abaca2491ed1f2ef91f8b325b`; issues #213 and #226 closed after Project Owner acceptance | 2026-06-26 | Retains direct legacy command invocation for compatibility; future deletion, warnings, or formal deprecation require separate explicit issue. |
 | Status/diff/sync parent gate accepted | Issue #211 closure comment after Project Owner selected option 1 to accept and close #211 | 2026-06-26 | Parent acceptance only; the combined v2 product remains open until catalog, bootstrap, and production documentation gates are complete or deferred. |
-| Catalog trust/origin model accepted | PR #250 squash merge `696e235d82856295c04c31941ca31e63e1935e67`; issue #227 closure record after Project Owner accepted closure | 2026-06-26 | Specifies design and handoff requirements only; #228/#229 still need implementation and runtime verification. |
+| Catalog trust/origin model accepted | PR #250 squash merge `696e235d82856295c04c31941ca31e63e1935e67`; issue #227 closure record after Project Owner accepted closure | 2026-06-26 | Specifies design and handoff requirements only; #228 is now complete and #229 still needs implementation and runtime verification. |
 | External Project Execution Standard updated with lifecycle gates | `/Users/shpoont/Work/shpoont/project-execution-standards/project-execution-standard.md`, last-updated 2026-06-29 | 2026-06-29 | Local repo adaptation tracked by #256; external standard is linked, not copied. |
 | #228 recovery gate identified | Draft PR #255 exists; CI coverage failure observed; Project Owner discussion identified missing explicit implementation-start/public-surface mock gate | 2026-06-29 | Superseded by 2026-06-30 recontract decision; #255 is not the implementation target. |
 | Local lifecycle-gate process hardening completed | PR #257 / issue #256 adapted local AGENTS, tailoring, templates, and execution record to the updated standard | 2026-06-29 | Process-only change; does not validate #228 product behavior. |
@@ -261,6 +252,7 @@ Before starting any work item:
 | #228 GitHub contract recontracted | Issue #228 title/body updated, #228 managed-change comment recorded, PR #255 title/body/comment marked superseded, #229 received context comment, and #209 source-of-truth body updated | 2026-06-30 | Tracker update only; runtime implementation and #228 acceptance remain pending. |
 | #228 recontract design evidence merged | PR #258 squash merge `e495cce4cc16a13e299c48d05efed199b4433bd0`; PR #255 closed as superseded; #209, #228, and Project #9 live records updated with post-merge checkpoint | 2026-07-02 | Design/recontract evidence only; #228 runtime implementation, real-result verification, validation, acceptance, and closure remain pending. |
 | #228 official catalog refinement | Project Owner approved replacing user-facing built-in catalog wording with a preconfigured official catalog and later clarified that it must not be presented as included/baked into the app | 2026-06-30 | Design/tracker refinement only; #228 must not implement first-run download or update behavior until #229 behavior exists or the issue is recontracted. |
+| #228 official-catalog discovery runtime accepted | PR #260 squash merge `45b7c8b6d9ec9124b36a7b09c4e4d7397fdd52d1`; validation record and advisory subagent re-review found no blockers; Project Owner approved closure | 2026-07-04 | Completes read-only official-catalog discovery only. #229 still owns catalog download/update and additional remote catalog lifecycle; #252 still owns broader command cleanup. |
 
 ## Phase 1 acceptance state
 
@@ -312,30 +304,29 @@ Phase 3 recontract/resequence:
 
 ## Current next gate
 
-#228 has completed recontract/design-evidence review for the `list`/discovery
-surface through PR #258. The remaining #228 work is runtime implementation of
-the accepted official-catalog discovery baseline:
+#228 is accepted and closed for the official-catalog discovery baseline. The
+project should now select the next work item through its own gate rather than
+continuing from #228 context.
 
-- remove internal/generated pseudo-app targets from normal discovery;
-- omit unavailable catalog lifecycle commands from the #228 public/mock surface;
-- define catalogs as app/tool support sources, not settings storage;
-- show `dotfiles-manager/official` as active for discovery with concise catalog
-  version/updated metadata;
-- use official-catalog update and additional remote catalogs as the future
-  extension path in #229;
-- keep PR #255 closed as superseded historical reference.
+Candidate next work items:
 
-Before runtime implementation starts, an implementation-start gate must be
-recorded against current `main`, the recontracted #228 issue contract, and the
-merged PR #258 design evidence. The gate must state the tests-first execution
-plan, real CLI verification plan, validation rule, Project Owner acceptance rule,
-and no-go actions.
+- #229 — implement official-catalog update/download behavior and additional
+  remote catalog management with write gates against the accepted #227 model and
+  the now-accepted #228 discovery baseline. This remains Tier 2 where remote
+  trust/write authority is involved.
+- #230 — specify new-computer UX/output. This can proceed separately when kept
+  independent from catalog trust/write-authority decisions and when it has its
+  own public-surface/mock gate.
 
-Paired follow-up:
+No-go actions:
 
-- #230 — specify new-computer UX/output can proceed alongside catalog work when
-  the work is kept separate from catalog trust/write-authority decisions and has
-  its own public-surface/mock gate.
+- Do not treat #228 as implementing first-run download, catalog update,
+  catalog add, local catalogs, remote catalogs, network fetching, or writes.
+- Do not close #214 while #229 remains open unless the Project Owner explicitly
+  defers #229.
+- Do not start #229, #230, #231, or #216 without their own issue contracts,
+  design/documentation-first evidence where required, and implementation-start
+  gates.
 
 Do not edit runtime behavior, CLI help, tests, specs, or end-user docs as part
 of standards-record maintenance except where necessary to keep the project
